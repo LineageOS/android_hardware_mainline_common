@@ -39,6 +39,7 @@ LOCAL_SHARED_LIBRARIES := \
     android.hardware.graphics.common@1.0 \
     android.hardware.graphics.mapper@2.0 \
     android.hardware.graphics.mapper@3.0 \
+    android.hardware.graphics.mapper@4.0 \
     android.hardware.graphics.composer@2.1
 
 ifeq ($(strip $(BOARD_USES_MINIGBM)), true)
