@@ -264,8 +264,8 @@ struct gbm_module_t HAL_MODULE_INFO_SYM = {
 		.unregisterBuffer = gbm_mod_unregister_buffer,
 		.lock = gbm_mod_lock,
 		.unlock = gbm_mod_unlock,
-		.lock_ycbcr = gbm_mod_lock_ycbcr,
-		.perform = gbm_mod_perform
+		.perform = gbm_mod_perform,
+		.lock_ycbcr = gbm_mod_lock_ycbcr
 	},
 
 	.mutex = PTHREAD_MUTEX_INITIALIZER,
