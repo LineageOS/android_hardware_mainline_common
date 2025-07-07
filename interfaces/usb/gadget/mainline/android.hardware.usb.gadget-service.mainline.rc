@@ -1,4 +1,4 @@
-service vendor.usb-gadget-hal /vendor/bin/hw/android.hardware.usb.gadget-service.mainline
+service vendor.usb-gadget-hal /apex/com.android.hardware.usb.gadget.mainline/bin/hw/android.hardware.usb.gadget-service.mainline
     class hal
     user system
     group system shell mtp
