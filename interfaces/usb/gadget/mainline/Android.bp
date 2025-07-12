@@ -6,7 +6,7 @@
 
 apex {
     name: "com.android.hardware.usb.gadget.mainline",
-    manifest: "manifest.json",
+    manifest: "apex_manifest.json",
     file_contexts: "file_contexts",
     key: "com.android.hardware.key",
     certificate: ":com.android.hardware.certificate",
