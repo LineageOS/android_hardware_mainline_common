@@ -224,27 +224,27 @@ ndk::ScopedAStatus Vibrator::alwaysOnDisable(int32_t id) {
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getResonantFrequency(float *resonantFreqHz) {
+ndk::ScopedAStatus Vibrator::getResonantFrequency(float* resonantFreqHz) {
     *resonantFreqHz = kResonantFrequency;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getQFactor(float *qFactor) {
+ndk::ScopedAStatus Vibrator::getQFactor(float* qFactor) {
     *qFactor = kQFactor;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getFrequencyResolution(float *freqResolutionHz) {
+ndk::ScopedAStatus Vibrator::getFrequencyResolution(float* freqResolutionHz) {
     *freqResolutionHz = PWLE_FREQUENCY_RESOLUTION_HZ;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getFrequencyMinimum(float *freqMinimumHz) {
+ndk::ScopedAStatus Vibrator::getFrequencyMinimum(float* freqMinimumHz) {
     *freqMinimumHz = PWLE_FREQUENCY_MIN_HZ;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getBandwidthAmplitudeMap(std::vector<float> *_aidl_return) {
+ndk::ScopedAStatus Vibrator::getBandwidthAmplitudeMap(std::vector<float>* _aidl_return) {
     // A valid array should be of size:
     //     (PWLE_FREQUENCY_MAX_HZ - PWLE_FREQUENCY_MIN_HZ) / PWLE_FREQUENCY_RESOLUTION_HZ
     *_aidl_return = {0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
@@ -252,17 +252,17 @@ ndk::ScopedAStatus Vibrator::getBandwidthAmplitudeMap(std::vector<float> *_aidl_
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getPwlePrimitiveDurationMax(int32_t *durationMs) {
+ndk::ScopedAStatus Vibrator::getPwlePrimitiveDurationMax(int32_t* durationMs) {
     *durationMs = COMPOSE_PWLE_PRIMITIVE_DURATION_MAX_MS;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getPwleCompositionSizeMax(int32_t *maxSize) {
+ndk::ScopedAStatus Vibrator::getPwleCompositionSizeMax(int32_t* maxSize) {
     *maxSize = kComposePwleSizeMax;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getSupportedBraking(std::vector<Braking> *supported) {
+ndk::ScopedAStatus Vibrator::getSupportedBraking(std::vector<Braking>* supported) {
     *supported = {
             Braking::NONE,
             Braking::CLAB,
@@ -270,24 +270,24 @@ ndk::ScopedAStatus Vibrator::getSupportedBraking(std::vector<Braking> *supported
     return ndk::ScopedAStatus::ok();
 }
 
-void resetPreviousEndAmplitudeEndFrequency(float &prevEndAmplitude, float &prevEndFrequency) {
+void resetPreviousEndAmplitudeEndFrequency(float& prevEndAmplitude, float& prevEndFrequency) {
     const float reset = -1.0;
     prevEndAmplitude = reset;
     prevEndFrequency = reset;
 }
 
-void incrementIndex(int &index) {
+void incrementIndex(int& index) {
     index += 1;
 }
 
-void constructActiveDefaults(std::ostringstream &pwleBuilder, const int &segmentIdx) {
+void constructActiveDefaults(std::ostringstream& pwleBuilder, const int& segmentIdx) {
     pwleBuilder << ",C" << segmentIdx << ":1";
     pwleBuilder << ",B" << segmentIdx << ":0";
     pwleBuilder << ",AR" << segmentIdx << ":0";
     pwleBuilder << ",V" << segmentIdx << ":0";
 }
 
-void constructActiveSegment(std::ostringstream &pwleBuilder, const int &segmentIdx, int duration,
+void constructActiveSegment(std::ostringstream& pwleBuilder, const int& segmentIdx, int duration,
                             float amplitude, float frequency) {
     pwleBuilder << ",T" << segmentIdx << ":" << duration;
     pwleBuilder << ",L" << segmentIdx << ":" << amplitude;
@@ -295,7 +295,7 @@ void constructActiveSegment(std::ostringstream &pwleBuilder, const int &segmentI
     constructActiveDefaults(pwleBuilder, segmentIdx);
 }
 
-void constructBrakingSegment(std::ostringstream &pwleBuilder, const int &segmentIdx, int duration,
+void constructBrakingSegment(std::ostringstream& pwleBuilder, const int& segmentIdx, int duration,
                              Braking brakingType) {
     pwleBuilder << ",T" << segmentIdx << ":" << duration;
     pwleBuilder << ",L" << segmentIdx << ":" << 0;
@@ -307,8 +307,8 @@ void constructBrakingSegment(std::ostringstream &pwleBuilder, const int &segment
     pwleBuilder << ",V" << segmentIdx << ":0";
 }
 
-ndk::ScopedAStatus Vibrator::composePwle(const std::vector<PrimitivePwle> &composite,
-                                         const std::shared_ptr<IVibratorCallback> &callback) {
+ndk::ScopedAStatus Vibrator::composePwle(const std::vector<PrimitivePwle>& composite,
+                                         const std::shared_ptr<IVibratorCallback>& callback) {
     std::ostringstream pwleBuilder;
     std::string pwleQueue;
 
@@ -327,7 +327,7 @@ ndk::ScopedAStatus Vibrator::composePwle(const std::vector<PrimitivePwle> &compo
 
     pwleBuilder << "S:0,WF:4,RP:0,WT:0";
 
-    for (auto &e : composite) {
+    for (auto& e : composite) {
         switch (e.getTag()) {
             case PrimitivePwle::active: {
                 auto active = e.get<PrimitivePwle::active>();
