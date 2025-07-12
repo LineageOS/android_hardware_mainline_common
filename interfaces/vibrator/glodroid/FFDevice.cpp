@@ -14,13 +14,15 @@
 #include <unistd.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
 using observe_func = bool (*)(std::string_view path, std::string& param);
-static bool recursive_dir_observer(const char* path, observe_func func, std::string& param);
+static bool recursive_dir_observer(const std::filesystem::path& path, observe_func func,
+                                   std::string& param);
 
 namespace aidl {
 namespace android {
@@ -36,7 +38,7 @@ std::unique_ptr<FFDeviceBase> FFDevice::create(const char* input_path) {
         return false;
     };
     std::string event_path;
-    if (recursive_dir_observer(input_path, observe_func, event_path)) {
+    if (recursive_dir_observer(std::string(input_path), observe_func, event_path)) {
         event_path = "/dev/input/" + event_path;
         auto device = std::make_unique<FFDevice>();
         device->event_fd = open(event_path.c_str(), O_RDWR);
@@ -101,38 +103,50 @@ void FFDevice::off() {
 }  // namespace aidl
 
 /* Recursive traversal of the directory tree */
-static bool recursive_dir_observer(const char* path, observe_func func, std::string& param) {
-    DIR* d = opendir(path);
-    if (d == nullptr) {
+static bool recursive_dir_observer(const std::filesystem::path& path, observe_func func,
+                                   std::string& param) {
+    bool found = false;
+    std::vector<std::filesystem::path> sub_directories_to_recurse;
+
+    std::error_code ec;
+
+    std::filesystem::directory_iterator it(path, ec);
+
+    if (ec) {
+        LOG(ERROR) << "Filesystem error accessing " << path.string() << ": " << ec.message()
+                   << std::endl;
         return false;
     }
 
-    struct dirent* dir; /* for the directory entries */
-    bool found = false; /* to exit recursion */
-    std::vector<std::string> paths;
-    while ((dir = readdir(d)) != NULL) /* if we were able to read somehting from the directory */
-    {
-        if (dir->d_type == DT_DIR && strcmp(dir->d_name, ".") != 0 &&
-            strcmp(dir->d_name, "..") != 0) /* if it is a directory */
-        {
-            if (func(std::string_view(dir->d_name), param)) {
+    for (const auto& entry : it) {
+        if (entry.is_directory(ec)) {
+            if (ec) {
+                LOG(ERROR) << "Filesystem error checking directory status for "
+                           << entry.path().string() << ": " << ec.message() << std::endl;
+                ec.clear();
+                continue;
+            }
+
+            if (func(entry.path().filename().string(), param)) {
                 found = true;
                 break;
             }
-            /* save directory path for future observation */
-            std::ostringstream dirpath;
-            dirpath << path << "/" << dir->d_name;
-            paths.push_back(dirpath.str());
+            sub_directories_to_recurse.push_back(entry.path());
+        } else if (ec) {
+            LOG(ERROR) << "Filesystem error checking entry type for " << entry.path().string()
+                       << ": " << ec.message() << std::endl;
+            ec.clear();
         }
     }
-    closedir(d);
+
     if (!found) {
-        for (auto p : paths) {
-            if (recursive_dir_observer(p.c_str(), func, param)) {
+        for (const auto& p : sub_directories_to_recurse) {
+            if (recursive_dir_observer(p, func, param)) {
                 found = true;
                 break;
             }
         }
     }
+
     return found;
 }
