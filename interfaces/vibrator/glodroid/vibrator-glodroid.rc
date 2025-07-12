@@ -1,4 +1,7 @@
-service vendor.vibrator-default /vendor/bin/hw/android.hardware.vibrator-service.glodroid
+on property:apex.com.android.hardware.vibrator.glodroid.ready=true
+    start vendor.vibrator-default
+
+service vendor.vibrator-default /apex/com.android.hardware.vibrator.glodroid/bin/hw/android.hardware.vibrator-service.glodroid
     class hal
     user system
     group system input
