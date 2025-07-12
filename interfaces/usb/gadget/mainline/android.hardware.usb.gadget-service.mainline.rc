@@ -6,3 +6,6 @@ service vendor.usb-gadget-hal /apex/com.android.hardware.usb.gadget.mainline/bin
 
 on property:sys.usb.configfs=2
     enable vendor.usb-gadget-hal
+
+on property:sys.usb.configfs=2 && property:apex.com.android.hardware.usb.gadget.mainline.ready=true
+    start vendor.usb-gadget-hal
