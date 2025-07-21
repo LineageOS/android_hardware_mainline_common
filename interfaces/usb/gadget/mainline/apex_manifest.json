@@ -1,5 +1,5 @@
 {
-    "name": "com.android.hardware.usb.gadget.mainline",
+    "name": "com.android.hardware.usb.gadget",
     "bootstrap": true,
     "supportsRebootlessUpdate": true,
     "version": 1

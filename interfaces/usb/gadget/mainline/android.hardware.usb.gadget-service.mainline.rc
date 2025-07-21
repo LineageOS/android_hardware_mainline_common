@@ -1,4 +1,4 @@
-service vendor.usb-gadget-hal /apex/com.android.hardware.usb.gadget.mainline/bin/hw/android.hardware.usb.gadget-service.mainline
+service vendor.usb-gadget-hal /apex/com.android.hardware.usb.gadget/bin/hw/android.hardware.usb.gadget-service.mainline
     class hal
     user system
     group system shell mtp
@@ -7,5 +7,5 @@ service vendor.usb-gadget-hal /apex/com.android.hardware.usb.gadget.mainline/bin
 on property:sys.usb.configfs=2
     enable vendor.usb-gadget-hal
 
-on property:sys.usb.configfs=2 && property:apex.com.android.hardware.usb.gadget.mainline.ready=true
+on property:sys.usb.configfs=2 && property:apex.com.android.hardware.usb.gadget.ready=true
     start vendor.usb-gadget-hal
