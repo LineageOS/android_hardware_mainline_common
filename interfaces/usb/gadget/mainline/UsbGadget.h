@@ -61,7 +61,6 @@ const std::string kGadgetName = GetProperty("sys.usb.controller", "");
 #define UDC_PATH "/sys/class/udc/"
 #define DEVICE "device/"
 #define SPEED_PATH "current_speed"
-#define SAVING_PATH DEVICE "saving"
 
 struct UsbGadget : public BnUsbGadget {
     UsbGadget();

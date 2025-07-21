@@ -113,13 +113,11 @@ Status UsbGadget::tearDownGadget() {
 static Status validateAndSetVidPid(int64_t functions) {
     Status ret;
     const char *vid, *pid;
-    std::string saving;
 
     switch (functions) {
         case GadgetFunction::MTP:
             vid = "0x2717";
             pid = "0xFF40";
-            saving = "2";
             break;
         case GadgetFunction::ADB | GadgetFunction::MTP:
             vid = "0x2717";
@@ -136,7 +134,6 @@ static Status validateAndSetVidPid(int64_t functions) {
         case GadgetFunction::PTP:
             vid = "0x2717";
             pid = "0xFF10";
-            saving = "2";
             break;
         case GadgetFunction::ADB | GadgetFunction::PTP:
             vid = "0x2717";
@@ -204,11 +201,6 @@ static Status validateAndSetVidPid(int64_t functions) {
     if (ret != Status::SUCCESS) {
         ALOGE("Failed to update vid/pid");
         goto error;
-    }
-    if (!saving.empty()) {
-        if (!WriteStringToFile(saving, getUdcNodeHelper(SAVING_PATH))) {
-            ALOGW("Failed to update saving state");
-        }
     }
 error:
     return ret;
@@ -307,9 +299,6 @@ ScopedAStatus UsbGadget::setCurrentUsbFunctions(long functions,
     usleep(kDisconnectWaitUs);
 
     if (functions == GadgetFunction::NONE) {
-        // Make sure we reset saving state if there are no functions enabled.
-        if (!WriteStringToFile("0", getUdcNodeHelper(SAVING_PATH)))
-            ALOGW("Failed to reset saving state");
         if (callback == NULL)
             return ScopedAStatus::fromServiceSpecificErrorWithMessage(-1, "callback == NULL");
         ScopedAStatus ret = callback->setCurrentUsbFunctionsCb(functions, status, in_transactionId);
