@@ -22,7 +22,7 @@ DrmDevice::DrmDevice(const std::string& path) : DrmDevice(open(path.c_str(), O_R
         PLOG(ERROR) << "Failed to open DRM device (" << path << ")";
 }
 DrmDevice::DrmDevice()
-    : DrmDevice(base::GetProperty("hwc.drm.device", "/dev/dri/card0")) {}
+    : DrmDevice(base::GetProperty("vendor.hwc.drm.device", "/dev/dri/card0")) {}
 
 DrmDisplay* DrmDevice::getConnectedDisplay(uint32_t connector) {
     auto i = mDisplays.find(connector);
