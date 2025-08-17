@@ -72,7 +72,7 @@ struct UsbGadget : public BnUsbGadget {
     UsbSpeed mUsbSpeed;
     MonitorFfs* mMonitorFfs;
 
-    ScopedAStatus setCurrentUsbFunctions(long functions,
+    ScopedAStatus setCurrentUsbFunctions(int64_t functions,
                                          const shared_ptr<IUsbGadgetCallback>& callback,
                                          int64_t timeout, int64_t in_transactionId) override;
 
@@ -89,7 +89,7 @@ struct UsbGadget : public BnUsbGadget {
 
   private:
     Status tearDownGadget();
-    Status setupFunctions(long functions, const shared_ptr<IUsbGadgetCallback>& callback,
+    Status setupFunctions(int64_t functions, const shared_ptr<IUsbGadgetCallback>& callback,
                           uint64_t timeout, int64_t in_transactionId);
 };
 
