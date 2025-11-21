@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <mutex>

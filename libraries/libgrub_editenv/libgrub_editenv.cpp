@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <android-base/file.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
