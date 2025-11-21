@@ -6,17 +6,10 @@
 cc_binary {
     name: "grub-editenv",
     srcs: ["grub-editenv.cpp"],
-    static_libs: [
+    shared_libs: [
         "libbase",
         "libgrub_editenv",
     ],
-    target: {
-        host: {
-            static_libs: [
-                "liblog_stub",
-            ],
-        },
-    },
     host_supported: true,
     recovery_available: true,
     vendor: true,
