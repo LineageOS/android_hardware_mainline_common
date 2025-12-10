@@ -1,0 +1,22 @@
+//
+// SPDX-FileCopyrightText: 2016 Linaro, Ltd., Rob Herring <robh@kernel.org>
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library_shared {
+    name: "gralloc.gbm",
+    vendor: true,
+    relative_install_path: "hw",
+    srcs: [
+        "gbm_mesa_wrapper.cpp",
+        "gralloc_gbm.cpp",
+        "gralloc.cpp",
+    ],
+    shared_libs: [
+        "libdrm",
+        "liblog",
+        "libcutils",
+        "libhardware",
+    ],
+}
