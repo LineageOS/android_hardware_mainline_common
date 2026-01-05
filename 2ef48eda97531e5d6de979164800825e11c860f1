@@ -1,0 +1,73 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "bedf7075_e099e18d",
+        "filename": "bdaddr/bdaddr.c",
+        "patchSetId": 1
+      },
+      "lineNbr": 69,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-01-05T11:25:06Z",
+      "side": 1,
+      "message": "At least make this a prop?",
+      "range": {
+        "startLine": 68,
+        "startChar": 0,
+        "endLine": 69,
+        "endChar": 25
+      },
+      "revId": "2ef48eda97531e5d6de979164800825e11c860f1",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "13fdd5b8_c293a92d",
+        "filename": "bdaddr/bdaddr.c",
+        "patchSetId": 1
+      },
+      "lineNbr": 184,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-01-05T11:25:06Z",
+      "side": 1,
+      "message": "this will keep looping even if blocked on read, you may even get spurious reads with no data?\n\nI think you should exit as soon as you know the bd addr doesn\u0027t need configuration (btmgmt_config_needs_public_addr is false) or btmgmt_complete_set_public_addr gets called",
+      "range": {
+        "startLine": 184,
+        "startChar": 0,
+        "endLine": 184,
+        "endChar": 18
+      },
+      "revId": "2ef48eda97531e5d6de979164800825e11c860f1",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "0184781d_87552839",
+        "filename": "bdaddr/set_bdaddr.sh",
+        "patchSetId": 1
+      },
+      "lineNbr": 38,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-01-05T11:25:06Z",
+      "side": 1,
+      "message": "this seems overly complicated... I\u0027d just getprop ro.boot.serialno in C and make it into a proper bd addr in C",
+      "range": {
+        "startLine": 29,
+        "startChar": 0,
+        "endLine": 38,
+        "endChar": 2
+      },
+      "revId": "2ef48eda97531e5d6de979164800825e11c860f1",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
