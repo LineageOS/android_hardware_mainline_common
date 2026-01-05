@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "7cc13b85_d9cd98f6",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 3
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-01-05T12:22:19Z",
+      "side": 1,
+      "message": "https://gist.github.com/luca020400/ab49d956a6c8c86e05de25bd37067e5e\n\nI frankenstained this code + hci_hal_impl_host.cc from FLOSS, feel free to take it\n\nIt seems like on Android the controllre ID is always 0\n\n#ifdef TARGET_FLOSS\nstatic int global_hci_adapter \u003d 0;\n\nstatic void set_adapter_index(int adapter) { global_hci_adapter \u003d adapter; }\nint GetAdapterIndex() { return global_hci_adapter; }\n#else\nint GetAdapterIndex() { return 0; }  // Unsupported outside of FLOSS\n#endif  // TARGET_FLOSS\n\nso \\o/",
+      "revId": "a633dd0197a2245077ccec712ad030cd26d65628",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
