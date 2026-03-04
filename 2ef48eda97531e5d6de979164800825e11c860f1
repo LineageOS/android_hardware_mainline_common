@@ -92,6 +92,30 @@
       },
       "revId": "2ef48eda97531e5d6de979164800825e11c860f1",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "27011e16_afe0f000",
+        "filename": "bdaddr/set_bdaddr.sh",
+        "patchSetId": 1
+      },
+      "lineNbr": 38,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-03-04T05:32:55Z",
+      "side": 1,
+      "message": "and, about this one, serialno props are allowed to be read for only really few domains, there\u0027s neverallow rule for this",
+      "parentUuid": "4a569445_078ee0d8",
+      "range": {
+        "startLine": 29,
+        "startChar": 0,
+        "endLine": 38,
+        "endChar": 2
+      },
+      "revId": "2ef48eda97531e5d6de979164800825e11c860f1",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
