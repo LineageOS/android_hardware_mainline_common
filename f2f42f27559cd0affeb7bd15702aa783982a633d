@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "976d0231_0fdd717f",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 36810
+      },
+      "writtenOn": "2026-03-18T17:15:40Z",
+      "side": 1,
+      "message": "This topic fixes a bug that causes reboot loop and UB when slot suffix is absent (e.g., on non-A/B builds). \n\nAccessing index [1] of an empty std::string is undefined behavior. Since std::string::empty() returns false for a length-1 string, the fallback to mSlots.front() is never reached. The `grubenv_abootctrl` file becomes effectively broken, making subsequent call to `getCurrentSlot()` return COMMAND_FAILED (-2).\n\nBecause `markBootSuccessful()` validates the slot before proceeding, it returns `COMMAND_FAILED` immediately. `vold`\u0027s checkpoint commit fails and the device immediately reboots with the following in `logcat`\n\n```\n03-18 14:16:35.097   234   234 I vold    : Using AIDL version of IBootControl\n03-18 14:16:35.097   234   234 E vold    : MarkBootSuccessful failed Status(-8, EX_SERVICE_SPECIFIC): \u0027-2: Operation failed\u0027\n03-18 14:16:35.097   234   234 E Checkpoint: Error marking booted successfully: Status(-8, EX_SERVICE_SPECIFIC): \u0027-2: Operation failed\u0027\n03-18 14:16:35.697   680  1336 I ShutdownThread: Rebooting, reason: Checkpoint commit failed\n```\nThis creates an infinite reboot loop on any non-A/B build that includes the GRUB boot control HAL. Fixed by reading the slot suffix into a temporary string, and only extracting suffix when it is long enough; otherwise it falls back to the mSlots.front() default. Boot loop resolved with the fix.",
+      "revId": "f2f42f27559cd0affeb7bd15702aa783982a633d",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
