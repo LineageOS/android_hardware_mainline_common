@@ -84,7 +84,10 @@ void GrubBootControl::InitGrubVars() {
     // Global: Active slot and Current slot
     string current_slot;
 #if defined(__ANDROID_VENDOR__) || defined(__ANDROID_RECOVERY__) || defined(__ANDROID_APEX__)
-    current_slot = GetProperty("ro.boot.slot_suffix", "")[1];
+    {
+        string suffix = GetProperty("ro.boot.slot_suffix", "");
+        if (suffix.size() >= 2) current_slot = string(1, suffix[1]);
+    }
 #endif
     if (current_slot.empty()) current_slot = mSlots.front();
     SetItemValueForGlobal(kItemGlobalActiveSlot, current_slot, false);
