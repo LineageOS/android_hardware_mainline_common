@@ -34,6 +34,24 @@
       "parentUuid": "9640b096_18a765db",
       "revId": "a959257d5740726af39deb0725cbfcf3c051aa18",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "6e707c05_608a16d1",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 2
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 36810
+      },
+      "writtenOn": "2026-03-19T02:11:08Z",
+      "side": 1,
+      "message": "Honestly... not much. It\u0027s more so we don\u0027t need a separate file that handles the same thing. (The `is_bootable` and `is_successful` keys are quite helpful, and the rest of `grubenv` can be useful even though not that\u0027s not strictly `abootctrl`)\n\nFor context this is the list of keys it adds on a non-A/B device (after the patch). To the rest of the system the A-only setup is similar to certain OEMs where the second slot can technically be there but just empty. If at any point they want to switch to an A/B layout they should be able to do that relatively easily.\n\n```\nabootctrl_global_active_slot\u003da\nabootctrl_global_current_slot\u003da\nabootctrl_global_no_auto_slot_switch\u003dfalse\nabootctrl_global_snapshot_merge_status\u003dnone\nabootctrl_slot_a_is_bootable\u003dtrue\nabootctrl_slot_a_is_successful\u003dtrue\nabootctrl_slot_a_retry_count\u003d\n```",
+      "parentUuid": "86d476b2_b96bf94c",
+      "revId": "a959257d5740726af39deb0725cbfcf3c051aa18",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
