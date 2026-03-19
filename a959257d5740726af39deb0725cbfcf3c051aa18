@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "9640b096_18a765db",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 2
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 36810
+      },
+      "writtenOn": "2026-03-19T01:24:28Z",
+      "side": 1,
+      "message": "I\u0027ve had a look at `GrubBootControl.cpp` and thought it seemed it was designed to be compatible with single slot systems too. There\u0027s an empty slot fallback included `if (current_slot.empty()) current_slot \u003d mSlots.front();` which appeared to be there to explicitly support A-only devices. Additionally, there\u0027s a dedicated `getNumberSlots()`/`mSlots.size()` method and `IsValidSlot(slot)` guards already. This made me believe that it was intended to support single slot builds too.\n\nTesting shows the HAL works correctly on non-A/B builds bar that specific problematic line. At first glance that line seemed like a UB bug regardless, so I figured I should just patch it. Context of all this was I was getting boot failures with `AB_OTA_UPDATER\u003dfalse` on `virtio_*` targets. I guess I could potentially patch it downstream but this seems to be the cleanest approach.",
+      "revId": "a959257d5740726af39deb0725cbfcf3c051aa18",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
