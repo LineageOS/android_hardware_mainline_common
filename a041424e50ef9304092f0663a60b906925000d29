@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "03c707fd_39f97bff",
+        "filename": "grub/libgrub_boot_control/GrubBootControl.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 87,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-03-23T15:14:33Z",
+      "side": 0,
+      "message": "wait, what about this instead...\n```\n    current_slot \u003d GetProperty(\"ro.boot.slot_suffix\", \"_\" + mSlots.front())[1];\n\n```\nso that in case of the prop is empty, GetProperty() will return \"_a\"\n\neven if that doesn\u0027t compile, I believe there\u0027s still better solutions",
+      "revId": "a041424e50ef9304092f0663a60b906925000d29",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
