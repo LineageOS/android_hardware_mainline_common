@@ -29,7 +29,8 @@ void addFramebuffer(int fd, cros_gralloc_handle_t handle, int planes, uint32_t* 
     uint32_t handles[DRV_MAX_PLANES] = {};
     for (int i = 0; i < planes; ++i) {
         if (drmPrimeFDToHandle(fd, handle->fds[i], &handles[i])) {
-            PLOG(ERROR) << "Failed to get handle for prime fd "
+            PLOG(ERROR) << __PRETTY_FUNCTION__
+                << ": Failed to get handle for prime fd "
                 << handle->fds[i] << " (plane " << i << ")";
             return;
         }
@@ -46,7 +47,7 @@ void addFramebuffer(int fd, cros_gralloc_handle_t handle, int planes, uint32_t* 
     // TODO: Consider using drmModeAddFB2WithModifiers
     if (drmModeAddFB2(fd, handle->width, handle->height,
             format, handles, handle->strides, handle->offsets, id, 0)) {
-        PLOG(ERROR) << "drmModeAddFB2 failed";
+        PLOG(ERROR) << __PRETTY_FUNCTION__ << ": drmModeAddFB2 failed";
     }
 }
 }

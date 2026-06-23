@@ -46,14 +46,15 @@ void addFramebuffer(int fd, struct gralloc_handle_t* handle, uint32_t* id) {
     uint32_t offsets[4] = {};
 
     if (drmPrimeFDToHandle(fd, handle->prime_fd, &handles[0])) {
-        PLOG(ERROR) << "Failed to get handle for prime fd " << handle->prime_fd;
+        PLOG(ERROR) << __PRETTY_FUNCTION__
+                    << ": Failed to get handle for prime fd " << handle->prime_fd;
         return;
     }
 
     if (drmModeAddFB2(fd, handle->width, handle->height,
             convertAndroidToDrmFbFormat(handle->format),
             handles, pitches, offsets, id, 0)) {
-        PLOG(ERROR) << "drmModeAddFB2 failed";
+        PLOG(ERROR) << __PRETTY_FUNCTION__ << ": drmModeAddFB2 failed";
     }
 }
 }
@@ -68,8 +69,9 @@ bool addFramebuffer(int fd, buffer_handle_t buffer, uint32_t* id) {
         return false;
 
     if (handle->version != GRALLOC_HANDLE_VERSION) {
-        LOG(ERROR) << "gralloc_handle_t version mismatch: expected "
-			<< GRALLOC_HANDLE_VERSION << ", got " << handle->version;
+        LOG(ERROR) << __PRETTY_FUNCTION__
+                   << ": gralloc_handle_t version mismatch: expected "
+                   << GRALLOC_HANDLE_VERSION << ", got " << handle->version;
         return true;
     }
 
