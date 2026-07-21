@@ -25,6 +25,10 @@
 
 #include <linux/usb/ch9.h>
 
+#ifdef ANDROID
+#include <sys/endian.h>
+#endif
+
 #include "usbip_common.h"
 #include "usbip_network.h"
 #include "usbip.h"

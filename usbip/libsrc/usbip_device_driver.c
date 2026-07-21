@@ -15,6 +15,10 @@
 
 #include <unistd.h>
 
+#ifdef ANDROID
+#include <sys/endian.h>
+#endif
+
 #include "usbip_host_common.h"
 #include "usbip_device_driver.h"
 

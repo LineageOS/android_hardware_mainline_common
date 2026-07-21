@@ -1,7 +1,11 @@
 cc_defaults {
     name: "usbip_defaults",
     cflags: [
+        "-DPACKAGE_STRING=\"Android\"",
         "-DUSBIDS_FILE=\"/vendor/usb.ids\"",
+        "-DUSBIP_VERSION=0x00000111",
+        "-Wno-gnu-pointer-arith",
+        "-Wno-macro-redefined",
     ],
     shared_libs: [
         "libudev-zero-upstream",

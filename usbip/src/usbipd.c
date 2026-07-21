@@ -231,7 +231,7 @@ static int recv_request_devlist(int connfd)
 	struct op_devlist_request req;
 	int rc;
 
-	memset(&req, 0, sizeof(req));
+	//memset(&req, 0, sizeof(req));
 
 	rc = usbip_net_recv(connfd, &req, sizeof(req));
 	if (rc < 0) {
