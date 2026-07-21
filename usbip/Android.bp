@@ -1,0 +1,56 @@
+cc_defaults {
+    name: "usbip_defaults",
+    cflags: [
+        "-DUSBIDS_FILE=\"/vendor/usb.ids\"",
+    ],
+    shared_libs: [
+        "libudev-zero-upstream",
+    ],
+    recovery_available: true,
+    vendor: true,
+}
+
+cc_library {
+    name: "libusbip",
+    defaults: ["usbip_defaults"],
+    local_include_dirs: ["libsrc"],
+    export_include_dirs: ["libsrc"],
+    srcs: [
+        "libsrc/names.c",
+        "libsrc/sysfs_utils.c",
+        "libsrc/usbip_common.c",
+        "libsrc/usbip_device_driver.c",
+        "libsrc/usbip_host_common.c",
+        "libsrc/usbip_host_driver.c",
+        "libsrc/vhci_driver.c",
+    ],
+}
+
+cc_binary {
+    name: "usbip",
+    defaults: ["usbip_defaults"],
+    local_include_dirs: ["src"],
+    shared_libs: ["libusbip"],
+    srcs: [
+        "src/usbip_attach.c",
+        "src/usbip_bind.c",
+        "src/usbip.c",
+        "src/usbip_detach.c",
+        "src/usbip_list.c",
+        "src/usbip_network.c",
+        "src/usbip_port.c",
+        "src/usbip_unbind.c",
+        "src/utils.c",
+    ],
+}
+
+cc_binary {
+    name: "usbipd",
+    defaults: ["usbip_defaults"],
+    local_include_dirs: ["src"],
+    shared_libs: ["libusbip"],
+    srcs: [
+        "src/usbipd.c",
+        "src/usbip_network.c",
+    ],
+}
