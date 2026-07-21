@@ -4,6 +4,10 @@ cc_library {
         "-DUSB_IDS_PATH=\"/vendor/usb.ids\"",
         "-Wno-unused-parameter",
     ],
+    export_include_dirs: [
+        ".",
+        "include",
+    ],
     srcs: [
         "udev.c",
         "udev_device.c",
