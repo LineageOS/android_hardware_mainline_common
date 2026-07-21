@@ -1,0 +1,16 @@
+cc_library {
+    name: "libudev-zero-upstream",
+    cflags: [
+        "-DUSB_IDS_PATH=\"/vendor/usb.ids\"",
+        "-Wno-unused-parameter",
+    ],
+    srcs: [
+        "udev.c",
+        "udev_device.c",
+        "udev_enumerate.c",
+        "udev_list.c",
+        "udev_monitor.c",
+    ],
+    recovery_available: true,
+    vendor: true,
+}
