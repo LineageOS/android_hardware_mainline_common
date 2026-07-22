@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "4c80978c_36b3e0a0",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-07-22T17:52:33Z",
+      "side": 1,
+      "message": "compiles, the binaries executes, but the feature don\u0027t work.\n\nstealing binaries from GNU/Linux works...",
+      "revId": "1ca437dc7a0259adfa36c15d484cdda100743450",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
