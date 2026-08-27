@@ -1,0 +1,163 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "9736012e_ad9960e9",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 89,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "`in_anglvel_mount_matrix` is also a thing, used when gyro matrix !\u003d accell matrix",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "6509ba0e_06a79c34",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 114,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "Don\u0027t use std::sto* variants, use libbabe parseInt/Float and friends\n\nExceptions are disabled by default in android so this does nothing atm",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "2b2d70c8_1ec066b8",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 158,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "Why not std::optional\u003cSensorType\u003e?",
+      "range": {
+        "startLine": 158,
+        "startChar": 0,
+        "endLine": 158,
+        "endChar": 7
+      },
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "24a9749c_c9865b76",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 193,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "you can use std::filesystem, we\u0027re in 2026",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "e16dba76_92c31379",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 232,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "ditto",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "55d7fc5b_abfd40b7",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 288,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": ".",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "6af46561_1cd4d3f9",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 355,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "I don\u0027t remember the ABI, but I\u0027d expect the channel type to be also parsed here no?\n\nOnly for _enable seems weird",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "692144e8_dbbafce0",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 692,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "Not how you do that.\n\nYou store the fd inside the sensor struct, then setup a thread that polls on the fd.\n\n```cpp\nvoid IioBufferStreamer::stream_loop() {\n    struct pollfd fds[2];\n    fds[0].fd \u003d buffer_fd_;\n    fds[0].events \u003d POLLIN;\n    fds[1].fd \u003d pipe_fd_[0];\n    fds[1].events \u003d POLLIN;\n\n    std::vector\u003cuint8_t\u003e raw_buf(sample_size_bytes_ * 16);\n\n    while (running_.load()) {\n        int ret \u003d poll(fds, 2, -1);\n        if (ret \u003c\u003d 0) {\n            if (errno \u003d\u003d EINTR) continue;\n            break;\n        }\n\n        if (fds[1].revents \u0026 POLLIN) break;\n\n        if (fds[0].revents \u0026 POLLIN) {\n            ssize_t bytes_read \u003d read(buffer_fd_, raw_buf.data(), raw_buf.size());\n            if (bytes_read \u003e\u003d static_cast\u003cssize_t\u003e(sample_size_bytes_)) {\n                size_t samples \u003d bytes_read / sample_size_bytes_;\n                for (size_t s \u003d 0; s \u003c samples; ++s) {\n                    const uint8_t* sample_ptr \u003d raw_buf.data() + (s * sample_size_bytes_);\n                    SampleRecord record;\n\n                    for (const auto\u0026 ch : scan_channels_) {\n                        if (ch.name \u003d\u003d \"in_timestamp\") {\n                            const uint8_t* ptr \u003d sample_ptr + ch.offset_bytes;\n                            int64_t ts \u003d *reinterpret_cast\u003cconst int64_t*\u003e(ptr);\n                            if (ch.is_big_endian) ts \u003d __builtin_bswap64(ts);\n                            record.timestamp_ns \u003d ts;\n                        } else {\n                            record.channels.emplace_back(ch.name, ch.decode(sample_ptr));\n                        }\n                    }\n\n                    if (callback_) {\n                        callback_(record);\n                    }\n                }\n            }\n        }\n    }\n}```\n\nRandom example I have locally (ignore the timestamp stuff)\n\nAlso apparently unused as a whole and you only have \"poll\" based approach (vs real poll base that\u0027s this)",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "cef82bb4_725d2abb",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 808,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T14:23:47Z",
+      "side": 1,
+      "message": "this is valid only for is_poll_mode, the other kind need what I left my comment about (pipe+poll)",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
