@@ -11,6 +11,8 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
+#include <android-base/unique_fd.h>
+
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
@@ -958,16 +960,15 @@ bool IioBackend::OpenBufferFd(IioSensorData* sensor) {
     }
 
     std::string dev_path = "/dev/iio:device" + std::to_string(sensor->dev_num);
-    sensor->buffer_fd = open(dev_path.c_str(), O_RDONLY);
-    if (sensor->buffer_fd < 0) {
+    sensor->buffer_fd.reset(open(dev_path.c_str(), O_RDONLY));
+    if (!sensor->buffer_fd.ok()) {
         LOG(WARNING) << "Failed to open " << dev_path << ": " << strerror(errno);
         return false;
     }
 
     if (pipe2(sensor->signal_pipe_fd, O_CLOEXEC | O_NONBLOCK) != 0) {
         LOG(WARNING) << "Failed to create signal pipe: " << strerror(errno);
-        close(sensor->buffer_fd);
-        sensor->buffer_fd = -1;
+        sensor->buffer_fd.reset();
         return false;
     }
 
@@ -975,10 +976,7 @@ bool IioBackend::OpenBufferFd(IioSensorData* sensor) {
 }
 
 void IioBackend::CloseBufferFd(IioSensorData* sensor) {
-    if (sensor->buffer_fd >= 0) {
-        close(sensor->buffer_fd);
-        sensor->buffer_fd = -1;
-    }
+    sensor->buffer_fd.reset();
     if (sensor->signal_pipe_fd[0] >= 0) {
         close(sensor->signal_pipe_fd[0]);
         sensor->signal_pipe_fd[0] = -1;
@@ -1025,7 +1023,7 @@ bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
 
         return true;
     } else {
-        if (sensor->buffer_fd >= 0) {
+        if (sensor->buffer_fd.ok()) {
             char shutdown_byte = 1;
             ssize_t ret = write(sensor->signal_pipe_fd[1], &shutdown_byte, 1);
             if (ret < 0) {
@@ -1153,7 +1151,7 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
     LOG(DEBUG) << "Buffer thread started for sensor " << sensor->handle;
 
     struct pollfd fds[2];
-    fds[0].fd = sensor->buffer_fd;
+    fds[0].fd = sensor->buffer_fd.get();
     fds[0].events = POLLIN;
     fds[1].fd = sensor->signal_pipe_fd[0];
     fds[1].events = POLLIN;
@@ -1176,7 +1174,7 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
         }
 
         if (fds[0].revents & POLLIN) {
-            ssize_t bytes_read = read(sensor->buffer_fd, raw_buf.data(), raw_buf.size());
+            ssize_t bytes_read = read(sensor->buffer_fd.get(), raw_buf.data(), raw_buf.size());
             if (bytes_read < static_cast<ssize_t>(sensor->scan_size)) {
                 continue;
             }
