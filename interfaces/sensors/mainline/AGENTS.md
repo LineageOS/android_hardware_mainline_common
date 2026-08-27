@@ -64,8 +64,11 @@ The IIO backend derives `maxRange`, `resolution`, `minDelayUs`, `maxDelayUs` fro
 - `vendor.sensors.iio.<device_name>.power` - Override power (mA)
 - `vendor.sensors.iio.<device_name>.max_range` - Override maxRange
 - `vendor.sensors.iio.<device_name>.resolution` - Override resolution
+- `vendor.sensors.iio.<device_name>.mount_matrix` - Override mount matrix (format: `r1c1,r1c2,r1c3;r2c1,r2c2,r2c3;r3c1,r3c2,r3c3`)
 
 Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` replaced by `_`.
+
+The `mount_matrix` property overrides the mount matrix read from sysfs. This is useful when the kernel-provided mount matrix is incorrect or missing, allowing proper axis transformation for sensor data.
 
 ### Composite Sensors
 

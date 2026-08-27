@@ -147,6 +147,33 @@ void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]
     }
 }
 
+bool IioBackend::ParseMountMatrixFromString(const std::string& content, float matrix[9]) {
+    auto rows = ::android::base::Split(content, ";");
+    if (rows.size() != 3) {
+        return false;
+    }
+
+    float parsed[9];
+    for (int r = 0; r < 3; r++) {
+        auto cols = ::android::base::Split(rows[r], ",");
+        if (cols.size() != 3) {
+            return false;
+        }
+        for (int c = 0; c < 3; c++) {
+            std::string trimmed = ::android::base::Trim(cols[c]);
+            char* end = nullptr;
+            float val = std::strtof(trimmed.c_str(), &end);
+            if (end == trimmed.c_str() || *end != '\0') {
+                return false;
+            }
+            parsed[r * 3 + c] = val;
+        }
+    }
+
+    std::copy(parsed, parsed + 9, matrix);
+    return true;
+}
+
 bool IioBackend::ParseChannelType(const std::string& type_str, IioChannelInfo& channel) {
     char endianness;
     char sign;
@@ -456,6 +483,17 @@ void IioBackend::ApplySensorInfoOverrides(IioSensorData* sensor) {
         float parsed = std::strtof(resolution_str.c_str(), &end);
         if (end != resolution_str.c_str() && *end == '\0' && parsed > 0.0f) {
             sensor->sensor_info.resolution = parsed;
+        }
+    }
+
+    std::string mount_matrix_str = ::android::base::GetProperty(prop_prefix + "mount_matrix", "");
+    if (!mount_matrix_str.empty()) {
+        if (ParseMountMatrixFromString(mount_matrix_str, sensor->mount_matrix)) {
+            LOG(INFO) << "Mount matrix overridden for " << sensor->device_name << ": "
+                      << mount_matrix_str;
+        } else {
+            LOG(WARNING) << "Invalid mount matrix override for " << sensor->device_name
+                         << ": " << mount_matrix_str;
         }
     }
 }

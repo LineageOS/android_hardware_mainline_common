@@ -75,6 +75,7 @@ class IioBackend : public ISensorBackend {
     void DiscoverSensors(int dev_num, const std::string& sysfs_path);
     bool ParseChannelType(const std::string& type_str, IioChannelInfo& channel);
     void ParseMountMatrix(const std::string& sysfs_path, float matrix[9]);
+    bool ParseMountMatrixFromString(const std::string& content, float matrix[9]);
     float ReadSysfsFloat(const std::string& path, float default_value);
     int32_t ReadSysfsInt(const std::string& path, int32_t default_value);
     std::string ReadSysfsString(const std::string& path, const std::string& default_value);
