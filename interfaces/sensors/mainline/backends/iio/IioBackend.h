@@ -7,6 +7,8 @@
 
 #include <libsensors_mainline/SensorBackend.h>
 
+#include <android-base/unique_fd.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <map>
@@ -47,7 +49,7 @@ struct IioSensorData {
     std::mutex poll_mutex;
     std::condition_variable poll_cv;
     std::atomic_bool stop_thread;
-    int buffer_fd = -1;
+    ::android::base::unique_fd buffer_fd;
     int signal_pipe_fd[2] = {-1, -1};
     int32_t scan_size = 0;
     std::string trigger_name;
