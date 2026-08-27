@@ -95,6 +95,8 @@ void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]
     std::vector<std::string> candidates = {
             sysfs_path + "/mount_matrix",
             sysfs_path + "/in_accel_mount_matrix",
+            sysfs_path + "/in_anglvel_mount_matrix",
+            sysfs_path + "/in_magn_mount_matrix",
             sysfs_path + "/in_mount_matrix",
     };
 
