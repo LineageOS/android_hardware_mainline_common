@@ -7,6 +7,8 @@
 
 #include "Sensors.h"
 
+#include "DeviceOrientationSensor.h"
+
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <utils/SystemClock.h>
@@ -23,6 +25,7 @@ Sensors::Sensors()
       auto_release_wake_lock_time_(0),
       has_wake_lock_(false) {
     LOG(INFO) << "Mainline Sensors HAL initializing";
+    backend_manager_.RegisterCompositeSensor(std::make_unique<DeviceOrientationSensor>());
     backend_manager_.LoadBackends();
 }
 

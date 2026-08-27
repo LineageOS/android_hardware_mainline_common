@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "CompositeSensor.h"
+
 #include <aidl/android/hardware/sensors/BnSensors.h>
 
 #include <libsensors_mainline/SensorBackend.h>
@@ -12,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -24,6 +27,8 @@ class SensorBackendManager {
 
     SensorBackendManager(const SensorBackendManager&) = delete;
     SensorBackendManager& operator=(const SensorBackendManager&) = delete;
+
+    void RegisterCompositeSensor(std::unique_ptr<ICompositeSensor> sensor);
 
     void LoadBackends();
 
@@ -62,6 +67,16 @@ class SensorBackendManager {
     std::map<int32_t, size_t> global_handle_to_backend_;
     std::mutex mutex_;
     PostEventsCallback post_events_callback_;
+
+    std::vector<std::unique_ptr<ICompositeSensor>> composite_sensors_;
+    std::map<int32_t, size_t> composite_handle_to_index_;
+    std::map<SensorType, std::vector<size_t>> sensor_type_to_composite_;
+    std::map<int32_t, int32_t> hardware_dependency_count_;
+
+    std::vector<Event> ProcessCompositeSensors(const std::vector<Event>& events);
+    int32_t FindHardwareSensorHandle(SensorType type);
+    void ActivateHardwareDependency(int32_t global_handle);
+    void DeactivateHardwareDependency(int32_t global_handle);
 };
 
 }  // namespace aidl::android::hardware::sensors::mainline
