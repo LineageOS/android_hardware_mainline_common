@@ -1,0 +1,50 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "c84a743e_d7a3c54d",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 646,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T20:50:16Z",
+      "side": 1,
+      "message": "I\u0027m pretty sure with buffered reads we need to know the \"layout\" of the data that we just read, so we need to parse this information",
+      "range": {
+        "startLine": 639,
+        "startChar": 0,
+        "endLine": 646,
+        "endChar": 37
+      },
+      "revId": "c4ee20bf3d76de5afc24243bc6e4aca1b95f9587",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "169522a0_26684288",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1043,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T20:50:16Z",
+      "side": 1,
+      "message": "See here, you use `channel.shift` for example, but you don\u0027t parse that when setting up the channel so it\u0027s using default stuff no?",
+      "range": {
+        "startLine": 1043,
+        "startChar": 0,
+        "endLine": 1043,
+        "endChar": 72
+      },
+      "revId": "c4ee20bf3d76de5afc24243bc6e4aca1b95f9587",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
