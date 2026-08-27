@@ -178,6 +178,12 @@ int32_t DeviceOrientationSensor::ComputeOrientation(float x, float y, float z) {
         return has_last_orientation_ ? last_orientation_ : kRotation0;
     }
 
+    // Flat device detection: if z dominates, device is lying flat and orientation is unreliable
+    float abs_z = std::fabs(z);
+    if (abs_z > 0.7f * gravity_magnitude) {
+        return has_last_orientation_ ? last_orientation_ : kRotation0;
+    }
+
     float abs_x = std::fabs(x);
     float abs_y = std::fabs(y);
 
