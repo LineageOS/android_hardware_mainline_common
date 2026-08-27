@@ -86,6 +86,8 @@ class IioBackend : public ISensorBackend {
     void EnableRingBuffer(IioSensorData* sensor, bool enable);
 
     int32_t MapIioTypeToSensorType(const std::string& iio_name);
+    int32_t DetectTypeFromScanElements(const std::string& sysfs_path);
+    int32_t DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
     bool IsVec3Type(SensorType type);
     bool IsOnChangeType(SensorType type);
 

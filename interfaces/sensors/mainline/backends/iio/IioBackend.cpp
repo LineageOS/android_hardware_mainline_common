@@ -186,6 +186,96 @@ int32_t IioBackend::MapIioTypeToSensorType(const std::string& iio_name) {
     return -1;
 }
 
+int32_t IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
+    std::string scan_dir = sysfs_path + "/scan_elements";
+    DIR* scan_dp = opendir(scan_dir.c_str());
+    if (scan_dp == nullptr) {
+        return -1;
+    }
+
+    int32_t sensor_type = -1;
+    struct dirent* scan_entry;
+    while ((scan_entry = readdir(scan_dp)) != nullptr) {
+        std::string fname = scan_entry->d_name;
+        if (fname.size() > 3 && fname.substr(fname.size() - 3) == "_en") {
+            std::string prefix = fname.substr(0, fname.size() - 3);
+            if (prefix.find("in_") == 0) {
+                prefix = prefix.substr(3);
+            }
+            auto pos = prefix.find_last_of('_');
+            if (pos != std::string::npos) {
+                std::string base = prefix.substr(0, pos);
+                sensor_type = MapIioTypeToSensorType(base);
+                if (sensor_type >= 0) break;
+            }
+            sensor_type = MapIioTypeToSensorType(prefix);
+            if (sensor_type >= 0) break;
+        }
+    }
+    closedir(scan_dp);
+    return sensor_type;
+}
+
+int32_t IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path) {
+    struct stat st;
+
+    static const struct {
+        const char* prefix;
+        SensorType type;
+    } kAttributeMap[] = {
+            {"in_accel_", SensorType::ACCELEROMETER},
+            {"in_anglvel_", SensorType::GYROSCOPE},
+            {"in_magn_", SensorType::MAGNETIC_FIELD},
+            {"in_illuminance", SensorType::LIGHT},
+            {"in_intensity", SensorType::LIGHT},
+            {"in_proximity", SensorType::PROXIMITY},
+            {"in_temp_", SensorType::AMBIENT_TEMPERATURE},
+            {"in_pressure", SensorType::PRESSURE},
+            {"in_humidityrelative", SensorType::RELATIVE_HUMIDITY},
+    };
+
+    for (const auto& entry : kAttributeMap) {
+        std::string raw_path = sysfs_path + "/" + entry.prefix + "_raw";
+        std::string input_path = sysfs_path + "/" + entry.prefix + "_input";
+        if (stat(raw_path.c_str(), &st) == 0 || stat(input_path.c_str(), &st) == 0) {
+            return static_cast<int32_t>(entry.type);
+        }
+    }
+
+    DIR* dp = opendir(sysfs_path.c_str());
+    if (dp == nullptr) {
+        return -1;
+    }
+
+    int32_t result = -1;
+    struct dirent* dir_entry;
+    while ((dir_entry = readdir(dp)) != nullptr) {
+        std::string fname = dir_entry->d_name;
+        if (fname.find("in_") != 0) {
+            continue;
+        }
+        if (fname.find("_raw") == std::string::npos &&
+            fname.find("_input") == std::string::npos) {
+            continue;
+        }
+
+        std::string attr = fname.substr(3);
+        auto pos = attr.find_last_of('_');
+        if (pos != std::string::npos) {
+            attr = attr.substr(0, pos);
+        }
+        pos = attr.find_last_of('_');
+        if (pos != std::string::npos) {
+            attr = attr.substr(0, pos);
+        }
+
+        result = MapIioTypeToSensorType(attr);
+        if (result >= 0) break;
+    }
+    closedir(dp);
+    return result;
+}
+
 bool IioBackend::IsVec3Type(SensorType type) {
     return type == SensorType::ACCELEROMETER || type == SensorType::GYROSCOPE ||
            type == SensorType::MAGNETIC_FIELD;
@@ -225,49 +315,29 @@ void IioBackend::DiscoverDevices() {
 
 void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     std::string device_name = ReadSysfsString(sysfs_path + "/name", "unknown");
-    LOG(INFO) << "IIO device " << dev_num << ": " << device_name << " at " << sysfs_path;
+    std::string of_name = ReadSysfsString(sysfs_path + "/of_node/name", "");
+    std::string of_compatible = ReadSysfsString(sysfs_path + "/of_node/compatible", "");
+
+    LOG(INFO) << "IIO device " << dev_num << ": name='" << device_name
+              << "' of_name='" << of_name << "' compatible='" << of_compatible
+              << "' at " << sysfs_path;
 
     int32_t sensor_type = MapIioTypeToSensorType(device_name);
-    if (sensor_type < 0) {
-        std::string scan_dir = sysfs_path + "/scan_elements";
-        DIR* scan_dp = opendir(scan_dir.c_str());
-        if (scan_dp == nullptr) {
-            LOG(DEBUG) << "No scan_elements for " << device_name << ", skipping";
-            return;
-        }
 
-        struct dirent* scan_entry;
-        while ((scan_entry = readdir(scan_dp)) != nullptr) {
-            std::string fname = scan_entry->d_name;
-            if (fname.size() > 3 && fname.substr(fname.size() - 3) == "_en") {
-                std::string prefix = fname.substr(0, fname.size() - 3);
-                if (prefix.find("in_") == 0) {
-                    prefix = prefix.substr(3);
-                }
-                auto pos = prefix.find_last_of('_');
-                if (pos != std::string::npos) {
-                    std::string base = prefix.substr(0, pos);
-                    sensor_type = MapIioTypeToSensorType(base);
-                    if (sensor_type >= 0) break;
-                }
-                sensor_type = MapIioTypeToSensorType(prefix);
-                if (sensor_type >= 0) break;
-            }
-        }
-        closedir(scan_dp);
+    if (sensor_type < 0 && !of_compatible.empty()) {
+        sensor_type = MapIioTypeToSensorType(of_compatible);
+    }
+
+    if (sensor_type < 0 && !of_name.empty()) {
+        sensor_type = MapIioTypeToSensorType(of_name);
     }
 
     if (sensor_type < 0) {
-        std::string raw_test = sysfs_path + "/in_illuminance_raw";
-        struct stat st;
-        if (stat(raw_test.c_str(), &st) == 0) {
-            sensor_type = static_cast<int32_t>(SensorType::LIGHT);
-        } else {
-            raw_test = sysfs_path + "/in_proximity_raw";
-            if (stat(raw_test.c_str(), &st) == 0) {
-                sensor_type = static_cast<int32_t>(SensorType::PROXIMITY);
-            }
-        }
+        sensor_type = DetectTypeFromScanElements(sysfs_path);
+    }
+
+    if (sensor_type < 0) {
+        sensor_type = DetectTypeFromSysfsAttributes(sysfs_path);
     }
 
     if (sensor_type < 0) {
