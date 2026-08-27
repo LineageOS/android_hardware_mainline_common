@@ -32,6 +32,8 @@ class DeviceOrientationSensor : public ICompositeSensor {
     CompositeEvent CreateFlushCompleteEvent() const override;
 
   private:
+    static constexpr int64_t kSettleTimeNs = 200 * 1000 * 1000;
+
     int32_t ComputeOrientation(float x, float y, float z);
     void LoadOrientationProperties();
     void TransformAxes(float& x, float& y, float& z) const;
@@ -41,6 +43,9 @@ class DeviceOrientationSensor : public ICompositeSensor {
     std::atomic_bool active_;
     int32_t last_orientation_;
     bool has_last_orientation_;
+
+    int32_t predicted_rotation_;
+    int64_t predicted_rotation_time_;
 
     bool swap_xy_;
     bool invert_x_;

@@ -34,6 +34,8 @@ DeviceOrientationSensor::DeviceOrientationSensor()
     : active_(false),
       last_orientation_(kRotation0),
       has_last_orientation_(false),
+      predicted_rotation_(-1),
+      predicted_rotation_time_(0),
       swap_xy_(false),
       invert_x_(false),
       invert_y_(false),
@@ -144,7 +146,13 @@ void DeviceOrientationSensor::Activate(bool enabled) {
     active_ = enabled;
     if (enabled) {
         has_last_orientation_ = false;
+        predicted_rotation_ = -1;
+        predicted_rotation_time_ = 0;
         LoadOrientationProperties();
+    } else {
+        has_last_orientation_ = false;
+        predicted_rotation_ = -1;
+        predicted_rotation_time_ = 0;
     }
     LOG(DEBUG) << "DeviceOrientationSensor " << (enabled ? "activated" : "deactivated");
 }
@@ -213,22 +221,34 @@ std::vector<CompositeEvent> DeviceOrientationSensor::ProcessEvent(
     float z = vec3.z;
     TransformAxes(x, y, z);
 
-    int32_t orientation = ComputeOrientation(x, y, z);
-    orientation = ApplyRotationOffset(orientation);
+    int64_t now = input_event.timestamp;
 
-    if (!has_last_orientation_ || orientation != last_orientation_) {
+    int32_t predicted = ComputeOrientation(x, y, z);
+    predicted = ApplyRotationOffset(predicted);
+
+    if (predicted != predicted_rotation_) {
+        predicted_rotation_ = predicted;
+        predicted_rotation_time_ = now;
+        return output;
+    }
+
+    if (now < predicted_rotation_time_ + kSettleTimeNs) {
+        return output;
+    }
+
+    if (!has_last_orientation_ || predicted != last_orientation_) {
         CompositeEvent event;
         event.sensorHandle = sensor_info_.sensorHandle;
         event.sensorType = CompositeSensorType::DEVICE_ORIENTATION;
-        event.timestamp = input_event.timestamp;
-        event.payload.set<CompositeEventPayload::Tag::scalar>(static_cast<float>(orientation));
+        event.timestamp = now;
+        event.payload.set<CompositeEventPayload::Tag::scalar>(static_cast<float>(predicted));
 
         output.push_back(event);
 
-        last_orientation_ = orientation;
+        last_orientation_ = predicted;
         has_last_orientation_ = true;
 
-        LOG(DEBUG) << "DeviceOrientation changed to rotation=" << orientation;
+        LOG(DEBUG) << "DeviceOrientation changed to rotation=" << predicted;
     }
 
     return output;
