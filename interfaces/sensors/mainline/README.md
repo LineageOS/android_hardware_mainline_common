@@ -156,6 +156,23 @@ Supported sensor types:
 - Accelerometer (via ABS_X/ABS_Y/ABS_Z axes)
 - Proximity (via SW_FRONT_PROXIMITY switch)
 
+### Accelerometer Configuration
+
+Unlike IIO, the input subsystem has no standard for accelerometer units. Each kernel driver reports raw counts with different bit resolutions and g-ranges. You must configure the scale factor per-device:
+
+```
+vendor.sensors.input.<device_name>.accel_scale = <scale_factor>
+```
+
+Where `<device_name>` is the input device name with `-`, ` `, `/` replaced by `_`.
+
+Common scale factors:
+- MMA8450 (12-bit ±2g): `0.00958` (9.81 / 1024.0)
+- BMA150 (10-bit ±2g): `0.0383` (9.81 / 256.0, default)
+- KXTJ9 (12-bit ±2g): `0.0383` (9.81 / 256.0)
+
+**Recommendation**: Use the IIO backend instead when possible, as it provides standardized units via sysfs scale attributes and doesn't require manual configuration.
+
 ## Mock Backend
 
 The Mock backend provides fake sensor data for all supported types. It is loaded last by default and should only be used for testing or as a fallback.

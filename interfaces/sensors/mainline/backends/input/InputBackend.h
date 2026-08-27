@@ -31,6 +31,7 @@ struct InputSensorData {
     std::condition_variable poll_cv;
     std::atomic_bool stop_thread;
     float last_value;
+    float accel_scale;
 };
 
 class InputBackend : public ISensorBackend {
@@ -72,6 +73,8 @@ class InputBackend : public ISensorBackend {
     PostEventsCallback post_events_callback_;
     OperationMode operation_mode_ = OperationMode::NORMAL;
     std::mutex mutex_;
+
+    void LoadSensorOverrides(InputSensorData* sensor);
 };
 
 extern "C" ISensorBackend* CreateSensorBackend();

@@ -9,6 +9,7 @@
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
@@ -31,7 +32,7 @@ static constexpr const char* kInputBasePath = "/dev/input";
 static constexpr int32_t kDefaultMaxDelayUs = 10 * 1000 * 1000;
 static constexpr int64_t kNanosecondsPerSecond = 1000LL * 1000 * 1000;
 
-static constexpr float kAccelScale = 9.81f / 256.0f;
+static constexpr float kDefaultAccelScale = 9.81f / 256.0f;
 
 extern "C" __attribute__((visibility("default"))) ISensorBackend* CreateSensorBackend() {
     return new InputBackend();
@@ -160,6 +161,7 @@ void InputBackend::DiscoverDevices() {
         sensor->sampling_period_ns = 200 * 1000 * 1000;
         sensor->stop_thread = false;
         sensor->last_value = 0.0f;
+        sensor->accel_scale = kDefaultAccelScale;
 
         sensor->sensor_info.sensorHandle = sensor->handle;
         sensor->sensor_info.name = device_name;
@@ -174,7 +176,7 @@ void InputBackend::DiscoverDevices() {
         switch (sensor->type) {
             case SensorType::ACCELEROMETER:
                 sensor->sensor_info.maxRange = 78.4f;
-                sensor->sensor_info.resolution = kAccelScale;
+                sensor->sensor_info.resolution = sensor->accel_scale;
                 sensor->sensor_info.power = 0.13f;
                 sensor->sensor_info.minDelayUs = 10000;
                 sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
@@ -200,6 +202,8 @@ void InputBackend::DiscoverDevices() {
                 sensor->sensor_info.flags = 0;
                 break;
         }
+
+        LoadSensorOverrides(sensor.get());
 
         int32_t handle = sensor->handle;
         sensors_[handle] = std::move(sensor);
@@ -232,6 +236,28 @@ void InputBackend::Deinitialize() {
     }
     post_events_callback_ = nullptr;
     LOG(INFO) << "Input backend deinitialized";
+}
+
+void InputBackend::LoadSensorOverrides(InputSensorData* sensor) {
+    if (sensor->type != SensorType::ACCELEROMETER) {
+        return;
+    }
+
+    std::string prop_key = std::string("vendor.sensors.input.") +
+                           sensor->device_name + ".accel_scale";
+    std::string value = ::android::base::GetProperty(prop_key, "");
+    if (!value.empty()) {
+        char* endptr;
+        float scale = strtof(value.c_str(), &endptr);
+        if (endptr != value.c_str() && *endptr == '\0' && scale > 0.0f) {
+            sensor->accel_scale = scale;
+            sensor->sensor_info.resolution = scale;
+            LOG(INFO) << "Input sensor " << sensor->device_name
+                      << " using custom accel_scale: " << scale;
+        } else {
+            LOG(WARNING) << "Failed to parse " << prop_key << ": invalid value '" << value << "'";
+        }
+    }
 }
 
 std::vector<SensorInfo> InputBackend::GetSensorsList() {
@@ -324,9 +350,9 @@ std::vector<Event> InputBackend::ReadSensorData(InputSensorData* sensor) {
         event.timestamp = timestamp;
 
         EventPayload::Vec3 vec3 = {
-                .x = static_cast<float>(abs_x.value) * kAccelScale,
-                .y = static_cast<float>(abs_y.value) * kAccelScale,
-                .z = static_cast<float>(abs_z.value) * kAccelScale,
+                .x = static_cast<float>(abs_x.value) * sensor->accel_scale,
+                .y = static_cast<float>(abs_y.value) * sensor->accel_scale,
+                .z = static_cast<float>(abs_z.value) * sensor->accel_scale,
                 .status = SensorStatus::ACCURACY_HIGH,
         };
         EventPayload payload;

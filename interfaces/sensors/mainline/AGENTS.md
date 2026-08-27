@@ -70,6 +70,23 @@ Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` repl
 
 The `mount_matrix` property overrides the mount matrix read from sysfs. This is useful when the kernel-provided mount matrix is incorrect or missing, allowing proper axis transformation for sensor data.
 
+### Input Backend Sensor Info Overrides
+
+The input backend reads accelerometer data from `/dev/input/event*` devices. Unlike IIO, the input subsystem has no standard for accelerometer units - each kernel driver reports raw counts with different bit resolutions and g-ranges.
+
+The accelerometer scale factor must be set per-device via android properties:
+
+- `vendor.sensors.input.<device_name>.accel_scale` - Scale factor to convert raw counts to m/s²
+
+Common scale factors:
+- MMA8450 (12-bit ±2g): `0.00958` (9.81 / 1024.0)
+- BMA150 (10-bit ±2g): `0.0383` (9.81 / 256.0, default)
+- KXTJ9 (12-bit ±2g): `0.0383` (9.81 / 256.0)
+
+Where `<device_name>` is the input device name with `-`, ` `, `/` replaced by `_`.
+
+**Note**: Consider using the IIO backend instead, which provides standardized units via sysfs scale attributes and doesn't require manual configuration.
+
 ### Composite Sensors
 
 Composite sensors are virtual sensors implemented in the frontend. They derive data from
