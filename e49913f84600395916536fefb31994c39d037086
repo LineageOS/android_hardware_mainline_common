@@ -16,6 +16,24 @@
       "message": "I get the point, but no. This is xTS breaking",
       "revId": "e49913f84600395916536fefb31994c39d037086",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "199ac2de_3ea7b2e0",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 2
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T14:35:08Z",
+      "side": 1,
+      "message": "the concept of mainline/generic already breaks xTS.",
+      "parentUuid": "4c11e60b_c933e989",
+      "revId": "e49913f84600395916536fefb31994c39d037086",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
