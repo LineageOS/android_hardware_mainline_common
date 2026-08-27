@@ -98,6 +98,18 @@ apex {
     ] + select(soong_config_variable("sensors_mainline", "run_as_root"), {
         true: ["sensors-mainline-as-root.rc"],
         default: ["sensors-mainline.rc"],
+    }) + select(soong_config_variable("sensors_mainline", "include_all_permission_xmls"), {
+        true: [
+            "android.hardware.sensor.accelerometer.prebuilt.xml",
+            "android.hardware.sensor.ambient_temperature.prebuilt.xml",
+            "android.hardware.sensor.barometer.prebuilt.xml",
+            "android.hardware.sensor.compass.prebuilt.xml",
+            "android.hardware.sensor.gyroscope.prebuilt.xml",
+            "android.hardware.sensor.light.prebuilt.xml",
+            "android.hardware.sensor.proximity.prebuilt.xml",
+            "android.hardware.sensor.relative_humidity.prebuilt.xml",
+        ],
+        default: [],
     }),
 
     native_shared_libs: [
