@@ -33,7 +33,7 @@ static constexpr int64_t kNanosecondsPerSecond = 1000LL * 1000 * 1000;
 
 static constexpr float kAccelScale = 9.81f / 256.0f;
 
-extern "C" ISensorBackend* CreateSensorBackend() {
+extern "C" __attribute__((visibility("default"))) ISensorBackend* CreateSensorBackend() {
     return new InputBackend();
 }
 
