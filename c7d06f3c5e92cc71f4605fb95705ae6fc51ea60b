@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "23a171d6_4624df67",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 50,
+      "author": {
+        "id": 11883
+      },
+      "writtenOn": "2026-08-27T20:43:51Z",
+      "side": 1,
+      "message": "ask it to move to base::unique_fd",
+      "range": {
+        "startLine": 50,
+        "startChar": 8,
+        "endLine": 50,
+        "endChar": 17
+      },
+      "revId": "c7d06f3c5e92cc71f4605fb95705ae6fc51ea60b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
