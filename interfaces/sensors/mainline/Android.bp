@@ -69,6 +69,13 @@ prebuilt_etc {
 }
 
 prebuilt_etc {
+    name: "sensors-mainline-as-root.rc",
+    vendor: true,
+    src: "sensors-mainline-as-root.rc",
+    installable: false,
+}
+
+prebuilt_etc {
     name: "sensors-mainline.xml",
     vendor: true,
     src: "sensors-mainline.xml",
@@ -87,9 +94,11 @@ apex {
 
     binaries: ["android.hardware.sensors-service.mainline"],
     prebuilts: [
-        "sensors-mainline.rc",
         "sensors-mainline.xml",
-    ],
+    ] + select(soong_config_variable("sensors_hal_mainline", "run_as_root"), {
+        true: ["sensors-mainline-as-root.rc"],
+        default: ["sensors-mainline.rc"],
+    }),
 
     native_shared_libs: [
         "libsensors_iio",
