@@ -33,7 +33,38 @@ automatically activated. When all composite sensors depending on a hardware sens
 deactivated, the hardware sensor is automatically deactivated.
 
 Current composite sensors:
-- **Device Orientation** (`DEVICE_ORIENTATION`) - Reports device orientation (0°, 90°, 180°, 270°) derived from the accelerometer. Uses hysteresis to prevent flapping near orientation boundaries.
+- **Device Orientation** (`DEVICE_ORIENTATION`) - Reports rotation index (0-3) from accelerometer data. Uses hysteresis to prevent flapping at orientation boundaries.
+
+### Device Orientation Workaround
+
+For devices where the accelerometer mount matrix is incorrect and causes wrong
+screen rotation, the following properties can be set as a temporary workaround.
+They are read each time the orientation sensor is activated.
+
+Axis transformation (applied before orientation computation):
+```
+vendor.sensors.orientation.swap_xy = true|false
+vendor.sensors.orientation.invert_x = true|false
+vendor.sensors.orientation.invert_y = true|false
+vendor.sensors.orientation.invert_z = true|false
+```
+
+Rotation offset (applied after orientation computation, value: 0/90/180/270):
+```
+vendor.sensors.orientation.rotation_offset = 0
+```
+
+Example: if screen rotates 180° from expected:
+```
+setprop vendor.sensors.orientation.rotation_offset 180
+```
+
+Example: if X axis is inverted due to wrong mount matrix:
+```
+setprop vendor.sensors.orientation.invert_x true
+```
+
+The effective mount matrix is logged on sensor activation for debugging.
 
 To add a new composite sensor, implement the `ICompositeSensor` interface and register it
 in `Sensors::Sensors()`.

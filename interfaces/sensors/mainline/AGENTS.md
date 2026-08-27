@@ -84,7 +84,30 @@ The `SensorBackendManager` handles:
 - Including composite sensors in `GetSensorsList()`
 
 Current composite sensors:
-- `DeviceOrientationSensor` - Reports 0/90/180/270° from accelerometer data
+- `DeviceOrientationSensor` - Reports rotation index (0-3) from accelerometer data
+
+### DeviceOrientationSensor Workaround Properties
+
+For devices with incorrect accelerometer mount matrix causing wrong screen rotation.
+These properties are read each time the sensor is activated:
+
+- `vendor.sensors.orientation.swap_xy` - Swap X and Y axes before processing
+- `vendor.sensors.orientation.invert_x` - Negate X axis before processing
+- `vendor.sensors.orientation.invert_y` - Negate Y axis before processing
+- `vendor.sensors.orientation.invert_z` - Negate Z axis before processing
+- `vendor.sensors.orientation.rotation_offset` - Rotate output by 90/180/270 degrees
+
+Example: if screen rotates 180° from expected:
+```
+setprop vendor.sensors.orientation.rotation_offset 180
+```
+
+Example: if X axis is inverted:
+```
+setprop vendor.sensors.orientation.invert_x true
+```
+
+The effective mount matrix (after applying transformations) is logged on activation.
 
 ## Code Style
 

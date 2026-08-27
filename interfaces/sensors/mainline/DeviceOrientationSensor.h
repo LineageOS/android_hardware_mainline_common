@@ -33,11 +33,20 @@ class DeviceOrientationSensor : public ICompositeSensor {
 
   private:
     int32_t ComputeOrientation(float x, float y, float z);
+    void LoadOrientationProperties();
+    void TransformAxes(float& x, float& y, float& z) const;
+    int32_t ApplyRotationOffset(int32_t orientation) const;
 
     CompositeSensorInfo sensor_info_;
     std::atomic_bool active_;
     int32_t last_orientation_;
     bool has_last_orientation_;
+
+    bool swap_xy_;
+    bool invert_x_;
+    bool invert_y_;
+    bool invert_z_;
+    int32_t rotation_offset_;
 };
 
 }  // namespace aidl::android::hardware::sensors::mainline
