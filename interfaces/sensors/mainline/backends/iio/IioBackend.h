@@ -90,7 +90,6 @@ class IioBackend : public ISensorBackend {
     int32_t DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
     std::string ParseVendorFromCompatible(const std::string& of_compatible);
     bool IsVec3Type(SensorType type);
-    bool IsOnChangeType(SensorType type);
 
     void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
     void ApplySensorInfoOverrides(IioSensorData* sensor);
