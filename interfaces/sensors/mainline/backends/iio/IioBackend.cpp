@@ -34,7 +34,7 @@ static constexpr const char* kIioBasePath = "/sys/bus/iio/devices";
 static constexpr int32_t kDefaultMaxDelayUs = 10 * 1000 * 1000;
 static constexpr int64_t kNanosecondsPerSecond = 1000LL * 1000 * 1000;
 
-extern "C" ISensorBackend* CreateSensorBackend() {
+extern "C" __attribute__((visibility("default"))) ISensorBackend* CreateSensorBackend() {
     return new IioBackend();
 }
 
