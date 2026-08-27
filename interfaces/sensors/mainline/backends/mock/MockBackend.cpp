@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define LOG_TAG "MainlineSensorsMockBackend"
+
 #include "MockBackend.h"
 
 #include <android-base/logging.h>

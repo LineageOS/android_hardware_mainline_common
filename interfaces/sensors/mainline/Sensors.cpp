@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define LOG_TAG "MainlineSensors"
+
 #include "Sensors.h"
 
 #include <android-base/file.h>
