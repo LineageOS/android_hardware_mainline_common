@@ -23,6 +23,21 @@ Backends are loaded in order: IIO, Input, Mock (mock is least preferred).
 
 Multiple backends can be active simultaneously, with each providing sensors to the complete set exposed to Android.
 
+### Composite Sensors
+
+Composite sensors are virtual sensors that derive their data from hardware sensor events.
+They are implemented in the frontend and managed by `SensorBackendManager`.
+
+When a composite sensor is activated, its hardware dependencies (e.g., accelerometer) are
+automatically activated. When all composite sensors depending on a hardware sensor are
+deactivated, the hardware sensor is automatically deactivated.
+
+Current composite sensors:
+- **Device Orientation** (`DEVICE_ORIENTATION`) - Reports device orientation (0°, 90°, 180°, 270°) derived from the accelerometer. Uses hysteresis to prevent flapping near orientation boundaries.
+
+To add a new composite sensor, implement the `ICompositeSensor` interface and register it
+in `Sensors::Sensors()`.
+
 ## Configuration
 
 ### Backend Override

@@ -18,6 +18,7 @@ cc_library_static {
     srcs: [
         "Sensors.cpp",
         "SensorBackendManager.cpp",
+        "DeviceOrientationSensor.cpp",
     ],
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
