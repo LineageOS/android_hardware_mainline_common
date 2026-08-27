@@ -1,0 +1,95 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library_headers {
+    name: "libsensors_mainline_headers",
+    vendor: true,
+    export_include_dirs: ["include"],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+    ],
+    visibility: ["//hardware/mainline/common/interfaces/sensors/mainline/**"],
+}
+
+cc_library_static {
+    name: "libsensors_mainline_frontend",
+    vendor: true,
+    srcs: [
+        "Sensors.cpp",
+        "SensorBackendManager.cpp",
+    ],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libdl",
+        "libfmq",
+        "liblog",
+        "libpower",
+        "libutils",
+    ],
+    header_libs: [
+        "libsensors_mainline_headers",
+    ],
+    visibility: [":__subpackages__"],
+}
+
+cc_binary {
+    name: "android.hardware.sensors-service.mainline",
+    vendor: true,
+    relative_install_path: "hw",
+    installable: false,
+    srcs: ["main.cpp"],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+        "libbinder_ndk",
+        "liblog",
+    ],
+    static_libs: [
+        "libsensors_mainline_frontend",
+    ],
+    header_libs: [
+        "libsensors_mainline_headers",
+    ],
+}
+
+prebuilt_etc {
+    name: "sensors-mainline.rc",
+    vendor: true,
+    src: "sensors-mainline.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "sensors-mainline.xml",
+    vendor: true,
+    src: "sensors-mainline.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+apex {
+    name: "com.android.hardware.sensors.mainline",
+    manifest: "apex_manifest.json",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: "file_contexts",
+    updatable: false,
+    vendor: true,
+
+    binaries: ["android.hardware.sensors-service.mainline"],
+    prebuilts: [
+        "sensors-mainline.rc",
+        "sensors-mainline.xml",
+    ],
+
+    native_shared_libs: [
+        "libsensors_iio",
+        "libsensors_input",
+        "libsensors_mock",
+    ],
+}
