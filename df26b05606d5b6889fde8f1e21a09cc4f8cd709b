@@ -258,6 +258,24 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "4292329c_d582a35a",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 355,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T21:27:22Z",
+      "side": 1,
+      "message": "Acknowledged",
+      "parentUuid": "ad403d6c_dc53c542",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "692144e8_dbbafce0",
