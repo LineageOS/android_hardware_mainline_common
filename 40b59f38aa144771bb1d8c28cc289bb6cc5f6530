@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "f25e70cd_b8bff88f",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T15:11:21Z",
+      "side": 1,
+      "message": "makes screen rotation not to work just like how AccelSensorJudge did.",
+      "revId": "40b59f38aa144771bb1d8c28cc289bb6cc5f6530",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
