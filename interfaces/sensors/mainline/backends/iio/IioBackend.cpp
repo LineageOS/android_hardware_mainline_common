@@ -989,11 +989,17 @@ void IioBackend::CloseBufferFd(IioSensorData* sensor) {
     }
 }
 
-void IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
+bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
     std::string buffer_path = sensor->sysfs_path + "/buffer/enable";
     std::string length_path = sensor->sysfs_path + "/buffer/length";
 
     if (enable) {
+        if (!SetupHrtimerTrigger(sensor)) {
+            LOG(WARNING) << "Trigger setup failed for device " << sensor->dev_num
+                         << ", falling back to sysfs poll mode";
+            return false;
+        }
+
         std::string scan_dir = sensor->sysfs_path + "/scan_elements";
         std::error_code ec;
         std::filesystem::directory_iterator scan_it(scan_dir, ec);
@@ -1007,19 +1013,17 @@ void IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
         }
 
         WriteSysfsInt(length_path, kBufferLength);
-
-        if (!SetupHrtimerTrigger(sensor)) {
-            LOG(WARNING) << "Trigger setup failed for device " << sensor->dev_num
-                         << ", buffer mode may not work";
-        }
-
         WriteSysfsInt(buffer_path, 1);
 
         if (!OpenBufferFd(sensor)) {
-            LOG(WARNING) << "Failed to open buffer fd for device " << sensor->dev_num;
+            LOG(WARNING) << "Failed to open buffer fd for device " << sensor->dev_num
+                         << ", falling back to sysfs poll mode";
             WriteSysfsInt(buffer_path, 0);
             TeardownHrtimerTrigger(sensor);
+            return false;
         }
+
+        return true;
     } else {
         if (sensor->buffer_fd >= 0) {
             char shutdown_byte = 1;
@@ -1032,6 +1036,7 @@ void IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
         WriteSysfsInt(buffer_path, 0);
         CloseBufferFd(sensor);
         TeardownHrtimerTrigger(sensor);
+        return true;
     }
 }
 
@@ -1214,7 +1219,9 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
         sensor->enabled = true;
 
         if (!sensor->is_poll_mode) {
-            EnableRingBuffer(sensor.get(), true);
+            if (!EnableRingBuffer(sensor.get(), true)) {
+                sensor->is_poll_mode = true;
+            }
         }
 
         sensor->poll_thread = std::thread(&IioBackend::PollSensorThread, this, sensor.get());

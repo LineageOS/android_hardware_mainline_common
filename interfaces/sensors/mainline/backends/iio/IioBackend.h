@@ -91,7 +91,7 @@ class IioBackend : public ISensorBackend {
     std::vector<Event> ReadPollSensorData(IioSensorData* sensor);
     std::vector<Event> ParseBufferSamples(IioSensorData* sensor, const uint8_t* data,
                                           size_t num_samples);
-    void EnableRingBuffer(IioSensorData* sensor, bool enable);
+    bool EnableRingBuffer(IioSensorData* sensor, bool enable);
     bool SetupHrtimerTrigger(IioSensorData* sensor);
     void TeardownHrtimerTrigger(IioSensorData* sensor);
     bool OpenBufferFd(IioSensorData* sensor);
