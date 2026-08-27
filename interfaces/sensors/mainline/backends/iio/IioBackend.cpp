@@ -194,37 +194,37 @@ bool IioBackend::ParseChannelType(const std::string& type_str, IioChannelInfo& c
     return true;
 }
 
-int32_t IioBackend::MapIioTypeToSensorType(const std::string& iio_name) {
-    if (iio_name.find("accel") != std::string::npos) return static_cast<int32_t>(SensorType::ACCELEROMETER);
+std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& iio_name) {
+    if (iio_name.find("accel") != std::string::npos) return SensorType::ACCELEROMETER;
     if (iio_name.find("gyro") != std::string::npos ||
         iio_name.find("anglvel") != std::string::npos)
-        return static_cast<int32_t>(SensorType::GYROSCOPE);
+        return SensorType::GYROSCOPE;
     if (iio_name.find("magn") != std::string::npos)
-        return static_cast<int32_t>(SensorType::MAGNETIC_FIELD);
+        return SensorType::MAGNETIC_FIELD;
     if (iio_name.find("light") != std::string::npos ||
         iio_name.find("illuminance") != std::string::npos ||
         iio_name.find("intensity") != std::string::npos)
-        return static_cast<int32_t>(SensorType::LIGHT);
+        return SensorType::LIGHT;
     if (iio_name.find("proximity") != std::string::npos)
-        return static_cast<int32_t>(SensorType::PROXIMITY);
+        return SensorType::PROXIMITY;
     if (iio_name.find("temp") != std::string::npos)
-        return static_cast<int32_t>(SensorType::AMBIENT_TEMPERATURE);
+        return SensorType::AMBIENT_TEMPERATURE;
     if (iio_name.find("pressure") != std::string::npos ||
         iio_name.find("baro") != std::string::npos)
-        return static_cast<int32_t>(SensorType::PRESSURE);
+        return SensorType::PRESSURE;
     if (iio_name.find("humidity") != std::string::npos)
-        return static_cast<int32_t>(SensorType::RELATIVE_HUMIDITY);
-    return -1;
+        return SensorType::RELATIVE_HUMIDITY;
+    return std::nullopt;
 }
 
-int32_t IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
+std::optional<SensorType> IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
     std::string scan_dir = sysfs_path + "/scan_elements";
     DIR* scan_dp = opendir(scan_dir.c_str());
     if (scan_dp == nullptr) {
-        return -1;
+        return std::nullopt;
     }
 
-    int32_t sensor_type = -1;
+    std::optional<SensorType> sensor_type;
     struct dirent* scan_entry;
     while ((scan_entry = readdir(scan_dp)) != nullptr) {
         std::string fname = scan_entry->d_name;
@@ -237,17 +237,17 @@ int32_t IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
             if (pos != std::string::npos) {
                 std::string base = prefix.substr(0, pos);
                 sensor_type = MapIioTypeToSensorType(base);
-                if (sensor_type >= 0) break;
+                if (sensor_type.has_value()) break;
             }
             sensor_type = MapIioTypeToSensorType(prefix);
-            if (sensor_type >= 0) break;
+            if (sensor_type.has_value()) break;
         }
     }
     closedir(scan_dp);
     return sensor_type;
 }
 
-int32_t IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path) {
+std::optional<SensorType> IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path) {
     struct stat st;
 
     static const struct {
@@ -269,16 +269,16 @@ int32_t IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path)
         std::string raw_path = sysfs_path + "/" + entry.prefix + "_raw";
         std::string input_path = sysfs_path + "/" + entry.prefix + "_input";
         if (stat(raw_path.c_str(), &st) == 0 || stat(input_path.c_str(), &st) == 0) {
-            return static_cast<int32_t>(entry.type);
+            return entry.type;
         }
     }
 
     DIR* dp = opendir(sysfs_path.c_str());
     if (dp == nullptr) {
-        return -1;
+        return std::nullopt;
     }
 
-    int32_t result = -1;
+    std::optional<SensorType> result;
     struct dirent* dir_entry;
     while ((dir_entry = readdir(dp)) != nullptr) {
         std::string fname = dir_entry->d_name;
@@ -301,7 +301,7 @@ int32_t IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path)
         }
 
         result = MapIioTypeToSensorType(attr);
-        if (result >= 0) break;
+        if (result.has_value()) break;
     }
     closedir(dp);
     return result;
@@ -536,25 +536,25 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
               << "' of_name='" << of_name << "' compatible='" << of_compatible
               << "' at " << sysfs_path;
 
-    int32_t sensor_type = MapIioTypeToSensorType(device_name);
+    std::optional<SensorType> sensor_type = MapIioTypeToSensorType(device_name);
 
-    if (sensor_type < 0 && !of_compatible.empty()) {
+    if (!sensor_type.has_value() && !of_compatible.empty()) {
         sensor_type = MapIioTypeToSensorType(of_compatible);
     }
 
-    if (sensor_type < 0 && !of_name.empty()) {
+    if (!sensor_type.has_value() && !of_name.empty()) {
         sensor_type = MapIioTypeToSensorType(of_name);
     }
 
-    if (sensor_type < 0) {
+    if (!sensor_type.has_value()) {
         sensor_type = DetectTypeFromScanElements(sysfs_path);
     }
 
-    if (sensor_type < 0) {
+    if (!sensor_type.has_value()) {
         sensor_type = DetectTypeFromSysfsAttributes(sysfs_path);
     }
 
-    if (sensor_type < 0) {
+    if (!sensor_type.has_value()) {
         LOG(DEBUG) << "IIO device " << dev_num << " has no recognized sensor type, skipping";
         return;
     }
@@ -563,7 +563,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     sensor->handle = next_handle_++;
     sensor->sysfs_path = sysfs_path;
     sensor->device_name = device_name;
-    sensor->type = static_cast<SensorType>(sensor_type);
+    sensor->type = *sensor_type;
     sensor->is_poll_mode = true;
     sensor->enabled = false;
     sensor->sampling_period_ns = 200 * 1000 * 1000;
@@ -746,7 +746,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     int32_t handle = sensor->handle;
     sensors_[handle] = std::move(sensor);
     LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
-              << ", type=" << sensor_type << ", poll_mode="
+              << ", type=" << static_cast<int32_t>(*sensor_type) << ", poll_mode="
               << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
 }
 

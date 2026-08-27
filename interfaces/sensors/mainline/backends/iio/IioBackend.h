@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -86,9 +87,9 @@ class IioBackend : public ISensorBackend {
     std::vector<Event> ReadBufferSensorData(IioSensorData* sensor);
     void EnableRingBuffer(IioSensorData* sensor, bool enable);
 
-    int32_t MapIioTypeToSensorType(const std::string& iio_name);
-    int32_t DetectTypeFromScanElements(const std::string& sysfs_path);
-    int32_t DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
+    std::optional<SensorType> MapIioTypeToSensorType(const std::string& iio_name);
+    std::optional<SensorType> DetectTypeFromScanElements(const std::string& sysfs_path);
+    std::optional<SensorType> DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
     std::string ParseVendorFromCompatible(const std::string& of_compatible);
     bool IsVec3Type(SensorType type);
 
