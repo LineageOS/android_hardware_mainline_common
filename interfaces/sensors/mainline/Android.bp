@@ -25,6 +25,7 @@ cc_library_static {
         "android.hardware.common.fmq-V1-ndk",
         "libbase",
         "libbinder_ndk",
+        "libcutils",
         "libdl",
         "libfmq",
         "liblog",
@@ -44,9 +45,12 @@ cc_binary {
     srcs: ["main.cpp"],
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
+        "libbase",
         "libbinder_ndk",
+        "libcutils",
         "libfmq",
         "liblog",
+        "libutils",
     ],
     static_libs: [
         "libsensors_mainline_frontend",
