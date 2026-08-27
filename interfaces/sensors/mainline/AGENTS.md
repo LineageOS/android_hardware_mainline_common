@@ -7,7 +7,8 @@ devices running mainline Linux kernel, following AIDL interface version 3.
 
 ## Architecture
 
-- **Frontend** (this directory root): Implements `BnSensors` AIDL interface, loads backends via `dlopen()`, routes AIDL calls to correct backend, handles FMQ event posting and wake locks.
+- **Frontend** (this directory root): Implements `BnSensors` AIDL interface, loads backends via `dlopen()`, routes AIDL calls to correct backend, handles FMQ event posting and wake locks. Also manages composite (virtual/derived) sensors.
+- **Composite Sensors** (this directory root): Virtual sensors that derive data from hardware sensor events. Registered in the frontend via `RegisterCompositeSensor()`.
 - **Backends** (in `backends/` directory): Each backend is a shared library (`libsensors_*.so`) loaded dynamically.
   - `iio/`: Linux IIO subsystem backend (`libsensors_iio.so`)
   - `input/`: Linux input subsystem backend (`libsensors_input.so`)
@@ -17,7 +18,9 @@ devices running mainline Linux kernel, following AIDL interface version 3.
 
 - `main.cpp` - Service entry point
 - `Sensors.h/cpp` - AIDL `BnSensors` implementation
-- `SensorBackendManager.h/cpp` - Backend loading and routing via `dlopen()`
+- `SensorBackendManager.h/cpp` - Backend loading, routing, and composite sensor management
+- `CompositeSensor.h` - `ICompositeSensor` interface for virtual/derived sensors
+- `DeviceOrientationSensor.h/cpp` - Device orientation derived from accelerometer
 - `include/libsensors_mainline/SensorBackend.h` - Shared backend interface
 - `backends/iio/IioBackend.h/cpp` - IIO backend implementation
 - `backends/input/InputBackend.h/cpp` - Input backend implementation
@@ -63,6 +66,25 @@ The IIO backend derives `maxRange`, `resolution`, `minDelayUs`, `maxDelayUs` fro
 - `vendor.sensors.iio.<device_name>.resolution` - Override resolution
 
 Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` replaced by `_`.
+
+### Composite Sensors
+
+Composite sensors are virtual sensors implemented in the frontend. They derive data from
+hardware sensor events. To add a new composite sensor:
+
+1. Implement `ICompositeSensor` interface (see `CompositeSensor.h`)
+2. Register it in `Sensors::Sensors()` constructor via `backend_manager_.RegisterCompositeSensor()`
+3. Add the source file to `Android.bp` under `libsensors_mainline_frontend`
+
+The `SensorBackendManager` handles:
+- Assigning global handles to composite sensors
+- Forwarding relevant hardware sensor events to active composite sensors
+- Auto-activating hardware sensor dependencies when a composite sensor is activated
+- Auto-deactivating hardware dependencies when no composite sensor needs them
+- Including composite sensors in `GetSensorsList()`
+
+Current composite sensors:
+- `DeviceOrientationSensor` - Reports 0/90/180/270° from accelerometer data
 
 ## Code Style
 

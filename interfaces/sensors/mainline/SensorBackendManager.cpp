@@ -49,6 +49,10 @@ SensorBackendManager::~SensorBackendManager() {
     }
 }
 
+void SensorBackendManager::RegisterCompositeSensor(std::unique_ptr<ICompositeSensor> sensor) {
+    composite_sensors_.push_back(std::move(sensor));
+}
+
 std::vector<std::string> SensorBackendManager::GetBackendList() {
     std::vector<std::string> backends;
     std::set<std::string> seen;
@@ -134,6 +138,105 @@ void SensorBackendManager::LoadBackends() {
     LOG(INFO) << "Loaded " << backends_.size() << " backend(s)";
 }
 
+std::vector<Event> SensorBackendManager::ProcessCompositeSensors(
+        const std::vector<Event>& events) {
+    std::vector<Event> all_composite_events;
+
+    for (const auto& event : events) {
+        for (auto& composite : composite_sensors_) {
+            if (!composite->IsActive()) {
+                continue;
+            }
+
+            auto input_types = composite->GetInputSensorTypes();
+            bool interested = false;
+            for (const auto& type : input_types) {
+                if (type == event.sensorType) {
+                    interested = true;
+                    break;
+                }
+            }
+
+            if (interested) {
+                auto output = composite->ProcessEvent(event);
+                all_composite_events.insert(all_composite_events.end(), output.begin(),
+                                            output.end());
+            }
+        }
+    }
+
+    return all_composite_events;
+}
+
+int32_t SensorBackendManager::FindHardwareSensorHandle(SensorType type) {
+    for (size_t i = 0; i < backends_.size(); i++) {
+        auto sensors = backends_[i].backend->GetSensorsList();
+        for (const auto& sensor_info : sensors) {
+            if (sensor_info.type == type) {
+                auto it = backends_[i].local_to_global_handles.find(sensor_info.sensorHandle);
+                if (it != backends_[i].local_to_global_handles.end()) {
+                    return it->second;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+void SensorBackendManager::ActivateHardwareDependency(int32_t global_handle) {
+    auto it = global_handle_to_backend_.find(global_handle);
+    if (it == global_handle_to_backend_.end()) {
+        return;
+    }
+
+    int32_t idx = it->second;
+    if (static_cast<size_t>(idx) >= backends_.size()) {
+        return;
+    }
+
+    auto& entry = backends_[idx];
+    auto local_it = entry.global_to_local_handles.find(global_handle);
+    if (local_it == entry.global_to_local_handles.end()) {
+        return;
+    }
+
+    int32_t count = hardware_dependency_count_[global_handle];
+    hardware_dependency_count_[global_handle] = count + 1;
+
+    if (count == 0) {
+        LOG(INFO) << "Auto-activating hardware dependency handle=" << global_handle;
+        entry.backend->Activate(local_it->second, true);
+    }
+}
+
+void SensorBackendManager::DeactivateHardwareDependency(int32_t global_handle) {
+    auto it = hardware_dependency_count_.find(global_handle);
+    if (it == hardware_dependency_count_.end() || it->second <= 0) {
+        return;
+    }
+
+    it->second--;
+
+    if (it->second == 0) {
+        auto backend_it = global_handle_to_backend_.find(global_handle);
+        if (backend_it == global_handle_to_backend_.end()) {
+            return;
+        }
+
+        int32_t idx = backend_it->second;
+        if (static_cast<size_t>(idx) >= backends_.size()) {
+            return;
+        }
+
+        auto& entry = backends_[idx];
+        auto local_it = entry.global_to_local_handles.find(global_handle);
+        if (local_it != entry.global_to_local_handles.end()) {
+            LOG(INFO) << "Auto-deactivating hardware dependency handle=" << global_handle;
+            entry.backend->Activate(local_it->second, false);
+        }
+    }
+}
+
 void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     post_events_callback_ = callback;
@@ -143,17 +246,30 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
 
         auto wrapped_callback = [this, i](const std::vector<Event>& events, bool wakeup) {
             std::vector<Event> remapped_events = events;
-            std::lock_guard<std::mutex> cb_lock(mutex_);
-            if (i < backends_.size()) {
-                for (auto& ev : remapped_events) {
-                    auto it = backends_[i].local_to_global_handles.find(ev.sensorHandle);
-                    if (it != backends_[i].local_to_global_handles.end()) {
-                        ev.sensorHandle = it->second;
+            std::vector<Event> composite_events;
+            {
+                std::lock_guard<std::mutex> cb_lock(mutex_);
+                if (i < backends_.size()) {
+                    for (auto& ev : remapped_events) {
+                        auto it = backends_[i].local_to_global_handles.find(ev.sensorHandle);
+                        if (it != backends_[i].local_to_global_handles.end()) {
+                            ev.sensorHandle = it->second;
+                        }
                     }
                 }
+                composite_events = ProcessCompositeSensors(remapped_events);
             }
-            if (post_events_callback_) {
-                post_events_callback_(remapped_events, wakeup);
+
+            if (!composite_events.empty()) {
+                remapped_events.insert(remapped_events.end(), composite_events.begin(),
+                                       composite_events.end());
+            }
+
+            {
+                std::lock_guard<std::mutex> cb_lock(mutex_);
+                if (post_events_callback_) {
+                    post_events_callback_(remapped_events, wakeup);
+                }
             }
         };
 
@@ -180,10 +296,29 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
                       << "'";
         }
     }
+
+    for (size_t ci = 0; ci < composite_sensors_.size(); ci++) {
+        auto& composite = composite_sensors_[ci];
+        int32_t handle = next_handle_++;
+        composite->SetHandle(handle);
+        composite_handle_to_index_[handle] = ci;
+
+        for (const auto& input_type : composite->GetInputSensorTypes()) {
+            sensor_type_to_composite_[input_type].push_back(ci);
+        }
+
+        auto info = composite->GetSensorInfo();
+        LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type)
+                  << " name='" << info.name << "'] registered with handle=" << handle;
+    }
 }
 
 void SensorBackendManager::Deinitialize() {
     std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& composite : composite_sensors_) {
+        composite->Activate(false);
+    }
+    hardware_dependency_count_.clear();
     for (auto& entry : backends_) {
         entry.backend->Deinitialize();
     }
@@ -205,6 +340,11 @@ std::vector<SensorInfo> SensorBackendManager::GetSensorsList() {
         }
     }
 
+    for (auto& composite : composite_sensors_) {
+        auto info = composite->GetSensorInfo();
+        all_sensors.push_back(info);
+    }
+
     return all_sensors;
 }
 
@@ -217,6 +357,27 @@ int32_t SensorBackendManager::GetBackendIndex(int32_t global_handle) {
 }
 
 int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
+    {
+        auto cs_it = composite_handle_to_index_.find(sensor_handle);
+        if (cs_it != composite_handle_to_index_.end()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            size_t ci = cs_it->second;
+            composite_sensors_[ci]->Activate(enabled);
+
+            for (const auto& input_type : composite_sensors_[ci]->GetInputSensorTypes()) {
+                int32_t hw_handle = FindHardwareSensorHandle(input_type);
+                if (hw_handle >= 0) {
+                    if (enabled) {
+                        ActivateHardwareDependency(hw_handle);
+                    } else {
+                        DeactivateHardwareDependency(hw_handle);
+                    }
+                }
+            }
+            return 0;
+        }
+    }
+
     ISensorBackend* backend = nullptr;
     int32_t local_handle = -1;
     {
@@ -238,6 +399,13 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
 
 int32_t SensorBackendManager::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
                                     int64_t max_report_latency_ns) {
+    {
+        auto cs_it = composite_handle_to_index_.find(sensor_handle);
+        if (cs_it != composite_handle_to_index_.end()) {
+            return 0;
+        }
+    }
+
     ISensorBackend* backend = nullptr;
     int32_t local_handle = -1;
     {
@@ -258,6 +426,23 @@ int32_t SensorBackendManager::Batch(int32_t sensor_handle, int64_t sampling_peri
 }
 
 int32_t SensorBackendManager::Flush(int32_t sensor_handle) {
+    {
+        auto cs_it = composite_handle_to_index_.find(sensor_handle);
+        if (cs_it != composite_handle_to_index_.end()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            size_t ci = cs_it->second;
+            if (!composite_sensors_[ci]->IsActive()) {
+                return -EINVAL;
+            }
+
+            Event flush_event = composite_sensors_[ci]->CreateFlushCompleteEvent();
+            if (post_events_callback_) {
+                post_events_callback_({flush_event}, false);
+            }
+            return 0;
+        }
+    }
+
     ISensorBackend* backend = nullptr;
     int32_t local_handle = -1;
     {
