@@ -46,6 +46,7 @@ cc_binary {
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
         "libbinder_ndk",
+        "libfmq",
         "liblog",
     ],
     static_libs: [

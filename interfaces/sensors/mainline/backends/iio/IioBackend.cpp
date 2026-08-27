@@ -45,10 +45,10 @@ std::string IioBackend::GetName() const {
 std::string IioBackend::ReadSysfsString(const std::string& path,
                                          const std::string& default_value) {
     std::string result;
-    if (!android::base::ReadFileToString(path, &result)) {
+    if (!::android::base::ReadFileToString(path, &result)) {
         return default_value;
     }
-    return android::base::Trim(result);
+    return ::android::base::Trim(result);
 }
 
 float IioBackend::ReadSysfsFloat(const std::string& path, float default_value) {
@@ -76,7 +76,7 @@ int32_t IioBackend::ReadSysfsInt(const std::string& path, int32_t default_value)
 }
 
 bool IioBackend::WriteSysfsInt(const std::string& path, int32_t value) {
-    return android::base::WriteStringToFile(std::to_string(value), path);
+    return ::android::base::WriteStringToFile(std::to_string(value), path);
 }
 
 void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]) {
@@ -96,7 +96,7 @@ void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]
             continue;
         }
 
-        auto rows = android::base::Split(content, ";");
+        auto rows = ::android::base::Split(content, ";");
         if (rows.size() != 3) {
             continue;
         }
@@ -104,14 +104,14 @@ void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]
         bool valid = true;
         float parsed[9];
         for (int r = 0; r < 3; r++) {
-            auto cols = android::base::Split(rows[r], ",");
+            auto cols = ::android::base::Split(rows[r], ",");
             if (cols.size() != 3) {
                 valid = false;
                 break;
             }
             for (int c = 0; c < 3; c++) {
                 try {
-                    parsed[r * 3 + c] = std::stof(android::base::Trim(cols[c]));
+                    parsed[r * 3 + c] = std::stof(::android::base::Trim(cols[c]));
                 } catch (...) {
                     valid = false;
                     break;
@@ -690,7 +690,7 @@ std::vector<Event> IioBackend::ReadBufferSensorData(IioSensorData* sensor) {
     std::vector<Event> events;
 
     std::string dev_path = "/dev/iio:device" + std::to_string(sensor->dev_num);
-    android::base::unique_fd fd(open(dev_path.c_str(), O_RDONLY | O_NONBLOCK));
+    ::android::base::unique_fd fd(open(dev_path.c_str(), O_RDONLY | O_NONBLOCK));
     if (fd.get() < 0) {
         return events;
     }

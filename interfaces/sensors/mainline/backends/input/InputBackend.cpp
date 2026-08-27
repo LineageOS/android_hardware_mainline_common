@@ -47,10 +47,10 @@ std::string InputBackend::GetName() const {
 std::string InputBackend::ReadSysfsString(const std::string& path,
                                            const std::string& default_value) {
     std::string result;
-    if (!android::base::ReadFileToString(path, &result)) {
+    if (!::android::base::ReadFileToString(path, &result)) {
         return default_value;
     }
-    return android::base::Trim(result);
+    return ::android::base::Trim(result);
 }
 
 bool InputBackend::HasSwitchCapability(const std::string& sysfs_path) {
@@ -123,7 +123,7 @@ void InputBackend::DiscoverDevices() {
 
         std::string device_path = std::string(kInputBasePath) + "/" + name;
 
-        android::base::unique_fd fd(open(device_path.c_str(), O_RDONLY | O_NONBLOCK));
+        ::android::base::unique_fd fd(open(device_path.c_str(), O_RDONLY | O_NONBLOCK));
         if (fd.get() < 0) {
             continue;
         }
@@ -276,7 +276,7 @@ void InputBackend::PollSensorThread(InputSensorData* sensor) {
 std::vector<Event> InputBackend::ReadSensorData(InputSensorData* sensor) {
     std::vector<Event> events;
 
-    android::base::unique_fd fd(open(sensor->device_path.c_str(), O_RDONLY | O_NONBLOCK));
+    ::android::base::unique_fd fd(open(sensor->device_path.c_str(), O_RDONLY | O_NONBLOCK));
     if (fd.get() < 0) {
         return events;
     }
