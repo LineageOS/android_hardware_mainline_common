@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -275,6 +276,19 @@ int32_t IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path)
     }
     closedir(dp);
     return result;
+}
+
+std::string IioBackend::ParseVendorFromCompatible(const std::string& of_compatible) {
+    if (of_compatible.empty()) {
+        return "";
+    }
+    size_t comma_pos = of_compatible.find(',');
+    if (comma_pos == std::string::npos || comma_pos == 0) {
+        return "";
+    }
+    std::string vendor = of_compatible.substr(0, comma_pos);
+    vendor[0] = std::toupper(static_cast<unsigned char>(vendor[0]));
+    return vendor;
 }
 
 bool IioBackend::IsVec3Type(SensorType type) {
@@ -682,7 +696,8 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 
     sensor->sensor_info.sensorHandle = sensor->handle;
     sensor->sensor_info.name = device_name;
-    sensor->sensor_info.vendor = "Linux IIO";
+    std::string parsed_vendor = ParseVendorFromCompatible(of_compatible);
+    sensor->sensor_info.vendor = parsed_vendor.empty() ? "Linux IIO" : parsed_vendor;
     sensor->sensor_info.version = 1;
     sensor->sensor_info.type = sensor->type;
     sensor->sensor_info.typeAsString = "";
