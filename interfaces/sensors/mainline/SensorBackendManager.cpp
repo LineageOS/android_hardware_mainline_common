@@ -297,6 +297,27 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
         }
     }
 
+    std::set<SensorType> hardware_sensor_types;
+    for (size_t i = 0; i < backends_.size(); i++) {
+        auto sensors = backends_[i].backend->GetSensorsList();
+        for (const auto& sensor_info : sensors) {
+            hardware_sensor_types.insert(sensor_info.type);
+        }
+    }
+
+    std::vector<std::unique_ptr<ICompositeSensor>> active_composites;
+    for (auto& composite : composite_sensors_) {
+        auto info = composite->GetSensorInfo();
+        if (hardware_sensor_types.count(info.type) > 0) {
+            LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type)
+                      << " name='" << info.name
+                      << "'] skipped: hardware sensor already provides this type";
+            continue;
+        }
+        active_composites.push_back(std::move(composite));
+    }
+    composite_sensors_ = std::move(active_composites);
+
     for (size_t ci = 0; ci < composite_sensors_.size(); ci++) {
         auto& composite = composite_sensors_[ci];
         int32_t handle = next_handle_++;
