@@ -51,6 +51,19 @@ This project uses the Android build system (Soong/Blueprint). Build modules:
 - Backend list override property: `vendor.sensors.backends`
 - Default backend load order: IIO, Input, Mock
 
+### IIO Backend Sensor Info Overrides
+
+The IIO backend derives `maxRange`, `resolution`, `minDelayUs`, `maxDelayUs` from sysfs
+(`in_*_scale`, `realbits`, `sampling_frequency_available`). Values that cannot be auto-determined
+(`power`, `vendor`, or overrides for the derived values) are read from android properties:
+
+- `vendor.sensors.iio.<device_name>.vendor` - Override vendor name
+- `vendor.sensors.iio.<device_name>.power` - Override power (mA)
+- `vendor.sensors.iio.<device_name>.max_range` - Override maxRange
+- `vendor.sensors.iio.<device_name>.resolution` - Override resolution
+
+Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` replaced by `_`.
+
 ## Code Style
 
 Follow Google C++ Style Guide. Member variables use `snake_case_` with trailing underscore.

@@ -74,6 +74,31 @@ Mount matrix correction is supported via sysfs attributes:
 2. `in_accel_mount_matrix`
 3. `in_mount_matrix`
 
+### Sensor Type Detection
+
+Sensor type is determined using a fallback chain:
+1. IIO device `name` attribute
+2. Device tree `of_node/compatible`
+3. Device tree `of_node/name`
+4. Scan elements channel prefixes
+5. Sysfs attribute filenames
+
+### Sensor Info Overrides
+
+Sensor metadata (`maxRange`, `resolution`, `minDelayUs`, `maxDelayUs`) is derived from
+sysfs (`in_*_scale`, channel `realbits`, `sampling_frequency_available`).
+
+Hardware-specific overrides can be set via android properties:
+
+```
+vendor.sensors.iio.<device_name>.vendor = Vendor Name
+vendor.sensors.iio.<device_name>.power = 0.13
+vendor.sensors.iio.<device_name>.max_range = 78.4
+vendor.sensors.iio.<device_name>.resolution = 0.001
+```
+
+Where `<device_name>` is the IIO device `name` with `-`, ` `, `/` replaced by `_`.
+
 ## Input Backend
 
 The Input backend discovers sensors from `/dev/input/event*` devices.
