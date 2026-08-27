@@ -296,12 +296,6 @@ bool IioBackend::IsVec3Type(SensorType type) {
            type == SensorType::MAGNETIC_FIELD;
 }
 
-bool IioBackend::IsOnChangeType(SensorType type) {
-    return type == SensorType::LIGHT || type == SensorType::PROXIMITY ||
-           type == SensorType::AMBIENT_TEMPERATURE || type == SensorType::RELATIVE_HUMIDITY ||
-           type == SensorType::PRESSURE;
-}
-
 std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs_path) {
     std::vector<float> frequencies;
 
@@ -772,7 +766,13 @@ void IioBackend::PollSensorThread(IioSensorData* sensor) {
             period_ns = 200 * 1000 * 1000;
         }
 
-        auto events = ReadPollSensorData(sensor);
+        std::vector<Event> events;
+        if (sensor->is_poll_mode) {
+            events = ReadPollSensorData(sensor);
+        } else {
+            events = ReadBufferSensorData(sensor);
+        }
+
         if (!events.empty() && post_events_callback_) {
             bool wakeup =
                     (sensor->sensor_info.flags &
