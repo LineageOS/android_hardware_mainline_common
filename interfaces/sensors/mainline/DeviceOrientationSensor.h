@@ -32,11 +32,11 @@ class DeviceOrientationSensor : public ICompositeSensor {
     CompositeEvent CreateFlushCompleteEvent() const override;
 
   private:
-    float ComputeOrientation(float x, float y, float z);
+    int32_t ComputeOrientation(float x, float y, float z);
 
     CompositeSensorInfo sensor_info_;
     std::atomic_bool active_;
-    float last_orientation_;
+    int32_t last_orientation_;
     bool has_last_orientation_;
 };
 
