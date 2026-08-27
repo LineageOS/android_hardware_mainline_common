@@ -13,9 +13,7 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
-#include <dirent.h>
 #include <fcntl.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -25,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -218,16 +217,16 @@ std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& 
 }
 
 std::optional<SensorType> IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
-    std::string scan_dir = sysfs_path + "/scan_elements";
-    DIR* scan_dp = opendir(scan_dir.c_str());
-    if (scan_dp == nullptr) {
+    std::error_code ec;
+    std::filesystem::path scan_dir = std::filesystem::path(sysfs_path) / "scan_elements";
+    std::filesystem::directory_iterator scan_it(scan_dir, ec);
+    if (ec) {
         return std::nullopt;
     }
 
     std::optional<SensorType> sensor_type;
-    struct dirent* scan_entry;
-    while ((scan_entry = readdir(scan_dp)) != nullptr) {
-        std::string fname = scan_entry->d_name;
+    for (const auto& scan_entry : scan_it) {
+        std::string fname = scan_entry.path().filename().string();
         if (fname.size() > 3 && fname.substr(fname.size() - 3) == "_en") {
             std::string prefix = fname.substr(0, fname.size() - 3);
             if (prefix.find("in_") == 0) {
@@ -243,13 +242,10 @@ std::optional<SensorType> IioBackend::DetectTypeFromScanElements(const std::stri
             if (sensor_type.has_value()) break;
         }
     }
-    closedir(scan_dp);
     return sensor_type;
 }
 
 std::optional<SensorType> IioBackend::DetectTypeFromSysfsAttributes(const std::string& sysfs_path) {
-    struct stat st;
-
     static const struct {
         const char* prefix;
         SensorType type;
@@ -265,23 +261,23 @@ std::optional<SensorType> IioBackend::DetectTypeFromSysfsAttributes(const std::s
             {"in_humidityrelative", SensorType::RELATIVE_HUMIDITY},
     };
 
+    std::error_code ec;
     for (const auto& entry : kAttributeMap) {
         std::string raw_path = sysfs_path + "/" + entry.prefix + "_raw";
         std::string input_path = sysfs_path + "/" + entry.prefix + "_input";
-        if (stat(raw_path.c_str(), &st) == 0 || stat(input_path.c_str(), &st) == 0) {
+        if (std::filesystem::exists(raw_path, ec) || std::filesystem::exists(input_path, ec)) {
             return entry.type;
         }
     }
 
-    DIR* dp = opendir(sysfs_path.c_str());
-    if (dp == nullptr) {
+    std::filesystem::directory_iterator dp(sysfs_path, ec);
+    if (ec) {
         return std::nullopt;
     }
 
     std::optional<SensorType> result;
-    struct dirent* dir_entry;
-    while ((dir_entry = readdir(dp)) != nullptr) {
-        std::string fname = dir_entry->d_name;
+    for (const auto& dir_entry : dp) {
+        std::string fname = dir_entry.path().filename().string();
         if (fname.find("in_") != 0) {
             continue;
         }
@@ -303,7 +299,6 @@ std::optional<SensorType> IioBackend::DetectTypeFromSysfsAttributes(const std::s
         result = MapIioTypeToSensorType(attr);
         if (result.has_value()) break;
     }
-    closedir(dp);
     return result;
 }
 
@@ -502,15 +497,15 @@ void IioBackend::ApplySensorInfoOverrides(IioSensorData* sensor) {
 }
 
 void IioBackend::DiscoverDevices() {
-    DIR* dir = opendir(kIioBasePath);
-    if (dir == nullptr) {
-        LOG(WARNING) << "Cannot open " << kIioBasePath << ": " << strerror(errno);
+    std::error_code ec;
+    std::filesystem::directory_iterator dir_it(kIioBasePath, ec);
+    if (ec) {
+        LOG(WARNING) << "Cannot open " << kIioBasePath << ": " << ec.message();
         return;
     }
 
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != nullptr) {
-        std::string name = entry->d_name;
+    for (const auto& entry : dir_it) {
+        std::string name = entry.path().filename().string();
         if (name.find("iio:device") == std::string::npos) {
             continue;
         }
@@ -520,11 +515,8 @@ void IioBackend::DiscoverDevices() {
             continue;
         }
 
-        std::string sysfs_path = std::string(kIioBasePath) + "/" + name;
-        DiscoverSensors(dev_num, sysfs_path);
+        DiscoverSensors(dev_num, entry.path().string());
     }
-
-    closedir(dir);
 }
 
 void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
@@ -573,15 +565,15 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     ParseMountMatrix(sysfs_path, sensor->mount_matrix);
 
     bool has_scan_elements = false;
-    std::string scan_dir = sysfs_path + "/scan_elements";
-    DIR* scan_dp = opendir(scan_dir.c_str());
-    if (scan_dp != nullptr) {
-        struct dirent* scan_entry;
-        while ((scan_entry = readdir(scan_dp)) != nullptr) {
-            std::string fname = scan_entry->d_name;
+    std::filesystem::path scan_dir = std::filesystem::path(sysfs_path) / "scan_elements";
+    std::error_code ec;
+    std::filesystem::directory_iterator scan_it(scan_dir, ec);
+    if (!ec) {
+        for (const auto& scan_entry : scan_it) {
+            std::string fname = scan_entry.path().filename().string();
             if (fname.size() > 3 && fname.substr(fname.size() - 3) == "_en") {
                 has_scan_elements = true;
-                std::string en_content = ReadSysfsString(scan_dir + "/" + fname, "0");
+                std::string en_content = ReadSysfsString(scan_dir.string() + "/" + fname, "0");
                 if (en_content != "1") {
                     continue;
                 }
@@ -592,7 +584,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                 channel.name = chan_prefix;
 
                 std::string type_content =
-                        ReadSysfsString(scan_dir + "/" + chan_prefix + "_type", "");
+                        ReadSysfsString(scan_dir.string() + "/" + chan_prefix + "_type", "");
                 if (type_content.empty()) {
                     continue;
                 }
@@ -601,7 +593,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                     continue;
                 }
 
-                channel.index = ReadSysfsInt(scan_dir + "/" + chan_prefix + "_index", -1);
+                channel.index = ReadSysfsInt(scan_dir.string() + "/" + chan_prefix + "_index", -1);
                 if (channel.index < 0) {
                     continue;
                 }
@@ -618,7 +610,6 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                 sensor->channels.push_back(channel);
             }
         }
-        closedir(scan_dp);
     }
 
     if (!has_scan_elements || sensor->channels.empty()) {
@@ -638,8 +629,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             for (size_t i = 0; i < axes.size(); i++) {
                 std::string raw_path =
                         sysfs_path + "/in_" + type_prefix + "_" + axes[i] + "_raw";
-                struct stat st;
-                if (stat(raw_path.c_str(), &st) != 0) {
+                if (!std::filesystem::exists(raw_path, ec)) {
                     LOG(WARNING) << "Missing " << raw_path << " for sensor " << device_name;
                     return;
                 }
@@ -677,8 +667,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             std::string found_path;
             for (const auto& suffix : suffixes) {
                 std::string test = sysfs_path + "/in_" + type_prefix + suffix;
-                struct stat st;
-                if (stat(test.c_str(), &st) == 0) {
+                if (std::filesystem::exists(test, ec)) {
                     found_path = test;
                     break;
                 }
@@ -687,8 +676,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             if (found_path.empty()) {
                 for (const auto& suffix : suffixes) {
                     std::string test = sysfs_path + "/in_" + type_prefix + "0" + suffix;
-                    struct stat st;
-                    if (stat(test.c_str(), &st) == 0) {
+                    if (std::filesystem::exists(test, ec)) {
                         found_path = test;
                         break;
                     }
@@ -718,8 +706,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         }
     } else {
         std::string dev_path = "/dev/iio:device" + std::to_string(dev_num);
-        struct stat st;
-        if (stat(dev_path.c_str(), &st) == 0) {
+        if (std::filesystem::exists(dev_path, ec)) {
             sensor->is_poll_mode = false;
         }
     }
