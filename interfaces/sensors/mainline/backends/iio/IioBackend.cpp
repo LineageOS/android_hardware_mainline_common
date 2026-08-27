@@ -363,8 +363,9 @@ void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
 
     switch (sensor->type) {
         case SensorType::ACCELEROMETER:
-            sensor->sensor_info.maxRange = raw_max_range * 9.81f;
-            sensor->sensor_info.resolution = resolution * 9.81f;
+            // IIO scale already converts raw to m/s²
+            sensor->sensor_info.maxRange = raw_max_range;
+            sensor->sensor_info.resolution = resolution;
             sensor->sensor_info.minDelayUs = 2500;
             sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
             sensor->sensor_info.flags =
@@ -857,11 +858,7 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
         event.sensorType = sensor->type;
         event.timestamp = timestamp;
 
-        if (sensor->type == SensorType::ACCELEROMETER) {
-            corrected[0] *= 9.81f;
-            corrected[1] *= 9.81f;
-            corrected[2] *= 9.81f;
-        }
+        // IIO scale already converts raw to m/s²
 
         EventPayload::Vec3 vec3 = BuildVec3Value(
                 {corrected[0], corrected[1], corrected[2]});
@@ -982,11 +979,7 @@ std::vector<Event> IioBackend::ReadBufferSensorData(IioSensorData* sensor) {
                            sensor->mount_matrix[r * 3 + 2] * values[2];
         }
 
-        if (sensor->type == SensorType::ACCELEROMETER) {
-            corrected[0] *= 9.81f;
-            corrected[1] *= 9.81f;
-            corrected[2] *= 9.81f;
-        }
+        // IIO scale already converts raw to m/s²
 
         Event event;
         event.sensorHandle = sensor->handle;
