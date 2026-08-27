@@ -141,9 +141,12 @@ vendor.sensors.iio.<device_name>.vendor = Vendor Name
 vendor.sensors.iio.<device_name>.power = 0.13
 vendor.sensors.iio.<device_name>.max_range = 78.4
 vendor.sensors.iio.<device_name>.resolution = 0.001
+vendor.sensors.iio.<device_name>.mount_matrix = 1,0,0;0,-1,0;0,0,1
 ```
 
 Where `<device_name>` is the IIO device `name` with `-`, ` `, `/` replaced by `_`.
+
+The `mount_matrix` property overrides the mount matrix read from sysfs. Format is a 3x3 matrix with rows separated by semicolons and columns by commas. This is useful when the kernel-provided mount matrix is incorrect or missing.
 
 ## Input Backend
 
