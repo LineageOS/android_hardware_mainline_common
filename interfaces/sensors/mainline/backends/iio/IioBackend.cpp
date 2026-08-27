@@ -9,6 +9,7 @@
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
@@ -287,6 +288,170 @@ bool IioBackend::IsOnChangeType(SensorType type) {
            type == SensorType::PRESSURE;
 }
 
+std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs_path) {
+    std::vector<float> frequencies;
+
+    std::string freq_path = sysfs_path + "/sampling_frequency_available";
+    std::string content = ReadSysfsString(freq_path, "");
+
+    if (content.empty()) {
+        return frequencies;
+    }
+
+    std::istringstream iss(content);
+    std::string token;
+    while (iss >> token) {
+        char* end = nullptr;
+        float freq = std::strtof(token.c_str(), &end);
+        if (end != token.c_str() && *end == '\0') {
+            frequencies.push_back(freq);
+        }
+    }
+
+    std::sort(frequencies.begin(), frequencies.end());
+    return frequencies;
+}
+
+void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
+    if (!sensor || sensor->channels.empty()) {
+        return;
+    }
+
+    const auto& channel = sensor->channels[0];
+    float scale = channel.scale;
+    uint8_t realbits = channel.realbits;
+    bool is_signed = (channel.sign == 's');
+
+    int32_t max_raw = is_signed ? ((1 << (realbits - 1)) - 1) : ((1 << realbits) - 1);
+    float raw_max_range = static_cast<float>(max_raw) * scale;
+    float resolution = scale;
+
+    switch (sensor->type) {
+        case SensorType::ACCELEROMETER:
+            sensor->sensor_info.maxRange = raw_max_range * 9.81f;
+            sensor->sensor_info.resolution = resolution * 9.81f;
+            sensor->sensor_info.minDelayUs = 2500;
+            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
+            sensor->sensor_info.flags =
+                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
+            break;
+
+        case SensorType::GYROSCOPE:
+            sensor->sensor_info.maxRange = raw_max_range * static_cast<float>(M_PI) / 180.0f;
+            sensor->sensor_info.resolution = resolution * static_cast<float>(M_PI) / 180.0f;
+            sensor->sensor_info.minDelayUs = 2500;
+            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
+            sensor->sensor_info.flags =
+                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
+            break;
+
+        case SensorType::MAGNETIC_FIELD:
+            sensor->sensor_info.maxRange = raw_max_range;
+            sensor->sensor_info.resolution = resolution;
+            sensor->sensor_info.minDelayUs = 10000;
+            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
+            sensor->sensor_info.flags =
+                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
+            break;
+
+        case SensorType::LIGHT:
+        case SensorType::PROXIMITY:
+        case SensorType::AMBIENT_TEMPERATURE:
+        case SensorType::RELATIVE_HUMIDITY:
+        case SensorType::PRESSURE:
+            sensor->sensor_info.maxRange = raw_max_range;
+            sensor->sensor_info.resolution = resolution;
+            sensor->sensor_info.minDelayUs = 0;
+            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
+            if (sensor->type == SensorType::PROXIMITY) {
+                sensor->sensor_info.flags =
+                        static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE |
+                                             SensorInfo::SENSOR_FLAG_BITS_WAKE_UP);
+            } else {
+                sensor->sensor_info.flags =
+                        static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
+            }
+            break;
+
+        default:
+            sensor->sensor_info.maxRange = raw_max_range;
+            sensor->sensor_info.resolution = resolution;
+            sensor->sensor_info.minDelayUs = 0;
+            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
+            sensor->sensor_info.flags = 0;
+            break;
+    }
+
+    auto frequencies = ReadAvailableFrequencies(sensor->sysfs_path);
+    if (!frequencies.empty()) {
+        float max_freq = frequencies.back();
+        float min_freq = frequencies.front();
+
+        if (max_freq > 0) {
+            int32_t computed_min_delay = static_cast<int32_t>(1000000.0f / max_freq);
+            if (computed_min_delay > 0) {
+                sensor->sensor_info.minDelayUs = computed_min_delay;
+            }
+        }
+
+        if (min_freq > 0) {
+            int32_t computed_max_delay = static_cast<int32_t>(1000000.0f / min_freq);
+            if (computed_max_delay > 0 && computed_max_delay < kDefaultMaxDelayUs) {
+                sensor->sensor_info.maxDelayUs = computed_max_delay;
+            }
+        }
+    }
+}
+
+void IioBackend::ApplySensorInfoOverrides(IioSensorData* sensor) {
+    if (!sensor) {
+        return;
+    }
+
+    std::string device_key = sensor->device_name;
+    for (char& c : device_key) {
+        if (c == '-' || c == ' ' || c == '/') {
+            c = '_';
+        }
+    }
+
+    std::string prop_prefix = "vendor.sensors.iio." + device_key + ".";
+
+    std::string vendor_override = ::android::base::GetProperty(prop_prefix + "vendor", "");
+    if (!vendor_override.empty()) {
+        sensor->sensor_info.vendor = vendor_override;
+    }
+
+    float power = 0.001f;
+    std::string power_str = ::android::base::GetProperty(prop_prefix + "power", "");
+    if (!power_str.empty()) {
+        char* end = nullptr;
+        float parsed = std::strtof(power_str.c_str(), &end);
+        if (end != power_str.c_str() && *end == '\0' && parsed >= 0.0f) {
+            power = parsed;
+        }
+    }
+    sensor->sensor_info.power = power;
+
+    std::string max_range_str = ::android::base::GetProperty(prop_prefix + "max_range", "");
+    if (!max_range_str.empty()) {
+        char* end = nullptr;
+        float parsed = std::strtof(max_range_str.c_str(), &end);
+        if (end != max_range_str.c_str() && *end == '\0' && parsed > 0.0f) {
+            sensor->sensor_info.maxRange = parsed;
+        }
+    }
+
+    std::string resolution_str = ::android::base::GetProperty(prop_prefix + "resolution", "");
+    if (!resolution_str.empty()) {
+        char* end = nullptr;
+        float parsed = std::strtof(resolution_str.c_str(), &end);
+        if (end != resolution_str.c_str() && *end == '\0' && parsed > 0.0f) {
+            sensor->sensor_info.resolution = parsed;
+        }
+    }
+}
+
 void IioBackend::DiscoverDevices() {
     DIR* dir = opendir(kIioBasePath);
     if (dir == nullptr) {
@@ -525,88 +690,8 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     sensor->sensor_info.fifoMaxEventCount = 0;
     sensor->sensor_info.requiredPermission = "";
 
-    switch (sensor->type) {
-        case SensorType::ACCELEROMETER:
-            sensor->sensor_info.maxRange = 78.4f;
-            sensor->sensor_info.resolution = 0.001f;
-            sensor->sensor_info.power = 0.13f;
-            sensor->sensor_info.minDelayUs = 2500;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
-            break;
-        case SensorType::GYROSCOPE:
-            sensor->sensor_info.maxRange = 1000.0f * static_cast<float>(M_PI) / 180.0f;
-            sensor->sensor_info.resolution = 1000.0f * static_cast<float>(M_PI) / (180.0f * 32768.0f);
-            sensor->sensor_info.power = 6.1f;
-            sensor->sensor_info.minDelayUs = 2500;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
-            break;
-        case SensorType::MAGNETIC_FIELD:
-            sensor->sensor_info.maxRange = 1300.0f;
-            sensor->sensor_info.resolution = 0.01f;
-            sensor->sensor_info.power = 0.35f;
-            sensor->sensor_info.minDelayUs = 10000;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
-            break;
-        case SensorType::LIGHT:
-            sensor->sensor_info.maxRange = 43000.0f;
-            sensor->sensor_info.resolution = 10.0f;
-            sensor->sensor_info.power = 0.175f;
-            sensor->sensor_info.minDelayUs = 0;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
-            break;
-        case SensorType::PROXIMITY:
-            sensor->sensor_info.maxRange = 5.0f;
-            sensor->sensor_info.resolution = 1.0f;
-            sensor->sensor_info.power = 0.012f;
-            sensor->sensor_info.minDelayUs = 0;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE |
-                                         SensorInfo::SENSOR_FLAG_BITS_WAKE_UP);
-            break;
-        case SensorType::AMBIENT_TEMPERATURE:
-            sensor->sensor_info.maxRange = 80.0f;
-            sensor->sensor_info.resolution = 0.01f;
-            sensor->sensor_info.power = 0.001f;
-            sensor->sensor_info.minDelayUs = 0;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
-            break;
-        case SensorType::PRESSURE:
-            sensor->sensor_info.maxRange = 1100.0f;
-            sensor->sensor_info.resolution = 0.005f;
-            sensor->sensor_info.power = 0.004f;
-            sensor->sensor_info.minDelayUs = 10000;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags = 0;
-            break;
-        case SensorType::RELATIVE_HUMIDITY:
-            sensor->sensor_info.maxRange = 100.0f;
-            sensor->sensor_info.resolution = 0.1f;
-            sensor->sensor_info.power = 0.001f;
-            sensor->sensor_info.minDelayUs = 0;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags =
-                    static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
-            break;
-        default:
-            sensor->sensor_info.maxRange = 1.0f;
-            sensor->sensor_info.resolution = 0.01f;
-            sensor->sensor_info.power = 0.001f;
-            sensor->sensor_info.minDelayUs = 0;
-            sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-            sensor->sensor_info.flags = 0;
-            break;
-    }
+    DeriveSensorInfoFromSysfs(sensor.get());
+    ApplySensorInfoOverrides(sensor.get());
 
     int32_t handle = sensor->handle;
     sensors_[handle] = std::move(sensor);
