@@ -27,11 +27,11 @@ static constexpr const char* kKnownBackends[] = {
 static constexpr const char* kLibrarySearchPaths[] = {
         "",
 #ifdef __LP64__
-        "/apex/com.android.hardware.sensors.mainline/lib64/",
+        "/apex/com.android.hardware.sensors/lib64/",
         "/odm/lib64/hw/",
         "/vendor/lib64/hw/",
 #else
-        "/apex/com.android.hardware.sensors.mainline/lib/",
+        "/apex/com.android.hardware.sensors/lib/",
         "/odm/lib/hw/",
         "/vendor/lib/hw/",
 #endif
