@@ -18,6 +18,24 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "8e7f7fc0_7b719563",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 89,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "9736012e_ad9960e9",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "6509ba0e_06a79c34",
@@ -31,6 +49,24 @@
       "writtenOn": "2026-08-27T14:23:47Z",
       "side": 1,
       "message": "Don\u0027t use std::sto* variants, use libbabe parseInt/Float and friends\n\nExceptions are disabled by default in android so this does nothing atm",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "38ca3a74_53237795",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 114,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "6509ba0e_06a79c34",
       "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
@@ -58,6 +94,30 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "9ef52d90_3ca2151e",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 158,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "2b2d70c8_1ec066b8",
+      "range": {
+        "startLine": 158,
+        "startChar": 0,
+        "endLine": 158,
+        "endChar": 7
+      },
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "24a9749c_c9865b76",
@@ -71,6 +131,24 @@
       "writtenOn": "2026-08-27T14:23:47Z",
       "side": 1,
       "message": "you can use std::filesystem, we\u0027re in 2026",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "a9111f42_1c7012f2",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 193,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "24a9749c_c9865b76",
       "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
@@ -92,6 +170,24 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "824e3782_e421bfd4",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 232,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "e16dba76_92c31379",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "55d7fc5b_abfd40b7",
@@ -109,6 +205,24 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "dbf7ab86_48cfaeb3",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 288,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "55d7fc5b_abfd40b7",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "6af46561_1cd4d3f9",
@@ -122,6 +236,24 @@
       "writtenOn": "2026-08-27T14:23:47Z",
       "side": 1,
       "message": "I don\u0027t remember the ABI, but I\u0027d expect the channel type to be also parsed here no?\n\nOnly for _enable seems weird",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "ad403d6c_dc53c542",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 355,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "explain more clearly? (on latest codebase pls)",
+      "parentUuid": "6af46561_1cd4d3f9",
       "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
@@ -161,6 +293,24 @@
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "d600f272_e68933ab",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 692,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "1fe7ab01_8ea3f726",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "cef82bb4_725d2abb",
@@ -174,6 +324,24 @@
       "writtenOn": "2026-08-27T14:23:47Z",
       "side": 1,
       "message": "this is valid only for is_poll_mode, the other kind need what I left my comment about (pipe+poll)",
+      "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "36e7ca1a_61c9bba4",
+        "filename": "interfaces/sensors/mainline/backends/iio/IioBackend.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 808,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-08-27T20:31:46Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "cef82bb4_725d2abb",
       "revId": "df26b05606d5b6889fde8f1e21a09cc4f8cd709b",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
