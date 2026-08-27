@@ -47,6 +47,10 @@ struct IioSensorData {
     std::mutex poll_mutex;
     std::condition_variable poll_cv;
     std::atomic_bool stop_thread;
+    int buffer_fd = -1;
+    int signal_pipe_fd[2] = {-1, -1};
+    int32_t scan_size = 0;
+    std::string trigger_name;
 };
 
 class IioBackend : public ISensorBackend {
@@ -83,9 +87,15 @@ class IioBackend : public ISensorBackend {
     bool WriteSysfsInt(const std::string& path, int32_t value);
 
     void PollSensorThread(IioSensorData* sensor);
+    void BufferSensorThread(IioSensorData* sensor);
     std::vector<Event> ReadPollSensorData(IioSensorData* sensor);
-    std::vector<Event> ReadBufferSensorData(IioSensorData* sensor);
+    std::vector<Event> ParseBufferSamples(IioSensorData* sensor, const uint8_t* data,
+                                          size_t num_samples);
     void EnableRingBuffer(IioSensorData* sensor, bool enable);
+    bool SetupHrtimerTrigger(IioSensorData* sensor);
+    void TeardownHrtimerTrigger(IioSensorData* sensor);
+    bool OpenBufferFd(IioSensorData* sensor);
+    void CloseBufferFd(IioSensorData* sensor);
 
     std::optional<SensorType> MapIioTypeToSensorType(const std::string& iio_name);
     std::optional<SensorType> DetectTypeFromScanElements(const std::string& sysfs_path);
