@@ -10,7 +10,6 @@ cc_library_headers {
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
     ],
-    visibility: ["//hardware/mainline/common/interfaces/sensors/mainline/**"],
 }
 
 cc_library_static {
@@ -55,6 +54,7 @@ cc_binary {
     header_libs: [
         "libsensors_mainline_headers",
     ],
+    visibility: [":__subpackages__"],
 }
 
 prebuilt_etc {
