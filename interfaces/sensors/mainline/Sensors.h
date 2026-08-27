@@ -8,7 +8,6 @@
 #include <aidl/android/hardware/common/fmq/SynchronizedReadWrite.h>
 #include <aidl/android/hardware/sensors/BnSensors.h>
 #include <fmq/AidlMessageQueue.h>
-#include <hardware_legacy/power.h>
 
 #include <libsensors_mainline/SensorBackend.h>
 
@@ -33,6 +32,8 @@ using ::android::hardware::EventFlag;
 
 class Sensors : public BnSensors {
     static constexpr const char* kWakeLockName = "SensorsMainline_WAKEUP";
+    static constexpr const char* kWakeLockPath = "/sys/power/wake_lock";
+    static constexpr const char* kWakeUnlockPath = "/sys/power/wake_unlock";
     static constexpr int32_t WAKE_LOCK_TIMEOUT_SECONDS = 1;
 
   public:
@@ -77,6 +78,9 @@ class Sensors : public BnSensors {
     static void StartReadWakeLockThread(Sensors* sensors);
     void ReadWakeLockFMQ();
     void UpdateWakeLock(int32_t events_written, int32_t events_handled);
+
+    bool AcquireWakeLock();
+    bool ReleaseWakeLock();
 
     SensorBackendManager backend_manager_;
 

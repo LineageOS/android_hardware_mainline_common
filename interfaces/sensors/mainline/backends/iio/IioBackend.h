@@ -89,8 +89,7 @@ class IioBackend : public ISensorBackend {
     bool IsVec3Type(SensorType type);
     bool IsOnChangeType(SensorType type);
 
-    EventPayload BuildVec3Payload(const std::vector<float>& values);
-    EventPayload BuildScalarPayload(float value);
+    EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
     std::map<int32_t, std::unique_ptr<IioSensorData>> sensors_;
     int32_t next_handle_ = 1;

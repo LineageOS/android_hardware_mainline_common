@@ -28,7 +28,6 @@ cc_library_static {
         "libdl",
         "libfmq",
         "liblog",
-        "libpower",
         "libutils",
     ],
     header_libs: [

@@ -5,6 +5,7 @@
 
 #include "Sensors.h"
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <utils/SystemClock.h>
 
@@ -215,8 +216,7 @@ void Sensors::UpdateWakeLock(int32_t events_written, int32_t events_handled) {
                 ::android::uptimeMillis() + WAKE_LOCK_TIMEOUT_SECONDS * 1000;
     }
 
-    if (!has_wake_lock_ && outstanding_wake_up_events_ > 0 &&
-        acquire_wake_lock(PARTIAL_WAKE_LOCK, kWakeLockName) == 0) {
+    if (!has_wake_lock_ && outstanding_wake_up_events_ > 0 && AcquireWakeLock()) {
         has_wake_lock_ = true;
     } else if (has_wake_lock_) {
         if (::android::uptimeMillis() > auto_release_wake_lock_time_) {
@@ -225,10 +225,18 @@ void Sensors::UpdateWakeLock(int32_t events_written, int32_t events_handled) {
             outstanding_wake_up_events_ = 0;
         }
 
-        if (outstanding_wake_up_events_ == 0 && release_wake_lock(kWakeLockName) == 0) {
+        if (outstanding_wake_up_events_ == 0 && ReleaseWakeLock()) {
             has_wake_lock_ = false;
         }
     }
+}
+
+bool Sensors::AcquireWakeLock() {
+    return ::android::base::WriteStringToFile(kWakeLockName, kWakeLockPath);
+}
+
+bool Sensors::ReleaseWakeLock() {
+    return ::android::base::WriteStringToFile(kWakeLockName, kWakeUnlockPath);
 }
 
 }  // namespace aidl::android::hardware::sensors::mainline

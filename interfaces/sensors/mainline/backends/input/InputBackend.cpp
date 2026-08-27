@@ -20,6 +20,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 
 namespace aidl::android::hardware::sensors::mainline {
@@ -61,9 +62,9 @@ bool InputBackend::HasSwitchCapability(const std::string& sysfs_path) {
     }
 
     unsigned long long sw_mask = 0;
-    try {
-        sw_mask = std::stoull(content, nullptr, 16);
-    } catch (...) {
+    char* end = nullptr;
+    sw_mask = std::strtoull(content.c_str(), &end, 16);
+    if (end == content.c_str() || *end != '\0') {
         return false;
     }
 
@@ -78,9 +79,9 @@ bool InputBackend::HasAbsoluteAxes(const std::string& sysfs_path) {
     }
 
     unsigned long long abs_mask = 0;
-    try {
-        abs_mask = std::stoull(content, nullptr, 16);
-    } catch (...) {
+    char* end = nullptr;
+    abs_mask = std::strtoull(content.c_str(), &end, 16);
+    if (end == content.c_str() || *end != '\0') {
         return false;
     }
 

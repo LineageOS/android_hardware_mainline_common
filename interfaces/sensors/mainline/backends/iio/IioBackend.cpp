@@ -19,6 +19,8 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -56,11 +58,12 @@ float IioBackend::ReadSysfsFloat(const std::string& path, float default_value) {
     if (content.empty()) {
         return default_value;
     }
-    try {
-        return std::stof(content);
-    } catch (...) {
+    char* end = nullptr;
+    float result = std::strtof(content.c_str(), &end);
+    if (end == content.c_str() || *end != '\0') {
         return default_value;
     }
+    return result;
 }
 
 int32_t IioBackend::ReadSysfsInt(const std::string& path, int32_t default_value) {
@@ -68,11 +71,12 @@ int32_t IioBackend::ReadSysfsInt(const std::string& path, int32_t default_value)
     if (content.empty()) {
         return default_value;
     }
-    try {
-        return std::stoi(content);
-    } catch (...) {
+    char* end = nullptr;
+    long result = std::strtol(content.c_str(), &end, 10);
+    if (end == content.c_str() || *end != '\0') {
         return default_value;
     }
+    return static_cast<int32_t>(result);
 }
 
 bool IioBackend::WriteSysfsInt(const std::string& path, int32_t value) {
@@ -110,12 +114,14 @@ void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]
                 break;
             }
             for (int c = 0; c < 3; c++) {
-                try {
-                    parsed[r * 3 + c] = std::stof(::android::base::Trim(cols[c]));
-                } catch (...) {
+                std::string trimmed = ::android::base::Trim(cols[c]);
+                char* end = nullptr;
+                float val = std::strtof(trimmed.c_str(), &end);
+                if (end == trimmed.c_str() || *end != '\0') {
                     valid = false;
                     break;
                 }
+                parsed[r * 3 + c] = val;
             }
             if (!valid) break;
         }
@@ -647,8 +653,9 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
             corrected[2] *= 9.81f;
         }
 
-        event.payload.set<EventPayload::Tag::vec3>(BuildVec3Payload(
-                {corrected[0], corrected[1], corrected[2]}));
+        EventPayload::Vec3 vec3 = BuildVec3Value(
+                {corrected[0], corrected[1], corrected[2]});
+        event.payload.set<EventPayload::Tag::vec3>(vec3);
         events.push_back(event);
     } else {
         if (sensor->channels.empty()) {
@@ -667,7 +674,7 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
         event.sensorHandle = sensor->handle;
         event.sensorType = sensor->type;
         event.timestamp = timestamp;
-        event.payload.set<EventPayload::Tag::scalar>(BuildScalarPayload(value));
+        event.payload.set<EventPayload::Tag::scalar>(value);
         events.push_back(event);
     }
 
@@ -775,8 +782,9 @@ std::vector<Event> IioBackend::ReadBufferSensorData(IioSensorData* sensor) {
         event.sensorHandle = sensor->handle;
         event.sensorType = sensor->type;
         event.timestamp = timestamp;
-        event.payload.set<EventPayload::Tag::vec3>(BuildVec3Payload(
-                {corrected[0], corrected[1], corrected[2]}));
+        EventPayload::Vec3 vec3 = BuildVec3Value(
+                {corrected[0], corrected[1], corrected[2]});
+        event.payload.set<EventPayload::Tag::vec3>(vec3);
         events.push_back(event);
     }
 
@@ -895,22 +903,14 @@ int32_t IioBackend::SetOperationMode(OperationMode mode) {
     return 0;
 }
 
-EventPayload IioBackend::BuildVec3Payload(const std::vector<float>& values) {
+EventPayload::Vec3 IioBackend::BuildVec3Value(const std::vector<float>& values) {
     EventPayload::Vec3 vec3 = {
             .x = values.size() > 0 ? values[0] : 0.0f,
             .y = values.size() > 1 ? values[1] : 0.0f,
             .z = values.size() > 2 ? values[2] : 0.0f,
             .status = SensorStatus::ACCURACY_HIGH,
     };
-    EventPayload payload;
-    payload.set<EventPayload::Tag::vec3>(vec3);
-    return payload;
-}
-
-EventPayload IioBackend::BuildScalarPayload(float value) {
-    EventPayload payload;
-    payload.set<EventPayload::Tag::scalar>(value);
-    return payload;
+    return vec3;
 }
 
 }  // namespace aidl::android::hardware::sensors::mainline
