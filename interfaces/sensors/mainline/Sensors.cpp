@@ -11,6 +11,7 @@
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <utils/SystemClock.h>
 
 #include <cerrno>
@@ -25,7 +26,13 @@ Sensors::Sensors()
       auto_release_wake_lock_time_(0),
       has_wake_lock_(false) {
     LOG(INFO) << "Mainline Sensors HAL initializing";
-    backend_manager_.RegisterCompositeSensor(std::make_unique<DeviceOrientationSensor>());
+
+    if (::android::base::GetBoolProperty("vendor.sensors.composite.device_orientation.enabled",
+                                       false)) {
+        LOG(INFO) << "Enabling composite sensor: DeviceOrientationSensor";
+        backend_manager_.RegisterCompositeSensor(std::make_unique<DeviceOrientationSensor>());
+    }
+
     backend_manager_.LoadBackends();
 }
 
