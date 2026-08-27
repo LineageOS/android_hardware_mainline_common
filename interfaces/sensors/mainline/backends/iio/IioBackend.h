@@ -91,6 +91,10 @@ class IioBackend : public ISensorBackend {
     bool IsVec3Type(SensorType type);
     bool IsOnChangeType(SensorType type);
 
+    void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
+    void ApplySensorInfoOverrides(IioSensorData* sensor);
+    std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path);
+
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
     std::map<int32_t, std::unique_ptr<IioSensorData>> sensors_;
