@@ -92,6 +92,25 @@ Device-specific sensor configuration files can be placed in:
 - `/odm/etc/sensors/`
 - `/vendor/etc/sensors/`
 
+### Sensor Hardware Database (hwdb)
+
+The IIO backend reads sensor properties from the systemd-compatible `60-sensor.hwdb` file
+at `/vendor/etc/hwdb.d/60-sensor.hwdb`. This provides device-specific calibration data
+(e.g., accelerometer mount matrices) maintained by the Linux community.
+
+The hwdb lookup uses the device's modalias and optional label to match entries.
+The DMI modalias is read from `/sys/class/dmi/id/modalias` with a fallback to SMBIOS tables.
+
+Mount matrix priority chain (highest wins):
+1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
+2. hwdb `ACCEL_MOUNT_MATRIX` from `60-sensor.hwdb`
+3. sysfs `mount_matrix` / `in_*_mount_matrix`
+4. Identity matrix (default)
+
+Supported hwdb properties:
+- `ACCEL_MOUNT_MATRIX` - 3x3 axis correction matrix for accelerometers
+- `PROXIMITY_NEAR_LEVEL` - Proximity sensor near threshold value
+
 ## Building
 
 Include in your device's build by adding to the device makefile:
@@ -115,10 +134,11 @@ Supported sensor types:
 - Pressure (IIO_PRESSURE)
 - Relative Humidity (IIO_HUMIDITYRELATIVE)
 
-Mount matrix correction is supported via sysfs attributes:
-1. `mount_matrix`
-2. `in_accel_mount_matrix`
-3. `in_mount_matrix`
+Mount matrix correction is supported via multiple sources (priority order):
+1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
+2. `60-sensor.hwdb` `ACCEL_MOUNT_MATRIX` (matched by device modalias and label)
+3. sysfs attributes (`mount_matrix`, `in_accel_mount_matrix`, `in_mount_matrix`)
+4. Identity matrix (default)
 
 ### Sensor Type Detection
 
