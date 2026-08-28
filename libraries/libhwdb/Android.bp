@@ -1,0 +1,17 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library {
+    name: "libhwdb",
+    vendor_available: true,
+    srcs: [
+        "Hwdb.cpp",
+    ],
+    export_include_dirs: ["include"],
+    shared_libs: [
+        "libbase",
+        "liblog",
+    ],
+}
