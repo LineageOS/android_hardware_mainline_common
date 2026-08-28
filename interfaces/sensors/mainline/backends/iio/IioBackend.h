@@ -7,6 +7,8 @@
 
 #include <libsensors_mainline/SensorBackend.h>
 
+#include <SensorHwdb.h>
+
 #include <android-base/unique_fd.h>
 
 #include <atomic>
@@ -53,6 +55,8 @@ struct IioSensorData {
     int signal_pipe_fd[2] = {-1, -1};
     int32_t scan_size = 0;
     std::string trigger_name;
+    std::string parent_modalias;
+    std::string label;
 };
 
 class IioBackend : public ISensorBackend {
@@ -106,12 +110,14 @@ class IioBackend : public ISensorBackend {
     bool IsVec3Type(SensorType type);
 
     void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
+    void ApplyHwdbProperties(IioSensorData* sensor);
     void ApplySensorInfoOverrides(IioSensorData* sensor);
     std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path);
 
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
     std::map<int32_t, std::unique_ptr<IioSensorData>> sensors_;
+    std::unique_ptr<SensorHwdb> sensor_hwdb_;
     int32_t next_handle_ = 1;
     PostEventsCallback post_events_callback_;
     OperationMode operation_mode_ = OperationMode::NORMAL;

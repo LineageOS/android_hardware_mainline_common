@@ -439,6 +439,35 @@ void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
     }
 }
 
+void IioBackend::ApplyHwdbProperties(IioSensorData* sensor) {
+    if (!sensor || !sensor_hwdb_) {
+        return;
+    }
+
+    std::string device_modalias = sensor->parent_modalias;
+    std::string label = sensor->label;
+
+    if (device_modalias.empty() && label.empty()) {
+        LOG(DEBUG) << "No modalias or label for sensor " << sensor->device_name
+                   << ", skipping hwdb lookup";
+        return;
+    }
+
+    float hwdb_matrix[9];
+    if (sensor_hwdb_->GetMountMatrix(device_modalias, label, hwdb_matrix)) {
+        std::copy(hwdb_matrix, hwdb_matrix + 9, sensor->mount_matrix);
+        LOG(INFO) << "Applied hwdb mount matrix for sensor " << sensor->device_name;
+    }
+
+    if (sensor->type == SensorType::PROXIMITY) {
+        int near_level = sensor_hwdb_->GetProximityNearLevel(device_modalias, label, -1);
+        if (near_level >= 0) {
+            LOG(INFO) << "Proximity near level from hwdb: " << near_level
+                      << " for sensor " << sensor->device_name;
+        }
+    }
+}
+
 void IioBackend::ApplySensorInfoOverrides(IioSensorData* sensor) {
     if (!sensor) {
         return;
@@ -526,9 +555,12 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     std::string device_name = ReadSysfsString(sysfs_path + "/name", "unknown");
     std::string of_name = ReadSysfsString(sysfs_path + "/of_node/name", "");
     std::string of_compatible = ReadSysfsString(sysfs_path + "/of_node/compatible", "");
+    std::string device_label = ReadSysfsString(sysfs_path + "/label", "");
+    std::string parent_modalias = ReadSysfsString(sysfs_path + "/../modalias", "");
 
     LOG(INFO) << "IIO device " << dev_num << ": name='" << device_name
               << "' of_name='" << of_name << "' compatible='" << of_compatible
+              << "' label='" << device_label << "' modalias='" << parent_modalias
               << "' at " << sysfs_path;
 
     std::optional<SensorType> sensor_type = MapIioTypeToSensorType(device_name);
@@ -564,6 +596,8 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     sensor->sampling_period_ns = 200 * 1000 * 1000;
     sensor->stop_thread = false;
     sensor->dev_num = dev_num;
+    sensor->parent_modalias = parent_modalias;
+    sensor->label = device_label;
 
     ParseMountMatrix(sysfs_path, sensor->mount_matrix);
 
@@ -731,6 +765,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     sensor->sensor_info.requiredPermission = "";
 
     DeriveSensorInfoFromSysfs(sensor.get());
+    ApplyHwdbProperties(sensor.get());
     ApplySensorInfoOverrides(sensor.get());
 
     int32_t handle = sensor->handle;
@@ -743,6 +778,11 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 int32_t IioBackend::Initialize(const PostEventsCallback& callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     post_events_callback_ = callback;
+
+    sensor_hwdb_ = SensorHwdb::Create();
+    if (!sensor_hwdb_) {
+        LOG(WARNING) << "Failed to create SensorHwdb, hwdb properties will not be available";
+    }
 
     DiscoverDevices();
 

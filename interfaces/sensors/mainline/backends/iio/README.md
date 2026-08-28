@@ -8,7 +8,7 @@ Discovers and reads sensors from the Linux IIO subsystem at `/sys/bus/iio/device
 
 ## Sensor Type Detection
 
-Sensor type is determined using a 4-layer fallback chain:
+Sensor type is determined using a 5-layer fallback chain:
 
 1. `name` attribute (e.g., `bmc150_accel`)
 2. `of_node/compatible` from device tree (e.g., `bosch,bmc150_magn`)
@@ -31,6 +31,18 @@ Sensor metadata is derived from sysfs rather than hardcoded:
 - `minDelayUs` and `maxDelayUs` are derived from `sampling_frequency_available`
 - `flags` are determined by sensor type (continuous vs on-change)
 
+## Mount Matrix
+
+Mount matrix is resolved using a priority chain (highest priority wins):
+
+1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
+2. `60-sensor.hwdb` `ACCEL_MOUNT_MATRIX` (via `libsensors_hwdb`, matched by device modalias and label)
+3. Sysfs attributes (`mount_matrix`, `in_accel_mount_matrix`, `in_*_mount_matrix`, `in_mount_matrix`)
+4. Identity matrix (default)
+
+The hwdb lookup uses the device's parent modalias (from `../modalias` sysfs) and optional
+sensor label (from `label` sysfs) to match entries in `/vendor/etc/hwdb.d/60-sensor.hwdb`.
+
 ## Property Overrides
 
 Hardware-specific properties that cannot be auto-detected can be overridden via android properties:
@@ -40,10 +52,13 @@ vendor.sensors.iio.<device_name>.vendor = Vendor Name
 vendor.sensors.iio.<device_name>.power = 0.13
 vendor.sensors.iio.<device_name>.max_range = 78.4
 vendor.sensors.iio.<device_name>.resolution = 0.001
+vendor.sensors.iio.<device_name>.mount_matrix = 1,0,0;0,-1,0;0,0,1
 ```
 
 Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` replaced by `_`.
 
-## Mount Matrix
+## Dependencies
 
-Supports automatic axis correction via mount matrix read from sysfs.
+- `libsensors_hwdb` - Sensor hwdb utility library (provides mount matrix from `60-sensor.hwdb`)
+- `libhwdb` - Generic hwdb file parser
+- `libsmbios_parser` - SMBIOS parser (fallback for DMI modalias construction)

@@ -13,6 +13,13 @@ devices running mainline Linux kernel, following AIDL interface version 3.
   - `iio/`: Linux IIO subsystem backend (`libsensors_iio.so`)
   - `input/`: Linux input subsystem backend (`libsensors_input.so`)
   - `mock/`: Mock backend with fake data (`libsensors_mock.so`)
+- **Utility libraries** (in `utils/` directory): Internal static libraries used by backends.
+  - `hwdb/`: Sensor-specific hwdb utility library (`libsensors_hwdb`), uses `libhwdb` and `libsmbios_parser`
+
+### External Libraries
+
+- **`libhwdb`** (`hardware/mainline/common/libraries/libhwdb`): Generic hwdb text file parser (agnostic to sensors). Parses `.hwdb` files and supports fnmatch-based property lookups.
+- **`libsmbios_parser`** (`hardware/mainline/common/libraries/smbios-parser`): SMBIOS table parser, used as fallback for DMI modalias construction when `/sys/class/dmi/id/modalias` is unavailable.
 
 ## Key Files
 
@@ -25,6 +32,8 @@ devices running mainline Linux kernel, following AIDL interface version 3.
 - `backends/iio/IioBackend.h/cpp` - IIO backend implementation
 - `backends/input/InputBackend.h/cpp` - Input backend implementation
 - `backends/mock/MockBackend.h/cpp` - Mock backend implementation
+- `utils/hwdb/include/SensorHwdb.h` - Sensor hwdb utility interface
+- `utils/hwdb/SensorHwdb.cpp` - Sensor hwdb utility implementation
 
 ## Build
 
@@ -36,6 +45,9 @@ This project uses the Android build system (Soong/Blueprint). Build modules:
 - `libsensors_iio` - IIO backend shared library
 - `libsensors_input` - Input backend shared library
 - `libsensors_mock` - Mock backend shared library
+- `libsensors_hwdb` - Sensor hwdb utility static library (in `utils/hwdb/`)
+- `libhwdb` - Generic hwdb parser static library (in `hardware/mainline/common/libraries/libhwdb/`)
+- `libsmbios_parser` - SMBIOS parser static library (in `hardware/mainline/common/libraries/smbios-parser/`)
 - `com.android.hardware.sensors.mainline` - APEX module
 
 ## Naming Conventions
@@ -53,6 +65,26 @@ This project uses the Android build system (Soong/Blueprint). Build modules:
 - Config directory on device: `/{odm,vendor}/etc/sensors/`
 - Backend list override property: `vendor.sensors.backends`
 - Default backend load order: IIO, Input, Mock
+- Sensor hwdb file path: `/{odm,vendor}/etc/hwdb.d/60-sensor.hwdb`
+
+### Sensor Hardware Database (hwdb)
+
+The IIO backend reads sensor properties from the systemd-compatible `60-sensor.hwdb` file.
+This provides device-specific calibration data maintained by the Linux community.
+
+The hwdb lookup uses the device's modalias (from `../modalias` sysfs) and optional label
+(from `label` sysfs) to match against entries in the hwdb file. The DMI modalias is read
+from `/sys/class/dmi/id/modalias` with a fallback to SMBIOS tables via `libsmbios_parser`.
+
+Properties provided by hwdb:
+- `ACCEL_MOUNT_MATRIX` - 3x3 mount matrix (overrides sysfs-provided matrix)
+- `PROXIMITY_NEAR_LEVEL` - Proximity sensor near threshold
+
+Mount matrix priority chain (highest wins):
+1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
+2. hwdb `ACCEL_MOUNT_MATRIX`
+3. sysfs `mount_matrix` / `in_*_mount_matrix`
+4. Identity matrix (default)
 
 ### IIO Backend Sensor Info Overrides
 

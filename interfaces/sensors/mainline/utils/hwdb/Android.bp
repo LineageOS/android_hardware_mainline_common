@@ -3,22 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-cc_library_shared {
-    name: "libsensors_iio",
+cc_library {
+    name: "libsensors_hwdb",
     vendor: true,
-    srcs: ["IioBackend.cpp"],
+    srcs: [
+        "SensorHwdb.cpp",
+    ],
+    export_include_dirs: ["include"],
     shared_libs: [
-        "android.hardware.sensors-V3-ndk",
         "libbase",
-        "liblog",
-    ],
-    static_libs: [
         "libhwdb",
-        "libsensors_hwdb",
+        "liblog",
         "libsmbios_parser",
-    ],
-    header_libs: [
-        "libsensors_mainline_headers",
     ],
     cflags: [
         "-fvisibility=hidden",
