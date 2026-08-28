@@ -72,6 +72,7 @@ class SensorBackendManager {
     std::map<int32_t, size_t> composite_handle_to_index_;
     std::map<SensorType, std::vector<size_t>> sensor_type_to_composite_;
     std::map<int32_t, int32_t> hardware_dependency_count_;
+    std::set<int32_t> directly_activated_;
 
     std::vector<Event> ProcessCompositeSensors(const std::vector<Event>& events);
     int32_t FindHardwareSensorHandle(SensorType type);
