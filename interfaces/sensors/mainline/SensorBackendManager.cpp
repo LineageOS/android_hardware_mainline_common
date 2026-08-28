@@ -184,62 +184,86 @@ int32_t SensorBackendManager::FindHardwareSensorHandle(SensorType type) {
 }
 
 void SensorBackendManager::ActivateHardwareDependency(int32_t global_handle) {
-    auto it = global_handle_to_backend_.find(global_handle);
-    if (it == global_handle_to_backend_.end()) {
-        return;
-    }
+    ISensorBackend* backend = nullptr;
+    int32_t local_handle = -1;
 
-    int32_t idx = it->second;
-    if (static_cast<size_t>(idx) >= backends_.size()) {
-        return;
-    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    auto& entry = backends_[idx];
-    auto local_it = entry.global_to_local_handles.find(global_handle);
-    if (local_it == entry.global_to_local_handles.end()) {
-        return;
-    }
-
-    int32_t count = hardware_dependency_count_[global_handle];
-    hardware_dependency_count_[global_handle] = count + 1;
-
-    if (count == 0) {
-        LOG(INFO) << "Auto-activating hardware dependency handle=" << global_handle;
-        entry.backend->Activate(local_it->second, true);
-    }
-}
-
-void SensorBackendManager::DeactivateHardwareDependency(int32_t global_handle) {
-    auto it = hardware_dependency_count_.find(global_handle);
-    if (it == hardware_dependency_count_.end() || it->second <= 0) {
-        return;
-    }
-
-    it->second--;
-
-    if (it->second == 0) {
-        if (directly_activated_.count(global_handle) > 0) {
-            LOG(INFO) << "Composite dependency released for handle=" << global_handle
-                      << " but still directly activated, keeping active";
+        auto it = global_handle_to_backend_.find(global_handle);
+        if (it == global_handle_to_backend_.end()) {
             return;
         }
 
-        auto backend_it = global_handle_to_backend_.find(global_handle);
-        if (backend_it == global_handle_to_backend_.end()) {
-            return;
-        }
-
-        int32_t idx = backend_it->second;
+        int32_t idx = it->second;
         if (static_cast<size_t>(idx) >= backends_.size()) {
             return;
         }
 
         auto& entry = backends_[idx];
         auto local_it = entry.global_to_local_handles.find(global_handle);
-        if (local_it != entry.global_to_local_handles.end()) {
-            LOG(INFO) << "Auto-deactivating hardware dependency handle=" << global_handle;
-            entry.backend->Activate(local_it->second, false);
+        if (local_it == entry.global_to_local_handles.end()) {
+            return;
         }
+
+        int32_t count = hardware_dependency_count_[global_handle];
+        hardware_dependency_count_[global_handle] = count + 1;
+
+        if (count == 0) {
+            backend = entry.backend.get();
+            local_handle = local_it->second;
+        }
+    }
+
+    if (backend != nullptr) {
+        LOG(INFO) << "Auto-activating hardware dependency handle=" << global_handle;
+        backend->Activate(local_handle, true);
+    }
+}
+
+void SensorBackendManager::DeactivateHardwareDependency(int32_t global_handle) {
+    ISensorBackend* backend = nullptr;
+    int32_t local_handle = -1;
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        auto it = hardware_dependency_count_.find(global_handle);
+        if (it == hardware_dependency_count_.end() || it->second <= 0) {
+            return;
+        }
+
+        it->second--;
+
+        if (it->second == 0) {
+            if (directly_activated_.count(global_handle) > 0) {
+                LOG(INFO) << "Composite dependency released for handle=" << global_handle
+                          << " but still directly activated, keeping active";
+                return;
+            }
+
+            auto backend_it = global_handle_to_backend_.find(global_handle);
+            if (backend_it == global_handle_to_backend_.end()) {
+                return;
+            }
+
+            int32_t idx = backend_it->second;
+            if (static_cast<size_t>(idx) >= backends_.size()) {
+                return;
+            }
+
+            auto& entry = backends_[idx];
+            auto local_it = entry.global_to_local_handles.find(global_handle);
+            if (local_it != entry.global_to_local_handles.end()) {
+                backend = entry.backend.get();
+                local_handle = local_it->second;
+            }
+        }
+    }
+
+    if (backend != nullptr) {
+        LOG(INFO) << "Auto-deactivating hardware dependency handle=" << global_handle;
+        backend->Activate(local_handle, false);
     }
 }
 
@@ -341,16 +365,23 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
 }
 
 void SensorBackendManager::Deinitialize() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& composite : composite_sensors_) {
-        composite->Activate(false);
+    std::vector<ISensorBackend*> backends_to_deinit;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& composite : composite_sensors_) {
+            composite->Activate(false);
+        }
+        hardware_dependency_count_.clear();
+        directly_activated_.clear();
+        for (auto& entry : backends_) {
+            backends_to_deinit.push_back(entry.backend.get());
+        }
+        post_events_callback_ = nullptr;
     }
-    hardware_dependency_count_.clear();
-    directly_activated_.clear();
-    for (auto& entry : backends_) {
-        entry.backend->Deinitialize();
+
+    for (auto* backend : backends_to_deinit) {
+        backend->Deinitialize();
     }
-    post_events_callback_ = nullptr;
 }
 
 std::vector<SensorInfo> SensorBackendManager::GetSensorsList() {
@@ -392,9 +423,17 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
             size_t ci = cs_it->second;
             composite_sensors_[ci]->Activate(enabled);
 
-            for (const auto& input_type : composite_sensors_[ci]->GetInputSensorTypes()) {
+            auto input_types = composite_sensors_[ci]->GetInputSensorTypes();
+            std::vector<int32_t> hw_handles;
+            for (const auto& input_type : input_types) {
                 int32_t hw_handle = FindHardwareSensorHandle(input_type);
                 if (hw_handle >= 0) {
+                    hw_handles.push_back(hw_handle);
+                }
+            }
+
+            if (!hw_handles.empty()) {
+                for (int32_t hw_handle : hw_handles) {
                     if (enabled) {
                         ActivateHardwareDependency(hw_handle);
                     } else {
@@ -408,6 +447,7 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
 
     ISensorBackend* backend = nullptr;
     int32_t local_handle = -1;
+    bool should_activate = true;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         int32_t idx = GetBackendIndex(sensor_handle);
@@ -431,11 +471,15 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
                 LOG(INFO) << "Refusing to deactivate handle=" << sensor_handle
                           << " (needed by " << hardware_dependency_count_[sensor_handle]
                           << " composite sensor(s))";
-                return 0;
+                should_activate = false;
             }
         }
     }
-    return backend->Activate(local_handle, enabled);
+
+    if (should_activate) {
+        return backend->Activate(local_handle, enabled);
+    }
+    return 0;
 }
 
 int32_t SensorBackendManager::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
