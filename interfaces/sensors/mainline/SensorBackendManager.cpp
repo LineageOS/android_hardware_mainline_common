@@ -218,6 +218,12 @@ void SensorBackendManager::DeactivateHardwareDependency(int32_t global_handle) {
     it->second--;
 
     if (it->second == 0) {
+        if (directly_activated_.count(global_handle) > 0) {
+            LOG(INFO) << "Composite dependency released for handle=" << global_handle
+                      << " but still directly activated, keeping active";
+            return;
+        }
+
         auto backend_it = global_handle_to_backend_.find(global_handle);
         if (backend_it == global_handle_to_backend_.end()) {
             return;
@@ -340,6 +346,7 @@ void SensorBackendManager::Deinitialize() {
         composite->Activate(false);
     }
     hardware_dependency_count_.clear();
+    directly_activated_.clear();
     for (auto& entry : backends_) {
         entry.backend->Deinitialize();
     }
@@ -414,6 +421,19 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
         }
         backend = entry.backend.get();
         local_handle = it->second;
+
+        if (enabled) {
+            directly_activated_.insert(sensor_handle);
+        } else {
+            directly_activated_.erase(sensor_handle);
+            if (hardware_dependency_count_.count(sensor_handle) > 0 &&
+                hardware_dependency_count_[sensor_handle] > 0) {
+                LOG(INFO) << "Refusing to deactivate handle=" << sensor_handle
+                          << " (needed by " << hardware_dependency_count_[sensor_handle]
+                          << " composite sensor(s))";
+                return 0;
+            }
+        }
     }
     return backend->Activate(local_handle, enabled);
 }
