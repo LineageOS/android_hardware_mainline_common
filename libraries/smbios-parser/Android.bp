@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-cc_library_static {
+cc_library {
     name: "libsmbios_parser",
     vendor_available: true,
     recovery_available: true,
