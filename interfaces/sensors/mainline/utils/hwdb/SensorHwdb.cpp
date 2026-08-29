@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -43,6 +42,14 @@ void AppendFilteredAscii(std::string* output, const char* input) {
     }
 }
 
+std::string ReadSysfsString(const std::string& path) {
+    std::string result;
+    if (!::android::base::ReadFileToString(path, &result)) return "";
+    if (result.empty()) return "";
+    if (result.back() == '\0' || result.back() == '\x0a') result.pop_back();
+    return ::android::base::Trim(result);
+}
+
 bool ReadDmiDataSysfs(const std::string& path, std::vector<uint8_t>* buffer) {
     std::string dmi_path = path + "/DMI";
     std::string entry_path = path + "/smbios_entry_point";
@@ -52,15 +59,9 @@ bool ReadDmiDataSysfs(const std::string& path, std::vector<uint8_t>* buffer) {
         return false;
     }
 
-    std::string dmi_content;
-    if (!::android::base::ReadFileToString(dmi_path, &dmi_content)) {
-        return false;
-    }
-
-    std::string entry_content;
-    if (!::android::base::ReadFileToString(entry_path, &entry_content)) {
-        return false;
-    }
+    std::string dmi_content = ReadSysfsString(dmi_path);
+    std::string entry_content = ReadSysfsString(entry_path);
+    if (dmi_content.empty() || entry_content.empty()) return false;
 
     size_t entry_size = std::min(entry_content.size(), static_cast<size_t>(32));
     buffer->resize(32 + dmi_content.size());
@@ -292,13 +293,7 @@ std::map<std::string, std::string> SensorHwdb::GetSensorProperties(
 }
 
 std::string SensorHwdb::GetDmiModalias() {
-    std::string dmi_modalias;
-
-    std::ifstream dmi_file("/sys/class/dmi/id/modalias");
-    if (dmi_file.is_open()) {
-        std::getline(dmi_file, dmi_modalias);
-        dmi_modalias = ::android::base::Trim(dmi_modalias);
-    }
+    std::string dmi_modalias = ReadSysfsString("/sys/class/dmi/id/modalias");
 
     if (dmi_modalias.empty()) {
         LOG(INFO) << "DMI modalias not available from sysfs, trying SMBIOS fallback";
