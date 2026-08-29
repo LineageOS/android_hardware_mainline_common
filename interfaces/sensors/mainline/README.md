@@ -73,11 +73,13 @@ in `Sensors::Sensors()`.
 
 ### Backend Override
 
-Set `vendor.sensors.backends` property to a comma/space-separated list of backend library names:
+Set `vendor.sensors.backends` property to a comma/space-separated list of backend short names:
 
 ```
-setprop vendor.sensors.backends "libsensors_iio.so,libsensors_mock.so"
+setprop vendor.sensors.backends "libssc,iio,mock"
 ```
+
+Short names like `libssc`, `iio`, `input`, `mock` are automatically expanded to `libsensors_<name>.so`.
 
 ### Library Search Paths
 

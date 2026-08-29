@@ -25,6 +25,10 @@ static constexpr const char* kKnownBackends[] = {
         "libsensors_mock.so",
 };
 
+static std::string ExpandBackendName(const std::string& name) {
+    return "libsensors_" + name + ".so";
+}
+
 static constexpr const char* kLibrarySearchPaths[] = {
         "",
 #ifdef __LP64__
@@ -64,9 +68,12 @@ std::vector<std::string> SensorBackendManager::GetBackendList() {
         std::string token;
         for (size_t i = 0; i <= override_list.size(); i++) {
             if (i == override_list.size() || override_list[i] == ' ' || override_list[i] == ',') {
-                if (!token.empty() && seen.find(token) == seen.end()) {
-                    backends.push_back(token);
-                    seen.insert(token);
+                if (!token.empty()) {
+                    std::string expanded = ExpandBackendName(token);
+                    if (seen.find(expanded) == seen.end()) {
+                        backends.push_back(expanded);
+                        seen.insert(expanded);
+                    }
                 }
                 token.clear();
             } else {

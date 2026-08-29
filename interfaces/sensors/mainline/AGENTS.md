@@ -63,7 +63,7 @@ This project uses the Android build system (Soong/Blueprint). Build modules:
 
 - Backend library search paths: `/odm/lib64/hw/`, `/vendor/lib64/hw/`
 - Config directory on device: `/{odm,vendor}/etc/sensors/`
-- Backend list override property: `vendor.sensors.backends`
+- Backend list override property: `vendor.sensors.backends` (short names like `libssc,iio`)
 - Default backend load order: IIO, Input, Mock
 - Sensor hwdb file path: `/{odm,vendor}/etc/hwdb.d/60-sensor.hwdb`
 
