@@ -58,7 +58,7 @@ std::vector<std::string> SensorBackendManager::GetBackendList() {
     std::vector<std::string> backends;
     std::set<std::string> seen;
 
-    std::string override_list = ::android::base::GetProperty(kBackendProperty, "");
+    std::string override_list = ::android::base::GetProperty(kBackendProperty, LOAD_CUSTOM_BACKENDS);
     if (!override_list.empty()) {
         LOG(INFO) << "Backend list override: " << override_list;
         std::string token;

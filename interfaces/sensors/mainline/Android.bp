@@ -44,6 +44,10 @@ cc_binary {
     relative_install_path: "hw",
     installable: false,
     srcs: ["main.cpp"],
+    cflags: select(soong_config_variable("sensors_hal_mainline", "load_custom_backends"), {
+        any @ flag_val: ["-DLOAD_CUSTOM_BACKENDS=\"" + flag_val + "\""],
+        default: ["-DLOAD_CUSTOM_BACKENDS=\"\""],
+    }),
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
         "libbase",
@@ -117,5 +121,8 @@ apex {
         "libsensors_iio",
         "libsensors_input",
         "libsensors_mock",
-    ],
+    ] + select(soong_config_variable("sensors_hal_mainline", "include_custom_backends"), {
+        any @ flag_val: flag_val,
+        default: [],
+    }),
 }
