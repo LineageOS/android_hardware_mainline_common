@@ -56,6 +56,8 @@ std::string IioBackend::ReadSysfsString(const std::string& path,
     if (!::android::base::ReadFileToString(path, &result)) {
         return default_value;
     }
+    if (result.empty()) return "";
+    if (result.back() == '\0' || result.back() == '\x0a') result.pop_back();
     return ::android::base::Trim(result);
 }
 
