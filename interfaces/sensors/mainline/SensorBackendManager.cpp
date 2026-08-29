@@ -9,6 +9,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/properties.h>
+#include <android-base/strings.h>
 #include <dlfcn.h>
 
 #include <algorithm>
@@ -19,7 +20,7 @@ namespace aidl::android::hardware::sensors::mainline {
 
 static constexpr const char* kBackendProperty = "vendor.sensors.backends";
 
-static constexpr const char* kKnownBackends[] = {
+static const std::vector<std::string> kKnownBackends = {
         "libsensors_iio.so",
         "libsensors_input.so",
         "libsensors_mock.so",
@@ -60,36 +61,18 @@ void SensorBackendManager::RegisterCompositeSensor(std::unique_ptr<ICompositeSen
 
 std::vector<std::string> SensorBackendManager::GetBackendList() {
     std::vector<std::string> backends;
-    std::set<std::string> seen;
 
     std::string override_list = ::android::base::GetProperty(kBackendProperty, LOAD_CUSTOM_BACKENDS);
     if (!override_list.empty()) {
         LOG(INFO) << "Backend list override: " << override_list;
-        std::string token;
-        for (size_t i = 0; i <= override_list.size(); i++) {
-            if (i == override_list.size() || override_list[i] == ' ' || override_list[i] == ',') {
-                if (!token.empty()) {
-                    std::string expanded = ExpandBackendName(token);
-                    if (seen.find(expanded) == seen.end()) {
-                        backends.push_back(expanded);
-                        seen.insert(expanded);
-                    }
-                }
-                token.clear();
-            } else {
-                token += override_list[i];
-            }
+        backends = ::android::base::Split(override_list, ",");
+        for (auto& backend : backends) {
+            backend = ExpandBackendName(backend);
         }
+        return backends;
     }
 
-    for (const auto& name : kKnownBackends) {
-        if (seen.find(name) == seen.end()) {
-            backends.push_back(name);
-            seen.insert(name);
-        }
-    }
-
-    return backends;
+    return kKnownBackends;
 }
 
 void SensorBackendManager::LoadBackend(const std::string& library_name) {

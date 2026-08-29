@@ -73,7 +73,7 @@ in `Sensors::Sensors()`.
 
 ### Backend Override
 
-Set `vendor.sensors.backends` property to a comma/space-separated list of backend short names:
+Set `vendor.sensors.backends` property to a comma-separated list of backend short names:
 
 ```
 setprop vendor.sensors.backends "libssc,iio,mock"
