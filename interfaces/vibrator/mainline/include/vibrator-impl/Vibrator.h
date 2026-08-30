@@ -86,7 +86,7 @@ class Vibrator : public BnVibrator {
     float mCurrentAmplitude = 1.0f;
     std::atomic<bool> mExternalControlEnabled{false};
 
-    uint64_t mSupportedFfEffects = 0;
+    uint8_t mFfBits[(FF_MAX + 7) / 8] = {};
 
     float mCachedResonantFrequency = 0.0f;
     float mCachedQFactor = 0.0f;
@@ -113,6 +113,7 @@ class Vibrator : public BnVibrator {
     int32_t getPrimitiveDurationMs(CompositePrimitive primitive) const;
     float getAmplitudeForStrength(EffectStrength strength) const;
     uint16_t amplitudeToMagnitude(float amplitude) const;
+    bool hasFfEffect(int type) const;
 };
 
 }  // namespace vibrator

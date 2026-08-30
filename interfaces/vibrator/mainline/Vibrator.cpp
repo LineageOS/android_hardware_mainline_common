@@ -122,7 +122,7 @@ bool Vibrator::findDevice() {
     std::vector<std::filesystem::path> candidates;
 
     for (const auto& entry : std::filesystem::directory_iterator(inputDir, ec)) {
-        if (entry.is_character_device(ec) &&
+        if (entry.is_character_file(ec) &&
             entry.path().filename().string().find("event") != std::string::npos) {
             candidates.push_back(entry.path());
         }
@@ -175,7 +175,7 @@ bool Vibrator::findDevice() {
             mDeviceName = name;
         }
 
-        memcpy(&mSupportedFfEffects, ffBits, std::min(sizeof(mSupportedFfEffects), sizeof(ffBits)));
+        memcpy(mFfBits, ffBits, std::min(sizeof(mFfBits), sizeof(ffBits)));
         LOG(INFO) << "Vibrator: found FF device " << mDevicePath << " (" << mDeviceName << ")";
         return true;
     }
@@ -189,19 +189,26 @@ bool Vibrator::queryCapabilities() {
         PLOG(ERROR) << "Vibrator: failed to query FF effects";
         return false;
     }
-    memcpy(&mSupportedFfEffects, ffBits, std::min(sizeof(mSupportedFfEffects), sizeof(ffBits)));
+    memcpy(mFfBits, ffBits, std::min(sizeof(mFfBits), sizeof(ffBits)));
 
     LOG(INFO) << "Vibrator: FF_RUMBLE "
-              << ((mSupportedFfEffects & (1ULL << FF_RUMBLE)) ? "supported" : "not supported");
+              << (hasFfEffect(FF_RUMBLE) ? "supported" : "not supported");
     LOG(INFO) << "Vibrator: FF_CONSTANT "
-              << ((mSupportedFfEffects & (1ULL << FF_CONSTANT)) ? "supported" : "not supported");
+              << (hasFfEffect(FF_CONSTANT) ? "supported" : "not supported");
     LOG(INFO) << "Vibrator: FF_PERIODIC "
-              << ((mSupportedFfEffects & (1ULL << FF_PERIODIC)) ? "supported" : "not supported");
+              << (hasFfEffect(FF_PERIODIC) ? "supported" : "not supported");
 
     return true;
 }
 
-uint16_t Vibrator::amplitudeToMagnitude(float amplitude) {
+bool Vibrator::hasFfEffect(int type) const {
+    if (type < 0 || type > FF_MAX) {
+        return false;
+    }
+    return mFfBits[type / 8] & (1 << (type % 8));
+}
+
+uint16_t Vibrator::amplitudeToMagnitude(float amplitude) const {
     if (amplitude <= 0.0f) {
         return 0;
     }
@@ -211,7 +218,7 @@ uint16_t Vibrator::amplitudeToMagnitude(float amplitude) {
     return static_cast<uint16_t>(amplitude * UINT16_MAX);
 }
 
-float Vibrator::getAmplitudeForStrength(EffectStrength strength) {
+float Vibrator::getAmplitudeForStrength(EffectStrength strength) const {
     switch (strength) {
         case EffectStrength::LIGHT:
             return 0.33f;
