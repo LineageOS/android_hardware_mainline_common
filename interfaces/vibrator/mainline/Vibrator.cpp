@@ -53,12 +53,12 @@ Vibrator::~Vibrator() {
 
 bool Vibrator::init() {
     if (!findDevice()) {
-        LOG(WARNING) << "Vibrator: no FF-capable input device found, running in no-op mode";
+        LOG(WARNING) << "no FF-capable input device found, running in no-op mode";
     } else {
-        LOG(INFO) << "Vibrator: using device " << mDevicePath << " (" << mDeviceName << ")";
+        LOG(INFO) << "using device " << mDevicePath << " (" << mDeviceName << ")";
 
         if (!queryCapabilities()) {
-            LOG(ERROR) << "Vibrator: failed to query FF capabilities";
+            LOG(ERROR) << "failed to query FF capabilities";
         }
     }
 
@@ -87,7 +87,7 @@ void Vibrator::loadProperties() {
     mCachedRingtoneDuration = ::android::base::GetIntProperty<int32_t>(
             "vendor.vibrator.effect.ringtone.duration_ms", 500);
 
-    LOG(INFO) << "Vibrator: cached properties - resonant_freq=" << mCachedResonantFrequency
+    LOG(INFO) << "cached properties - resonant_freq=" << mCachedResonantFrequency
               << " q_factor=" << mCachedQFactor
               << " click=" << mCachedClickDuration << "ms"
               << " double_click=" << mCachedDoubleClickDuration << "ms"
@@ -102,10 +102,10 @@ void Vibrator::loadProperties() {
 bool Vibrator::findDevice() {
     std::string propDevice = ::android::base::GetProperty(kPropertyDevice, "");
     if (!propDevice.empty()) {
-        LOG(INFO) << "Vibrator: using device path from property: " << propDevice;
+        LOG(INFO) << "using device path from property: " << propDevice;
         mEventFd.reset(open(propDevice.c_str(), O_RDWR | O_CLOEXEC));
         if (!mEventFd.ok()) {
-            PLOG(ERROR) << "Vibrator: failed to open " << propDevice;
+            PLOG(ERROR) << "failed to open " << propDevice;
             return false;
         }
         mDevicePath = propDevice;
@@ -129,7 +129,7 @@ bool Vibrator::findDevice() {
     }
 
     if (ec) {
-        LOG(ERROR) << "Vibrator: error scanning /dev/input: " << ec.message();
+        LOG(ERROR) << "error scanning /dev/input: " << ec.message();
         return false;
     }
 
@@ -176,7 +176,7 @@ bool Vibrator::findDevice() {
         }
 
         memcpy(mFfBits, ffBits, std::min(sizeof(mFfBits), sizeof(ffBits)));
-        LOG(INFO) << "Vibrator: found FF device " << mDevicePath << " (" << mDeviceName << ")";
+        LOG(INFO) << "found FF device " << mDevicePath << " (" << mDeviceName << ")";
         return true;
     }
 
@@ -186,16 +186,16 @@ bool Vibrator::findDevice() {
 bool Vibrator::queryCapabilities() {
     uint8_t ffBits[(FF_MAX + 7) / 8] = {};
     if (ioctl(mEventFd.get(), EVIOCGBIT(EV_FF, sizeof(ffBits)), ffBits) < 0) {
-        PLOG(ERROR) << "Vibrator: failed to query FF effects";
+        PLOG(ERROR) << "failed to query FF effects";
         return false;
     }
     memcpy(mFfBits, ffBits, std::min(sizeof(mFfBits), sizeof(ffBits)));
 
-    LOG(INFO) << "Vibrator: FF_RUMBLE "
+    LOG(INFO) << "FF_RUMBLE "
               << (hasFfEffect(FF_RUMBLE) ? "supported" : "not supported");
-    LOG(INFO) << "Vibrator: FF_CONSTANT "
+    LOG(INFO) << "FF_CONSTANT "
               << (hasFfEffect(FF_CONSTANT) ? "supported" : "not supported");
-    LOG(INFO) << "Vibrator: FF_PERIODIC "
+    LOG(INFO) << "FF_PERIODIC "
               << (hasFfEffect(FF_PERIODIC) ? "supported" : "not supported");
 
     return true;
@@ -311,12 +311,12 @@ bool Vibrator::uploadEffect(int32_t durationMs, float amplitude) {
     effect.replay.delay = 0;
 
     if (ioctl(mEventFd.get(), EVIOCSFF, &effect) < 0) {
-        PLOG(ERROR) << "Vibrator: failed to upload FF effect";
+        PLOG(ERROR) << "failed to upload FF effect";
         return false;
     }
 
     mLastEffectId = effect.id;
-    LOG(VERBOSE) << "Vibrator: uploaded effect id=" << effect.id << " duration=" << durationMs
+    LOG(VERBOSE) << "uploaded effect id=" << effect.id << " duration=" << durationMs
                  << "ms amplitude=" << amplitude << " magnitude=" << magnitude;
     return true;
 }
@@ -332,11 +332,11 @@ bool Vibrator::playEffect(int effectId) {
     play.value = 1;
 
     if (write(mEventFd.get(), &play, sizeof(play)) == -1) {
-        PLOG(ERROR) << "Vibrator: failed to play effect " << effectId;
+        PLOG(ERROR) << "failed to play effect " << effectId;
         return false;
     }
 
-    LOG(VERBOSE) << "Vibrator: playing effect " << effectId;
+    LOG(VERBOSE) << "playing effect " << effectId;
     return true;
 }
 
@@ -352,7 +352,7 @@ bool Vibrator::stopEffect() {
         stop.value = 0;
 
         if (write(mEventFd.get(), &stop, sizeof(stop)) == -1) {
-            PLOG(ERROR) << "Vibrator: failed to stop effect " << mLastEffectId;
+            PLOG(ERROR) << "failed to stop effect " << mLastEffectId;
         }
 
         eraseEffect(mLastEffectId);
@@ -368,11 +368,11 @@ bool Vibrator::eraseEffect(int effectId) {
     }
 
     if (ioctl(mEventFd.get(), EVIOCRMFF, effectId) < 0) {
-        PLOG(ERROR) << "Vibrator: failed to erase effect " << effectId;
+        PLOG(ERROR) << "failed to erase effect " << effectId;
         return false;
     }
 
-    LOG(VERBOSE) << "Vibrator: erased effect " << effectId;
+    LOG(VERBOSE) << "erased effect " << effectId;
     return true;
 }
 
@@ -388,7 +388,7 @@ void Vibrator::dispatchVibrate(int32_t timeoutMs,
     }
 
     std::thread([timeoutMs, callback, sharedThis = this->ref<Vibrator>()] {
-        LOG(VERBOSE) << "Vibrator: dispatch thread waiting " << timeoutMs << "ms";
+        LOG(VERBOSE) << "dispatch thread waiting " << timeoutMs << "ms";
         usleep(timeoutMs * 1000);
 
         if (sharedThis) {
@@ -406,15 +406,15 @@ void Vibrator::dispatchVibrate(int32_t timeoutMs,
                 }
             }
             if (vibrationCallback) {
-                LOG(VERBOSE) << "Vibrator: notifying callback onComplete";
+                LOG(VERBOSE) << "notifying callback onComplete";
                 if (!vibrationCallback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
             if (globalCallback) {
-                LOG(VERBOSE) << "Vibrator: notifying global callback onComplete";
+                LOG(VERBOSE) << "notifying global callback onComplete";
                 if (!globalCallback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
         }
@@ -433,16 +433,16 @@ void Vibrator::setGlobalVibrationCallback(const std::shared_ptr<IVibratorCallbac
     }
     if (immediateCallback) {
         std::thread([callback] {
-            LOG(VERBOSE) << "Vibrator: notifying global callback onComplete (immediate)";
+            LOG(VERBOSE) << "notifying global callback onComplete (immediate)";
             if (!callback->onComplete().isOk()) {
-                LOG(ERROR) << "Vibrator: failed to call onComplete";
+                LOG(ERROR) << "failed to call onComplete";
             }
         }).detach();
     }
 }
 
 ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
-    LOG(VERBOSE) << "Vibrator: getCapabilities";
+    LOG(VERBOSE) << "getCapabilities";
     std::lock_guard lock(mMutex);
     if (mCapabilities == 0) {
         int32_t version;
@@ -472,7 +472,7 @@ ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
 }
 
 ndk::ScopedAStatus Vibrator::off() {
-    LOG(VERBOSE) << "Vibrator: off";
+    LOG(VERBOSE) << "off";
     std::shared_ptr<IVibratorCallback> callback, globalCallback;
     {
         std::lock_guard lock(mMutex);
@@ -488,15 +488,15 @@ ndk::ScopedAStatus Vibrator::off() {
     if (callback || globalCallback) {
         std::thread([callback, globalCallback] {
             if (callback) {
-                LOG(VERBOSE) << "Vibrator: notifying callback onComplete (off)";
+                LOG(VERBOSE) << "notifying callback onComplete (off)";
                 if (!callback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
             if (globalCallback) {
-                LOG(VERBOSE) << "Vibrator: notifying global callback onComplete (off)";
+                LOG(VERBOSE) << "notifying global callback onComplete (off)";
                 if (!globalCallback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
         }).detach();
@@ -506,10 +506,10 @@ ndk::ScopedAStatus Vibrator::off() {
 
 ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
                                  const std::shared_ptr<IVibratorCallback>& callback) {
-    LOG(VERBOSE) << "Vibrator: on for " << timeoutMs << "ms";
+    LOG(VERBOSE) << "on for " << timeoutMs << "ms";
 
     if (!uploadEffect(timeoutMs, mCurrentAmplitude)) {
-        LOG(VERBOSE) << "Vibrator: failed to upload on effect (no device?)";
+        LOG(VERBOSE) << "failed to upload on effect (no device?)";
     } else {
         playEffect(mLastEffectId);
     }
@@ -521,7 +521,7 @@ ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
 ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
                                       const std::shared_ptr<IVibratorCallback>& callback,
                                       int32_t* _aidl_return) {
-    LOG(VERBOSE) << "Vibrator: perform effect=" << toString(effect)
+    LOG(VERBOSE) << "perform effect=" << toString(effect)
                  << " strength=" << toString(strength);
 
     std::vector<Effect> supported;
@@ -581,15 +581,15 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
                 }
             }
             if (vibrationCallback) {
-                LOG(VERBOSE) << "Vibrator: perform callback onComplete";
+                LOG(VERBOSE) << "perform callback onComplete";
                 if (!vibrationCallback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
             if (globalCallback) {
-                LOG(VERBOSE) << "Vibrator: perform global callback onComplete";
+                LOG(VERBOSE) << "perform global callback onComplete";
                 if (!globalCallback->onComplete().isOk()) {
-                    LOG(ERROR) << "Vibrator: failed to call onComplete";
+                    LOG(ERROR) << "failed to call onComplete";
                 }
             }
         }
@@ -601,7 +601,7 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
 
 ndk::ScopedAStatus Vibrator::performVendorEffect(
         const VendorEffect& effect, const std::shared_ptr<IVibratorCallback>& callback) {
-    LOG(VERBOSE) << "Vibrator: performVendorEffect";
+    LOG(VERBOSE) << "performVendorEffect";
 
     int32_t capabilities = 0;
     if (!getCapabilities(&capabilities).isOk()) {
@@ -656,7 +656,7 @@ ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect>* _aidl_retu
 }
 
 ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
-    LOG(VERBOSE) << "Vibrator: setAmplitude " << amplitude;
+    LOG(VERBOSE) << "setAmplitude " << amplitude;
     if (amplitude <= 0.0f || amplitude > 1.0f) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
     }
@@ -680,7 +680,7 @@ ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
 }
 
 ndk::ScopedAStatus Vibrator::setExternalControl(bool enabled) {
-    LOG(VERBOSE) << "Vibrator: setExternalControl " << enabled;
+    LOG(VERBOSE) << "setExternalControl " << enabled;
 
     int32_t capabilities = 0;
     if (!getCapabilities(&capabilities).isOk()) {
@@ -751,7 +751,7 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
     }
 
     std::thread([=, sharedThis = this->ref<Vibrator>()] {
-        LOG(VERBOSE) << "Vibrator: starting compose on thread";
+        LOG(VERBOSE) << "starting compose on thread";
 
         for (const auto& e : composite) {
             if (e.delayMs > 0) {
@@ -765,7 +765,7 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
             int32_t durationMs = getPrimitiveDurationMs(e.primitive);
             float amplitude = e.scale > 0.0f ? e.scale * mCurrentAmplitude : 0.0f;
 
-            LOG(VERBOSE) << "Vibrator: compose primitive=" << static_cast<int>(e.primitive)
+            LOG(VERBOSE) << "compose primitive=" << static_cast<int>(e.primitive)
                          << " duration=" << durationMs << "ms scale=" << e.scale;
 
             uploadEffect(durationMs, amplitude);
@@ -775,9 +775,9 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
         }
 
         if (callback) {
-            LOG(VERBOSE) << "Vibrator: notifying compose onComplete";
+            LOG(VERBOSE) << "notifying compose onComplete";
             if (!callback->onComplete().isOk()) {
-                LOG(ERROR) << "Vibrator: failed to call onComplete";
+                LOG(ERROR) << "failed to call onComplete";
             }
         }
     }).detach();
@@ -797,13 +797,13 @@ ndk::ScopedAStatus Vibrator::alwaysOnEnable(int32_t id, Effect effect, EffectStr
         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
 
-    LOG(VERBOSE) << "Vibrator: enabling always-on ID " << id << " with " << toString(effect) << "/"
+    LOG(VERBOSE) << "enabling always-on ID " << id << " with " << toString(effect) << "/"
                  << toString(strength);
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::alwaysOnDisable(int32_t id) {
-    LOG(VERBOSE) << "Vibrator: disabling always-on ID " << id;
+    LOG(VERBOSE) << "disabling always-on ID " << id;
     return ndk::ScopedAStatus::ok();
 }
 

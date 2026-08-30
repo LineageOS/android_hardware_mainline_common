@@ -33,7 +33,7 @@ int main() {
                                          VibratorManager::makeServiceName("default").c_str());
     CHECK_EQ(status, STATUS_OK);
 
-    LOG(INFO) << "Vibrator: service started";
+    LOG(INFO) << "service started";
     ABinderProcess_joinThreadPool();
     return EXIT_FAILURE;
 }
