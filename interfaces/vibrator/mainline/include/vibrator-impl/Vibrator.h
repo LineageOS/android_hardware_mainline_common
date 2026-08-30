@@ -79,7 +79,7 @@ class Vibrator : public BnVibrator {
     std::shared_ptr<IVibratorCallback> mVibrationCallback GUARDED_BY(mMutex) = nullptr;
     std::shared_ptr<IVibratorCallback> mGlobalVibrationCallback GUARDED_BY(mMutex) = nullptr;
 
-    android::base::unique_fd mEventFd;
+    ::android::base::unique_fd mEventFd;
     std::string mDevicePath;
     std::string mDeviceName;
     int mLastEffectId = -1;
@@ -88,8 +88,20 @@ class Vibrator : public BnVibrator {
 
     uint64_t mSupportedFfEffects = 0;
 
+    float mCachedResonantFrequency = 0.0f;
+    float mCachedQFactor = 0.0f;
+    int32_t mCachedClickDuration = 0;
+    int32_t mCachedDoubleClickDuration = 0;
+    int32_t mCachedTickDuration = 0;
+    int32_t mCachedThudDuration = 0;
+    int32_t mCachedPopDuration = 0;
+    int32_t mCachedHeavyClickDuration = 0;
+    int32_t mCachedTextureTickDuration = 0;
+    int32_t mCachedRingtoneDuration = 0;
+
     bool findDevice();
     bool queryCapabilities();
+    void loadProperties();
     bool uploadEffect(int32_t durationMs, float amplitude);
     bool playEffect(int effectId);
     bool stopEffect();
@@ -97,10 +109,10 @@ class Vibrator : public BnVibrator {
 
     void dispatchVibrate(int32_t timeoutMs, const std::shared_ptr<IVibratorCallback>& callback);
 
-    int32_t getEffectDurationMs(Effect effect);
-    int32_t getPrimitiveDurationMs(CompositePrimitive primitive);
-    float getAmplitudeForStrength(EffectStrength strength);
-    uint16_t amplitudeToMagnitude(float amplitude);
+    int32_t getEffectDurationMs(Effect effect) const;
+    int32_t getPrimitiveDurationMs(CompositePrimitive primitive) const;
+    float getAmplitudeForStrength(EffectStrength strength) const;
+    uint16_t amplitudeToMagnitude(float amplitude) const;
 };
 
 }  // namespace vibrator

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define LOG_TAG "MainlineVibrator"
+
 #include "vibrator-impl/Vibrator.h"
 
 #include <android-base/logging.h>
@@ -36,11 +38,11 @@ static constexpr const char* kPropertyResonantFrequency = "vendor.vibrator.reson
 static constexpr const char* kPropertyQFactor = "vendor.vibrator.q_factor";
 
 static bool getFloatProperty(const std::string& key, float* out) {
-    std::string value = android::base::GetProperty(key, "");
+    std::string value = ::android::base::GetProperty(key, "");
     if (value.empty()) {
         return false;
     }
-    return android::base::ParseFloat(value, out);
+    return ::android::base::ParseFloat(value, out);
 }
 
 Vibrator::Vibrator() = default;
@@ -60,11 +62,46 @@ bool Vibrator::init() {
         LOG(ERROR) << "Vibrator: failed to query FF capabilities";
         return false;
     }
+
+    loadProperties();
     return true;
 }
 
+void Vibrator::loadProperties() {
+    getFloatProperty(kPropertyResonantFrequency, &mCachedResonantFrequency);
+    getFloatProperty(kPropertyQFactor, &mCachedQFactor);
+
+    mCachedClickDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.click.duration_ms", 30);
+    mCachedDoubleClickDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.double_click.duration_ms", 80);
+    mCachedTickDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.tick.duration_ms", 15);
+    mCachedThudDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.thud.duration_ms", 50);
+    mCachedPopDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.pop.duration_ms", 10);
+    mCachedHeavyClickDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.heavy_click.duration_ms", 50);
+    mCachedTextureTickDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.texture_tick.duration_ms", 10);
+    mCachedRingtoneDuration = ::android::base::GetIntProperty<int32_t>(
+            "vendor.vibrator.effect.ringtone.duration_ms", 500);
+
+    LOG(INFO) << "Vibrator: cached properties - resonant_freq=" << mCachedResonantFrequency
+              << " q_factor=" << mCachedQFactor
+              << " click=" << mCachedClickDuration << "ms"
+              << " double_click=" << mCachedDoubleClickDuration << "ms"
+              << " tick=" << mCachedTickDuration << "ms"
+              << " thud=" << mCachedThudDuration << "ms"
+              << " pop=" << mCachedPopDuration << "ms"
+              << " heavy_click=" << mCachedHeavyClickDuration << "ms"
+              << " texture_tick=" << mCachedTextureTickDuration << "ms"
+              << " ringtone=" << mCachedRingtoneDuration << "ms";
+}
+
 bool Vibrator::findDevice() {
-    std::string propDevice = android::base::GetProperty(kPropertyDevice, "");
+    std::string propDevice = ::android::base::GetProperty(kPropertyDevice, "");
     if (!propDevice.empty()) {
         LOG(INFO) << "Vibrator: using device path from property: " << propDevice;
         mEventFd.reset(open(propDevice.c_str(), O_RDWR | O_CLOEXEC));
@@ -100,7 +137,7 @@ bool Vibrator::findDevice() {
     std::sort(candidates.begin(), candidates.end());
 
     for (const auto& path : candidates) {
-        android::base::unique_fd fd(open(path.c_str(), O_RDWR | O_CLOEXEC));
+        ::android::base::unique_fd fd(open(path.c_str(), O_RDWR | O_CLOEXEC));
         if (!fd.ok()) {
             continue;
         }
@@ -188,29 +225,22 @@ float Vibrator::getAmplitudeForStrength(EffectStrength strength) {
     }
 }
 
-int32_t Vibrator::getEffectDurationMs(Effect effect) {
+int32_t Vibrator::getEffectDurationMs(Effect effect) const {
     switch (effect) {
         case Effect::CLICK:
-            return android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.click.duration_ms",
-                                                          30);
+            return mCachedClickDuration;
         case Effect::DOUBLE_CLICK:
-            return android::base::GetIntProperty<int32_t>(
-                    "vendor.vibrator.effect.double_click.duration_ms", 80);
+            return mCachedDoubleClickDuration;
         case Effect::TICK:
-            return android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.tick.duration_ms",
-                                                          15);
+            return mCachedTickDuration;
         case Effect::THUD:
-            return android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.thud.duration_ms",
-                                                          50);
+            return mCachedThudDuration;
         case Effect::POP:
-            return android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.pop.duration_ms",
-                                                          10);
+            return mCachedPopDuration;
         case Effect::HEAVY_CLICK:
-            return android::base::GetIntProperty<int32_t>(
-                    "vendor.vibrator.effect.heavy_click.duration_ms", 50);
+            return mCachedHeavyClickDuration;
         case Effect::TEXTURE_TICK:
-            return android::base::GetIntProperty<int32_t>(
-                    "vendor.vibrator.effect.texture_tick.duration_ms", 10);
+            return mCachedTextureTickDuration;
         case Effect::RINGTONE_1:
         case Effect::RINGTONE_2:
         case Effect::RINGTONE_3:
@@ -226,14 +256,13 @@ int32_t Vibrator::getEffectDurationMs(Effect effect) {
         case Effect::RINGTONE_13:
         case Effect::RINGTONE_14:
         case Effect::RINGTONE_15:
-            return android::base::GetIntProperty<int32_t>(
-                    "vendor.vibrator.effect.ringtone.duration_ms", 500);
+            return mCachedRingtoneDuration;
         default:
             return 0;
     }
 }
 
-int32_t Vibrator::getPrimitiveDurationMs(CompositePrimitive primitive) {
+int32_t Vibrator::getPrimitiveDurationMs(CompositePrimitive primitive) const {
     switch (primitive) {
         case CompositePrimitive::NOOP:
             return 0;
@@ -419,13 +448,11 @@ ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
                         IVibrator::CAP_AMPLITUDE_CONTROL | IVibrator::CAP_COMPOSE_EFFECTS |
                         IVibrator::CAP_ALWAYS_ON_CONTROL;
 
-        float resonantFreq = 0.0f;
-        if (getFloatProperty(kPropertyResonantFrequency, &resonantFreq) && resonantFreq > 0.0f) {
+        if (mCachedResonantFrequency > 0.0f) {
             mCapabilities |= IVibrator::CAP_GET_RESONANT_FREQUENCY;
         }
 
-        float qFactor = 0.0f;
-        if (getFloatProperty(kPropertyQFactor, &qFactor) && qFactor > 0.0f) {
+        if (mCachedQFactor > 0.0f) {
             mCapabilities |= IVibrator::CAP_GET_Q_FACTOR;
         }
 
@@ -717,12 +744,6 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
         }
     }
 
-    int32_t totalDurationMs = 0;
-    for (const auto& e : composite) {
-        int32_t durationMs = getPrimitiveDurationMs(e.primitive);
-        totalDurationMs += e.delayMs + durationMs;
-    }
-
     std::thread([=, sharedThis = this->ref<Vibrator>()] {
         LOG(VERBOSE) << "Vibrator: starting compose on thread";
 
@@ -789,9 +810,7 @@ ndk::ScopedAStatus Vibrator::getResonantFrequency(float* resonantFreqHz) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
     }
 
-    if (!getFloatProperty(kPropertyResonantFrequency, resonantFreqHz)) {
-        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
-    }
+    *resonantFreqHz = mCachedResonantFrequency;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -804,9 +823,7 @@ ndk::ScopedAStatus Vibrator::getQFactor(float* qFactor) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
     }
 
-    if (!getFloatProperty(kPropertyQFactor, qFactor)) {
-        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
-    }
+    *qFactor = mCachedQFactor;
     return ndk::ScopedAStatus::ok();
 }
 

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define LOG_TAG "MainlineVibratorManager"
+
 #include "vibrator-impl/VibratorManager.h"
 #include "vibrator-impl/VibrationSession.h"
 
