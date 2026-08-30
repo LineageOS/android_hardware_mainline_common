@@ -154,6 +154,20 @@ ndk::ScopedAStatus VibratorManager::clearSessions() {
     return ndk::ScopedAStatus::ok();
 }
 
+ndk::ScopedAStatus VibratorManager::startHapticGeneratorSession(
+        const std::vector<int32_t>& vibratorIds, const HapticGeneratorConfig&,
+        const std::shared_ptr<IVibratorCallback>&, HapticGeneratorSession*) {
+    LOG(VERBOSE) << "VibratorManager: startHapticGeneratorSession";
+    int32_t capabilities = 0;
+    if (!getCapabilities(&capabilities).isOk()) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+    if ((capabilities & IVibratorManager::CAP_HAPTIC_GENERATOR) == 0) {
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
+    }
+    return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
+}
+
 void VibratorManager::abortSession() {
     std::shared_ptr<IVibrationSession> session;
     {

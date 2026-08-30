@@ -31,6 +31,10 @@ class VibratorManager : public BnVibratorManager {
                                     const std::shared_ptr<IVibratorCallback>& callback,
                                     std::shared_ptr<IVibrationSession>* _aidl_return) override;
     ndk::ScopedAStatus clearSessions() override;
+    ndk::ScopedAStatus startHapticGeneratorSession(
+            const std::vector<int32_t>& vibratorIds, const HapticGeneratorConfig& config,
+            const std::shared_ptr<IVibratorCallback>& callback,
+            HapticGeneratorSession* _aidl_return) override;
 
     void abortSession();
     void closeSession(int32_t delayMs);
