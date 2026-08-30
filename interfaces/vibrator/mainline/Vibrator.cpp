@@ -53,14 +53,13 @@ Vibrator::~Vibrator() {
 
 bool Vibrator::init() {
     if (!findDevice()) {
-        LOG(ERROR) << "Vibrator: no FF-capable input device found";
-        return false;
-    }
-    LOG(INFO) << "Vibrator: using device " << mDevicePath << " (" << mDeviceName << ")";
+        LOG(WARNING) << "Vibrator: no FF-capable input device found, running in no-op mode";
+    } else {
+        LOG(INFO) << "Vibrator: using device " << mDevicePath << " (" << mDeviceName << ")";
 
-    if (!queryCapabilities()) {
-        LOG(ERROR) << "Vibrator: failed to query FF capabilities";
-        return false;
+        if (!queryCapabilities()) {
+            LOG(ERROR) << "Vibrator: failed to query FF capabilities";
+        }
     }
 
     loadProperties();
@@ -503,7 +502,7 @@ ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
     LOG(VERBOSE) << "Vibrator: on for " << timeoutMs << "ms";
 
     if (!uploadEffect(timeoutMs, mCurrentAmplitude)) {
-        LOG(ERROR) << "Vibrator: failed to upload on effect";
+        LOG(VERBOSE) << "Vibrator: failed to upload on effect (no device?)";
     } else {
         playEffect(mLastEffectId);
     }

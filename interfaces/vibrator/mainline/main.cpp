@@ -19,18 +19,14 @@ int main() {
     ABinderProcess_setThreadPoolMaxThreadCount(0);
 
     auto vib = ndk::SharedRefBase::make<Vibrator>();
-    if (!vib->init()) {
-        LOG(FATAL) << "Vibrator: failed to initialize";
-    }
+    vib->init();
 
     binder_status_t status = AServiceManager_addService(
             vib->asBinder().get(), Vibrator::makeServiceName("default").c_str());
     CHECK_EQ(status, STATUS_OK);
 
     auto managedVib = ndk::SharedRefBase::make<Vibrator>();
-    if (!managedVib->init()) {
-        LOG(FATAL) << "Vibrator: failed to initialize managed vibrator";
-    }
+    managedVib->init();
 
     auto vibManager = ndk::SharedRefBase::make<VibratorManager>(std::move(managedVib));
     status = AServiceManager_addService(vibManager->asBinder().get(),
