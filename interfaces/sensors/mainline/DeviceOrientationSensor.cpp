@@ -55,8 +55,7 @@ DeviceOrientationSensor::DeviceOrientationSensor()
     sensor_info_.fifoReservedEventCount = 0;
     sensor_info_.fifoMaxEventCount = 0;
     sensor_info_.requiredPermission = "";
-    sensor_info_.flags =
-            static_cast<int32_t>(CompositeSensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
+    sensor_info_.flags = static_cast<int32_t>(CompositeSensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE);
 }
 
 CompositeSensorInfo DeviceOrientationSensor::GetSensorInfo() const {
@@ -119,13 +118,12 @@ void DeviceOrientationSensor::LoadOrientationProperties() {
     }
 
     LOG(INFO) << "DeviceOrientationSensor workaround config: "
-              << "swap_xy=" << swap_xy_ << " invert_x=" << invert_x_
-              << " invert_y=" << invert_y_ << " invert_z=" << invert_z_
-              << " rotation_offset=" << (rotation_offset_ * 90) << "°";
+              << "swap_xy=" << swap_xy_ << " invert_x=" << invert_x_ << " invert_y=" << invert_y_
+              << " invert_z=" << invert_z_ << " rotation_offset=" << (rotation_offset_ * 90) << "°";
     LOG(INFO) << "DeviceOrientationSensor effective mount matrix: "
               << "[" << matrix[0][0] << "," << matrix[0][1] << "," << matrix[0][2] << "; "
-              << matrix[1][0] << "," << matrix[1][1] << "," << matrix[1][2] << "; "
-              << matrix[2][0] << "," << matrix[2][1] << "," << matrix[2][2] << "]";
+              << matrix[1][0] << "," << matrix[1][1] << "," << matrix[1][2] << "; " << matrix[2][0]
+              << "," << matrix[2][1] << "," << matrix[2][2] << "]";
 }
 
 void DeviceOrientationSensor::TransformAxes(float& x, float& y, float& z) const {

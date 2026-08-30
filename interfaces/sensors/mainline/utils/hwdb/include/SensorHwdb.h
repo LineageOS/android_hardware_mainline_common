@@ -28,7 +28,7 @@ class SensorHwdb {
                               int default_value) const;
 
     std::map<std::string, std::string> GetSensorProperties(const std::string& device_modalias,
-                                                            const std::string& label) const;
+                                                           const std::string& label) const;
 
     static std::string GetDmiModalias();
 

@@ -99,15 +99,15 @@ struct IioSensorData;
 struct IioDeviceState {
     int32_t dev_num;
     std::string sysfs_path;
-    
+
     ::android::base::unique_fd buffer_fd;
     int signal_pipe_fd[2] = {-1, -1};
     int32_t scan_size = 0;
     std::string trigger_name;
-    
+
     std::thread reader_thread;
     std::atomic_bool reader_running{false};
-    
+
     std::mutex mutex;
     std::vector<IioSensorData*> active_sensors;
     std::vector<IioChannelInfo> all_channels;
@@ -142,7 +142,7 @@ struct IioSensorData {
     std::atomic_bool stop_thread;
     std::string parent_modalias;
     std::string label;
-    
+
     std::shared_ptr<IioDeviceState> device_state;
 };
 
@@ -205,8 +205,7 @@ class IioBackend : public ISensorBackend {
     void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
     void ApplyHwdbProperties(IioSensorData* sensor);
     void ApplySensorInfoOverrides(IioSensorData* sensor);
-    std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path,
-                                                SensorType type);
+    std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path, SensorType type);
 
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 

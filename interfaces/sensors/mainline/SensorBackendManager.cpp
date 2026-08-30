@@ -62,7 +62,8 @@ void SensorBackendManager::RegisterCompositeSensor(std::unique_ptr<ICompositeSen
 std::vector<std::string> SensorBackendManager::GetBackendList() {
     std::vector<std::string> backends;
 
-    std::string override_list = ::android::base::GetProperty(kBackendProperty, LOAD_CUSTOM_BACKENDS);
+    std::string override_list =
+            ::android::base::GetProperty(kBackendProperty, LOAD_CUSTOM_BACKENDS);
     if (!override_list.empty()) {
         LOG(INFO) << "Backend list override: " << override_list;
         backends = ::android::base::Split(override_list, ",");
@@ -129,8 +130,7 @@ void SensorBackendManager::LoadBackends() {
     LOG(INFO) << "Loaded " << backends_.size() << " backend(s)";
 }
 
-std::vector<Event> SensorBackendManager::ProcessCompositeSensors(
-        const std::vector<Event>& events) {
+std::vector<Event> SensorBackendManager::ProcessCompositeSensors(const std::vector<Event>& events) {
     std::vector<Event> all_composite_events;
 
     for (const auto& event : events) {
@@ -258,9 +258,9 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
 
                 remapped_events.erase(
                         std::remove_if(remapped_events.begin(), remapped_events.end(),
-                                [this](const Event& ev) {
-                                    return !directly_activated_.count(ev.sensorHandle);
-                                }),
+                                       [this](const Event& ev) {
+                                           return !directly_activated_.count(ev.sensorHandle);
+                                       }),
                         remapped_events.end());
             }
 
@@ -299,9 +299,8 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
             sensor_info.sensorHandle = global_handle;
 
             LOG(INFO) << "Sensor [backend='" << entry.name << "'] handle=" << global_handle
-                      << " type=" << static_cast<int32_t>(sensor_info.type)
-                      << " name='" << sensor_info.name << "' vendor='" << sensor_info.vendor
-                      << "'";
+                      << " type=" << static_cast<int32_t>(sensor_info.type) << " name='"
+                      << sensor_info.name << "' vendor='" << sensor_info.vendor << "'";
         }
     }
 
@@ -317,9 +316,8 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
     for (auto& composite : composite_sensors_) {
         auto info = composite->GetSensorInfo();
         if (hardware_sensor_types.count(info.type) > 0) {
-            LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type)
-                      << " name='" << info.name
-                      << "'] skipped: hardware sensor already provides this type";
+            LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type) << " name='"
+                      << info.name << "'] skipped: hardware sensor already provides this type";
             continue;
         }
         active_composites.push_back(std::move(composite));
@@ -337,8 +335,8 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
         }
 
         auto info = composite->GetSensorInfo();
-        LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type)
-                  << " name='" << info.name << "'] registered with handle=" << handle;
+        LOG(INFO) << "Composite sensor [type=" << static_cast<int32_t>(info.type) << " name='"
+                  << info.name << "'] registered with handle=" << handle;
     }
 }
 
@@ -430,9 +428,8 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
             directly_activated_.erase(sensor_handle);
             if (hardware_dependency_count_.count(sensor_handle) > 0 &&
                 hardware_dependency_count_[sensor_handle] > 0) {
-                LOG(INFO) << "Refusing to deactivate handle=" << sensor_handle
-                          << " (needed by " << hardware_dependency_count_[sensor_handle]
-                          << " composite sensor(s))";
+                LOG(INFO) << "Refusing to deactivate handle=" << sensor_handle << " (needed by "
+                          << hardware_dependency_count_[sensor_handle] << " composite sensor(s))";
                 return 0;
             }
         }

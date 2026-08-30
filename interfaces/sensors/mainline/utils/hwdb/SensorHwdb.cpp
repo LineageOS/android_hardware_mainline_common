@@ -180,7 +180,7 @@ std::unique_ptr<SensorHwdb> SensorHwdb::Create() {
 }
 
 std::vector<std::string> SensorHwdb::BuildQueryStrings(const std::string& device_modalias,
-                                                        const std::string& label) const {
+                                                       const std::string& label) const {
     std::vector<std::string> queries;
     const std::string& dmi = hwdb_->dmi_modalias_;
 
@@ -235,7 +235,7 @@ bool SensorHwdb::ParseMountMatrixFromString(const std::string& content, float ma
 }
 
 bool SensorHwdb::GetMountMatrix(const std::string& device_modalias, const std::string& label,
-                                 float matrix[9]) const {
+                                float matrix[9]) const {
     if (!hwdb_ || !hwdb_->hwdb_) {
         return false;
     }

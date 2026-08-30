@@ -34,8 +34,7 @@ std::string MockBackend::GetName() const {
 
 void MockBackend::CreateMockSensors() {
     auto add_sensor = [this](SensorType type, const std::string& name, float max_range,
-                              float resolution, float power, int32_t min_delay_us,
-                              int32_t flags) {
+                             float resolution, float power, int32_t min_delay_us, int32_t flags) {
         auto sensor = std::make_unique<MockSensorData>();
         sensor->handle = next_handle_++;
         sensor->type = type;
@@ -67,8 +66,7 @@ void MockBackend::CreateMockSensors() {
     add_sensor(SensorType::ACCELEROMETER, "Mock Accelerometer", 78.4f, 0.001f, 0.13f, 10000,
                static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION));
 
-    add_sensor(SensorType::GYROSCOPE, "Mock Gyroscope",
-               1000.0f * static_cast<float>(M_PI) / 180.0f,
+    add_sensor(SensorType::GYROSCOPE, "Mock Gyroscope", 1000.0f * static_cast<float>(M_PI) / 180.0f,
                1000.0f * static_cast<float>(M_PI) / (180.0f * 32768.0f), 6.1f, 10000,
                static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION));
 
@@ -84,8 +82,8 @@ void MockBackend::CreateMockSensors() {
 
     add_sensor(SensorType::PRESSURE, "Mock Pressure Sensor", 1100.0f, 0.005f, 0.004f, 10000, 0);
 
-    add_sensor(SensorType::AMBIENT_TEMPERATURE, "Mock Temperature Sensor", 80.0f, 0.01f, 0.001f,
-               0, static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE));
+    add_sensor(SensorType::AMBIENT_TEMPERATURE, "Mock Temperature Sensor", 80.0f, 0.01f, 0.001f, 0,
+               static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE));
 
     add_sensor(SensorType::RELATIVE_HUMIDITY, "Mock Humidity Sensor", 100.0f, 0.1f, 0.001f, 0,
                static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE));
@@ -145,9 +143,8 @@ void MockBackend::PollSensorThread(MockSensorData* sensor) {
 
         auto events = GenerateSensorData(sensor);
         if (!events.empty() && post_events_callback_) {
-            bool wakeup =
-                    (sensor->sensor_info.flags &
-                     static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
+            bool wakeup = (sensor->sensor_info.flags &
+                           static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
             post_events_callback_(events, wakeup);
         }
 
@@ -249,13 +246,12 @@ int32_t MockBackend::Activate(int32_t sensor_handle, bool enabled) {
         }
     }
 
-    LOG(INFO) << "Mock sensor " << sensor_handle << " "
-              << (enabled ? "activated" : "deactivated");
+    LOG(INFO) << "Mock sensor " << sensor_handle << " " << (enabled ? "activated" : "deactivated");
     return 0;
 }
 
 int32_t MockBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
-                            int64_t /* max_report_latency_ns */) {
+                           int64_t /* max_report_latency_ns */) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = sensors_.find(sensor_handle);
     if (it == sensors_.end()) {

@@ -49,7 +49,7 @@ std::string InputBackend::GetName() const {
 }
 
 std::string InputBackend::ReadSysfsString(const std::string& path,
-                                           const std::string& default_value) {
+                                          const std::string& default_value) {
     std::string result;
     if (!::android::base::ReadFileToString(path, &result)) {
         return default_value;
@@ -90,14 +90,13 @@ bool InputBackend::HasAbsoluteAxes(const std::string& sysfs_path) {
         return false;
     }
 
-    bool has_xyz = ((abs_mask & (1ULL << ABS_X)) != 0) &&
-                   ((abs_mask & (1ULL << ABS_Y)) != 0) &&
+    bool has_xyz = ((abs_mask & (1ULL << ABS_X)) != 0) && ((abs_mask & (1ULL << ABS_Y)) != 0) &&
                    ((abs_mask & (1ULL << ABS_Z)) != 0);
     return has_xyz;
 }
 
 bool InputBackend::CheckInputDeviceHasSensor(const std::string& sysfs_path, int& sensor_type_out,
-                                              bool& is_switch_out) {
+                                             bool& is_switch_out) {
     if (HasSwitchCapability(sysfs_path)) {
         sensor_type_out = static_cast<int>(SensorType::PROXIMITY);
         is_switch_out = true;
@@ -245,8 +244,8 @@ void InputBackend::LoadSensorOverrides(InputSensorData* sensor) {
         return;
     }
 
-    std::string prop_key = std::string("vendor.sensors.input.") +
-                           sensor->device_name + ".accel_scale";
+    std::string prop_key =
+            std::string("vendor.sensors.input.") + sensor->device_name + ".accel_scale";
     std::string value = ::android::base::GetProperty(prop_key, "");
     if (!value.empty()) {
         char* endptr;
@@ -292,9 +291,8 @@ void InputBackend::PollSensorThread(InputSensorData* sensor) {
 
         auto events = ReadSensorData(sensor);
         if (!events.empty() && post_events_callback_) {
-            bool wakeup =
-                    (sensor->sensor_info.flags &
-                     static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
+            bool wakeup = (sensor->sensor_info.flags &
+                           static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
             post_events_callback_(events, wakeup);
         }
 
@@ -392,13 +390,12 @@ int32_t InputBackend::Activate(int32_t sensor_handle, bool enabled) {
         }
     }
 
-    LOG(INFO) << "Input sensor " << sensor_handle << " "
-              << (enabled ? "activated" : "deactivated");
+    LOG(INFO) << "Input sensor " << sensor_handle << " " << (enabled ? "activated" : "deactivated");
     return 0;
 }
 
 int32_t InputBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
-                             int64_t /* max_report_latency_ns */) {
+                            int64_t /* max_report_latency_ns */) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = sensors_.find(sensor_handle);
     if (it == sensors_.end()) {

@@ -28,7 +28,7 @@ Sensors::Sensors()
     LOG(INFO) << "Mainline Sensors HAL initializing";
 
     if (::android::base::GetBoolProperty("vendor.sensors.composite.device_orientation.enabled",
-                                       false)) {
+                                         false)) {
         LOG(INFO) << "Enabling composite sensor: DeviceOrientationSensor";
         backend_manager_.RegisterCompositeSensor(std::make_unique<DeviceOrientationSensor>());
     }
@@ -55,7 +55,7 @@ Sensors::~Sensors() {
 }
 
 ::ndk::ScopedAStatus Sensors::batch(int32_t in_sensorHandle, int64_t in_samplingPeriodNs,
-                                     int64_t in_maxReportLatencyNs) {
+                                    int64_t in_maxReportLatencyNs) {
     int32_t result =
             backend_manager_.Batch(in_sensorHandle, in_samplingPeriodNs, in_maxReportLatencyNs);
     if (result == 0) {
@@ -65,9 +65,9 @@ Sensors::~Sensors() {
 }
 
 ::ndk::ScopedAStatus Sensors::configDirectReport(int32_t /* in_sensorHandle */,
-                                                   int32_t /* in_channelHandle */,
-                                                   ISensors::RateLevel /* in_rate */,
-                                                   int32_t* _aidl_return) {
+                                                 int32_t /* in_channelHandle */,
+                                                 ISensors::RateLevel /* in_rate */,
+                                                 int32_t* _aidl_return) {
     *_aidl_return = EX_UNSUPPORTED_OPERATION;
     return ::ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
@@ -117,7 +117,8 @@ Sensors::~Sensors() {
 
         DeleteEventFlagLocked();
 
-        if (EventFlag::createEventFlag(event_queue_->getEventFlagWord(), &event_queue_flag_) != OK) {
+        if (EventFlag::createEventFlag(event_queue_->getEventFlagWord(), &event_queue_flag_) !=
+            OK) {
             result = ::ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
         }
 
@@ -143,12 +144,11 @@ Sensors::~Sensors() {
 }
 
 ::ndk::ScopedAStatus Sensors::injectSensorData(const Event& in_event) {
-    return ::ndk::ScopedAStatus::fromServiceSpecificError(
-            static_cast<int32_t>(ERROR_BAD_VALUE));
+    return ::ndk::ScopedAStatus::fromServiceSpecificError(static_cast<int32_t>(ERROR_BAD_VALUE));
 }
 
-::ndk::ScopedAStatus Sensors::registerDirectChannel(
-        const ISensors::SharedMemInfo& /* in_mem */, int32_t* _aidl_return) {
+::ndk::ScopedAStatus Sensors::registerDirectChannel(const ISensors::SharedMemInfo& /* in_mem */,
+                                                    int32_t* _aidl_return) {
     *_aidl_return = EX_UNSUPPORTED_OPERATION;
     return ::ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
@@ -224,8 +224,7 @@ void Sensors::UpdateWakeLock(int32_t events_written, int32_t events_handled) {
     }
 
     if (events_written > 0) {
-        auto_release_wake_lock_time_ =
-                ::android::uptimeMillis() + WAKE_LOCK_TIMEOUT_SECONDS * 1000;
+        auto_release_wake_lock_time_ = ::android::uptimeMillis() + WAKE_LOCK_TIMEOUT_SECONDS * 1000;
     }
 
     if (!has_wake_lock_ && outstanding_wake_up_events_ > 0 && AcquireWakeLock()) {

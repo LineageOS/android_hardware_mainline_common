@@ -51,8 +51,7 @@ std::string IioBackend::GetName() const {
     return "IIO";
 }
 
-std::string IioBackend::ReadSysfsString(const std::string& path,
-                                         const std::string& default_value) {
+std::string IioBackend::ReadSysfsString(const std::string& path, const std::string& default_value) {
     std::string result;
     if (!::android::base::ReadFileToString(path, &result)) {
         return default_value;
@@ -201,11 +200,9 @@ bool IioBackend::ParseChannelType(const std::string& type_str, IioChannelInfo& c
 
 std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& iio_name) {
     if (iio_name.find("accel") != std::string::npos) return SensorType::ACCELEROMETER;
-    if (iio_name.find("gyro") != std::string::npos ||
-        iio_name.find("anglvel") != std::string::npos)
+    if (iio_name.find("gyro") != std::string::npos || iio_name.find("anglvel") != std::string::npos)
         return SensorType::GYROSCOPE;
-    if (iio_name.find("magn") != std::string::npos)
-        return SensorType::MAGNETIC_FIELD;
+    if (iio_name.find("magn") != std::string::npos) return SensorType::MAGNETIC_FIELD;
     if (iio_name.find("light") != std::string::npos ||
         iio_name.find("illuminance") != std::string::npos ||
         iio_name.find("intensity") != std::string::npos)
@@ -213,13 +210,11 @@ std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& 
     if (iio_name.find("proximity") != std::string::npos ||
         iio_name.find("prox") != std::string::npos)
         return SensorType::PROXIMITY;
-    if (iio_name.find("temp") != std::string::npos)
-        return SensorType::AMBIENT_TEMPERATURE;
+    if (iio_name.find("temp") != std::string::npos) return SensorType::AMBIENT_TEMPERATURE;
     if (iio_name.find("pressure") != std::string::npos ||
         iio_name.find("baro") != std::string::npos)
         return SensorType::PRESSURE;
-    if (iio_name.find("humidity") != std::string::npos)
-        return SensorType::RELATIVE_HUMIDITY;
+    if (iio_name.find("humidity") != std::string::npos) return SensorType::RELATIVE_HUMIDITY;
     return std::nullopt;
 }
 
@@ -305,8 +300,7 @@ std::optional<SensorType> IioBackend::DetectTypeFromSysfsAttributes(const std::s
         if (fname.find("in_") != 0) {
             continue;
         }
-        if (fname.find("_raw") == std::string::npos &&
-            fname.find("_input") == std::string::npos) {
+        if (fname.find("_raw") == std::string::npos && fname.find("_input") == std::string::npos) {
             continue;
         }
 
@@ -379,8 +373,9 @@ std::string IioBackend::GetIioTypePrefix(SensorType type) {
  *
  * Used for reading scale and offset attributes during channel discovery.
  */
-float IioBackend::ReadSharedAttribute(const std::string& sysfs_path, const std::string& channel_name,
-                                      const std::string& suffix, float default_value) {
+float IioBackend::ReadSharedAttribute(const std::string& sysfs_path,
+                                      const std::string& channel_name, const std::string& suffix,
+                                      float default_value) {
     std::error_code ec;
     std::string per_axis_path = sysfs_path + "/" + channel_name + "_" + suffix;
     if (std::filesystem::exists(per_axis_path, ec)) {
@@ -576,8 +571,8 @@ void IioBackend::ApplyHwdbProperties(IioSensorData* sensor) {
     if (sensor->type == SensorType::PROXIMITY) {
         int near_level = sensor_hwdb_->GetProximityNearLevel(device_modalias, label, -1);
         if (near_level >= 0) {
-            LOG(INFO) << "Proximity near level from hwdb: " << near_level
-                      << " for sensor " << sensor->device_name;
+            LOG(INFO) << "Proximity near level from hwdb: " << near_level << " for sensor "
+                      << sensor->device_name;
         }
     }
 }
@@ -636,8 +631,8 @@ void IioBackend::ApplySensorInfoOverrides(IioSensorData* sensor) {
             LOG(INFO) << "Mount matrix overridden for " << sensor->device_name << ": "
                       << mount_matrix_str;
         } else {
-            LOG(WARNING) << "Invalid mount matrix override for " << sensor->device_name
-                         << ": " << mount_matrix_str;
+            LOG(WARNING) << "Invalid mount matrix override for " << sensor->device_name << ": "
+                         << mount_matrix_str;
         }
     }
 }
@@ -686,10 +681,9 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     std::string device_label = ReadSysfsString(sysfs_path + "/label", "");
     std::string parent_modalias = ReadSysfsString(sysfs_path + "/../modalias", "");
 
-    LOG(INFO) << "IIO device " << dev_num << ": name='" << device_name
-              << "' of_name='" << of_name << "' compatible='" << of_compatible
-              << "' label='" << device_label << "' modalias='" << parent_modalias
-              << "' at " << sysfs_path;
+    LOG(INFO) << "IIO device " << dev_num << ": name='" << device_name << "' of_name='" << of_name
+              << "' compatible='" << of_compatible << "' label='" << device_label << "' modalias='"
+              << parent_modalias << "' at " << sysfs_path;
 
     std::optional<SensorType> sensor_type = MapIioTypeToSensorType(device_name);
 
@@ -810,8 +804,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             std::vector<std::string> axes = {"x", "y", "z"};
 
             for (size_t i = 0; i < axes.size(); i++) {
-                std::string raw_path =
-                        sysfs_path + "/in_" + type_prefix + "_" + axes[i] + "_raw";
+                std::string raw_path = sysfs_path + "/in_" + type_prefix + "_" + axes[i] + "_raw";
                 if (!std::filesystem::exists(raw_path, ec)) {
                     LOG(WARNING) << "Missing " << raw_path << " for sensor " << device_name;
                     return;
@@ -876,10 +869,9 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             sensor->channels.push_back(channel);
         }
 
-        std::sort(sensor->channels.begin(), sensor->channels.end(),
-                  [](const IioChannelInfo& a, const IioChannelInfo& b) {
-                      return a.index < b.index;
-                  });
+        std::sort(
+                sensor->channels.begin(), sensor->channels.end(),
+                [](const IioChannelInfo& a, const IioChannelInfo& b) { return a.index < b.index; });
 
         sensor->sensor_info.sensorHandle = sensor->handle;
         sensor->sensor_info.name = device_name;
@@ -899,14 +891,15 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         int32_t handle = sensor->handle;
         sensors_[handle] = std::move(sensor);
         LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
-                  << ", type=" << static_cast<int32_t>(*sensor_type) << ", poll_mode="
-                  << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
+                  << ", type=" << static_cast<int32_t>(*sensor_type)
+                  << ", poll_mode=" << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
     } else {
         std::string dev_path = "/dev/iio:device" + std::to_string(dev_num);
         bool has_dev = std::filesystem::exists(dev_path, ec);
 
         if (!has_dev) {
-            LOG(WARNING) << "IIO device " << dev_num << " has scan_elements but no device node, falling back to poll mode";
+            LOG(WARNING) << "IIO device " << dev_num
+                         << " has scan_elements but no device node, falling back to poll mode";
             sensor->is_poll_mode = true;
 
             std::sort(sensor->channels.begin(), sensor->channels.end(),
@@ -951,10 +944,9 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         device->sysfs_path = sysfs_path;
         device->all_channels = sensor->channels;
 
-        std::sort(device->all_channels.begin(), device->all_channels.end(),
-                  [](const IioChannelInfo& a, const IioChannelInfo& b) {
-                      return a.index < b.index;
-                  });
+        std::sort(
+                device->all_channels.begin(), device->all_channels.end(),
+                [](const IioChannelInfo& a, const IioChannelInfo& b) { return a.index < b.index; });
 
         /*
          * Buffer Layout Calculation
@@ -1185,9 +1177,8 @@ void IioBackend::PollSensorThread(IioSensorData* sensor) {
         std::vector<Event> events = ReadPollSensorData(sensor);
 
         if (!events.empty() && post_events_callback_) {
-            bool wakeup =
-                    (sensor->sensor_info.flags &
-                     static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
+            bool wakeup = (sensor->sensor_info.flags &
+                           static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
             post_events_callback_(events, wakeup);
         }
 
@@ -1232,8 +1223,7 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
 
         // IIO scale already converts raw to m/s²
 
-        EventPayload::Vec3 vec3 = BuildVec3Value(
-                {corrected[0], corrected[1], corrected[2]});
+        EventPayload::Vec3 vec3 = BuildVec3Value({corrected[0], corrected[1], corrected[2]});
         event.payload.set<EventPayload::Tag::vec3>(vec3);
         events.push_back(event);
     } else {
@@ -1274,8 +1264,7 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
 bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
     std::error_code ec;
     if (!std::filesystem::exists(kHrtimerTriggerConfigfsPath, ec)) {
-        LOG(WARNING) << "hrtimer trigger configfs not available at "
-                     << kHrtimerTriggerConfigfsPath;
+        LOG(WARNING) << "hrtimer trigger configfs not available at " << kHrtimerTriggerConfigfsPath;
         return false;
     }
 
@@ -1285,19 +1274,18 @@ bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_pe
 
     if (!std::filesystem::exists(trigger_path, ec)) {
         if (!std::filesystem::create_directory(trigger_path, ec)) {
-            LOG(WARNING) << "Failed to create hrtimer trigger " << trigger_path
-                         << ": " << ec.message();
+            LOG(WARNING) << "Failed to create hrtimer trigger " << trigger_path << ": "
+                         << ec.message();
             return false;
         }
     }
 
     if (sampling_period_ns > 0) {
-        int32_t freq = static_cast<int32_t>(
-                static_cast<float>(kNanosecondsPerSecond) /
-                static_cast<float>(sampling_period_ns));
+        int32_t freq = static_cast<int32_t>(static_cast<float>(kNanosecondsPerSecond) /
+                                            static_cast<float>(sampling_period_ns));
         if (freq < 1) freq = 1;
         std::string trig_freq_path =
-                    std::string(kIioBasePath) + "/" + device->trigger_name + "/sampling_frequency";
+                std::string(kIioBasePath) + "/" + device->trigger_name + "/sampling_frequency";
         if (!WriteSysfsInt(trig_freq_path, freq)) {
             LOG(WARNING) << "Failed to set trigger sampling frequency at " << trig_freq_path;
         }
@@ -1305,13 +1293,13 @@ bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_pe
 
     std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
     if (!::android::base::WriteStringToFile(device->trigger_name, current_trigger_path)) {
-        LOG(WARNING) << "Failed to assign trigger " << device->trigger_name
-                     << " to device " << device->dev_num;
+        LOG(WARNING) << "Failed to assign trigger " << device->trigger_name << " to device "
+                     << device->dev_num;
         return false;
     }
 
-    LOG(INFO) << "hrtimer trigger " << device->trigger_name
-              << " set up for device " << device->dev_num;
+    LOG(INFO) << "hrtimer trigger " << device->trigger_name << " set up for device "
+              << device->dev_num;
     return true;
 }
 
@@ -1330,12 +1318,13 @@ bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_pe
  */
 bool IioBackend::SetupDeviceTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
     std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
-    
+
     std::string current_trigger;
     if (::android::base::ReadFileToString(current_trigger_path, &current_trigger)) {
         current_trigger = ::android::base::Trim(current_trigger);
         if (!current_trigger.empty()) {
-            LOG(INFO) << "Device " << device->dev_num << " already has trigger: " << current_trigger;
+            LOG(INFO) << "Device " << device->dev_num
+                      << " already has trigger: " << current_trigger;
             device->trigger_name = current_trigger;
             return true;
         }
@@ -1373,16 +1362,16 @@ bool IioBackend::SetupDeviceTrigger(IioDeviceState* device, int32_t sampling_per
 
         if (trig_name.find(device_name) != std::string::npos ||
             trig_name.find(dev_pattern) != std::string::npos) {
-            
             if (::android::base::WriteStringToFile(trig_name, current_trigger_path)) {
-                LOG(INFO) << "Using device trigger " << trig_name << " for device " << device->dev_num;
+                LOG(INFO) << "Using device trigger " << trig_name << " for device "
+                          << device->dev_num;
                 device->trigger_name = trig_name;
                 return true;
             }
         }
     }
 
-    LOG(WARNING) << "No device trigger found for device " << device->dev_num 
+    LOG(WARNING) << "No device trigger found for device " << device->dev_num
                  << " (name: " << device_name << ")";
     return false;
 }
@@ -1524,9 +1513,8 @@ bool IioBackend::EnableDeviceBuffer(IioDeviceState* device, bool enable) {
  * The expression (1u << 32) is undefined behavior in C++, so we guard against
  * realbits >= 32 and skip the masking/sign-extension step.
  */
-std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
-                                                   const uint8_t* data,
-                                                   size_t num_samples) {
+std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor, const uint8_t* data,
+                                                  size_t num_samples) {
     std::vector<Event> events;
     if (!sensor->device_state) {
         return events;
@@ -1590,8 +1578,7 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
         event.sensorHandle = sensor->handle;
         event.sensorType = sensor->type;
         event.timestamp = timestamp;
-        EventPayload::Vec3 vec3 = BuildVec3Value(
-                {corrected[0], corrected[1], corrected[2]});
+        EventPayload::Vec3 vec3 = BuildVec3Value({corrected[0], corrected[1], corrected[2]});
         event.payload.set<EventPayload::Tag::vec3>(vec3);
         events.push_back(event);
     } else if (!sensor->channels.empty()) {
@@ -1678,9 +1665,10 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
             if (EnableDeviceBuffer(device.get(), true)) {
                 buffer_enabled = true;
                 device->reader_running = true;
-                device->reader_thread = std::thread(&IioBackend::DeviceBufferReaderThread, this, device.get());
+                device->reader_thread =
+                        std::thread(&IioBackend::DeviceBufferReaderThread, this, device.get());
             } else {
-                LOG(WARNING) << "Failed to enable device buffer for " << device->dev_num 
+                LOG(WARNING) << "Failed to enable device buffer for " << device->dev_num
                              << ", falling back to poll mode";
                 device->active_sensors.pop_back();
                 sensor->is_poll_mode = true;
@@ -1698,8 +1686,8 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
     {
         std::lock_guard<std::mutex> lock(device->mutex);
         device->active_sensors.erase(
-            std::remove(device->active_sensors.begin(), device->active_sensors.end(), sensor),
-            device->active_sensors.end());
+                std::remove(device->active_sensors.begin(), device->active_sensors.end(), sensor),
+                device->active_sensors.end());
 
         if (device->active_sensors.empty() && device->reader_running.load()) {
             should_stop_reader = true;
@@ -1754,8 +1742,8 @@ void IioBackend::DeviceBufferReaderThread(IioDeviceState* device) {
         int ret = poll(fds, 2, 1000);
         if (ret < 0) {
             if (errno == EINTR) continue;
-            LOG(WARNING) << "poll() failed for device " << device->dev_num
-                         << ": " << strerror(errno);
+            LOG(WARNING) << "poll() failed for device " << device->dev_num << ": "
+                         << strerror(errno);
             break;
         }
 
@@ -1858,7 +1846,7 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
  * which controls how often ReadPollSensorData is called.
  */
 int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
-                           int64_t /* max_report_latency_ns */) {
+                          int64_t /* max_report_latency_ns */) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = sensors_.find(sensor_handle);
     if (it == sensors_.end()) {
@@ -1880,9 +1868,8 @@ int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
     sensor->poll_cv.notify_all();
 
     if (sampling_period_ns > 0) {
-        int32_t freq = static_cast<int32_t>(
-                static_cast<float>(kNanosecondsPerSecond) /
-                static_cast<float>(sampling_period_ns));
+        int32_t freq = static_cast<int32_t>(static_cast<float>(kNanosecondsPerSecond) /
+                                            static_cast<float>(sampling_period_ns));
         if (freq < 1) freq = 1;
 
         std::string freq_path = sensor->sysfs_path + "/sampling_frequency";
@@ -1901,9 +1888,8 @@ int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
 
         if (!sensor->is_poll_mode && sensor->device_state &&
             !sensor->device_state->trigger_name.empty()) {
-            std::string trig_freq_path =
-                std::string(kIioBasePath) + "/" + sensor->device_state->trigger_name +
-                "/sampling_frequency";
+            std::string trig_freq_path = std::string(kIioBasePath) + "/" +
+                                         sensor->device_state->trigger_name + "/sampling_frequency";
             WriteSysfsInt(trig_freq_path, freq);
         }
     }

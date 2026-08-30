@@ -40,8 +40,7 @@ class SensorBackendManager {
 
     int32_t Activate(int32_t sensor_handle, bool enabled);
 
-    int32_t Batch(int32_t sensor_handle, int64_t sampling_period_ns,
-                  int64_t max_report_latency_ns);
+    int32_t Batch(int32_t sensor_handle, int64_t sampling_period_ns, int64_t max_report_latency_ns);
 
     int32_t Flush(int32_t sensor_handle);
 
