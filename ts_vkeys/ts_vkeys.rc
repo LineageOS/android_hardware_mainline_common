@@ -5,5 +5,8 @@ service vendor.ts_vkeys /vendor/bin/ts_vkeys
     oneshot
     disabled
 
+on property:vendor.ts_vkeys.genvkeys.key_codes=*
+    enable vendor.ts_vkeys
+
 on property:vendor.ts_vkeys.names=*
     enable vendor.ts_vkeys

@@ -6,6 +6,7 @@
 #define LOG_TAG "ts_vkeys"
 
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
@@ -16,6 +17,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -120,12 +122,19 @@ class UinputDevice {
 
 class VirtualKeyMapper {
   public:
+    virtual ~VirtualKeyMapper() = default;
+    virtual std::optional<uint16_t> LookupKey(int32_t x, int32_t y) const = 0;
+    virtual const std::vector<uint16_t>& GetKeyCodes() const = 0;
+};
+
+class ExactKeyMapper : public VirtualKeyMapper {
+  public:
     void AddKey(uint16_t x, uint16_t y, uint16_t key_code) {
         key_map_[y][x] = key_code;
         key_codes_.push_back(key_code);
     }
 
-    std::optional<uint16_t> LookupKey(int32_t x, int32_t y) const {
+    std::optional<uint16_t> LookupKey(int32_t x, int32_t y) const override {
         auto y_it = key_map_.find(static_cast<uint16_t>(y));
         if (y_it == key_map_.end()) {
             return std::nullopt;
@@ -137,11 +146,86 @@ class VirtualKeyMapper {
         return x_it->second;
     }
 
-    const std::vector<uint16_t>& GetKeyCodes() const { return key_codes_; }
+    const std::vector<uint16_t>& GetKeyCodes() const override { return key_codes_; }
 
   private:
     std::unordered_map<uint16_t, std::unordered_map<uint16_t, uint16_t>> key_map_;
     std::vector<uint16_t> key_codes_;
+};
+
+struct VirtualKeyRegion {
+    uint16_t key_code;
+    int32_t x_min;
+    int32_t x_max;
+};
+
+class GenVkeysMapper : public VirtualKeyMapper {
+  public:
+    GenVkeysMapper(uint32_t disp_maxx, uint32_t disp_maxy, uint32_t panel_maxx,
+                   uint32_t panel_maxy, std::vector<uint16_t> key_codes, int32_t y_offset,
+                   bool y_beyond_maxy)
+        : disp_maxy_(disp_maxy),
+          y_beyond_maxy_(y_beyond_maxy),
+          key_codes_(std::move(key_codes)) {
+        CalculateRegions(disp_maxx, disp_maxy, panel_maxx, panel_maxy, y_offset);
+    }
+
+    std::optional<uint16_t> LookupKey(int32_t x, int32_t y) const override {
+        if (y < static_cast<int32_t>(disp_maxy_)) {
+            return std::nullopt;
+        }
+        if (!y_beyond_maxy_ && y > vkeys_maxy_) {
+            return std::nullopt;
+        }
+
+        for (const auto& region : regions_) {
+            if (x >= region.x_min && x <= region.x_max) {
+                return region.key_code;
+            }
+        }
+        return std::nullopt;
+    }
+
+    const std::vector<uint16_t>& GetKeyCodes() const override { return key_codes_; }
+
+  private:
+    static constexpr int kBorderAdjustNum = 3;
+    static constexpr int kBorderAdjustDenom = 4;
+    static constexpr int kHeightScaleNum = 8;
+    static constexpr int kHeightScaleDenom = 10;
+
+    void CalculateRegions(uint32_t disp_maxx, uint32_t disp_maxy, uint32_t panel_maxx,
+                          uint32_t panel_maxy, int32_t y_offset) {
+        const int num_keys = static_cast<int>(key_codes_.size());
+        const int border = static_cast<int>(panel_maxx - disp_maxx) * 2;
+        const int width =
+            (static_cast<int>(disp_maxx) - (border * (num_keys - 1))) / num_keys;
+        int height = static_cast<int>(panel_maxy - disp_maxy);
+        height = height * kHeightScaleNum / kHeightScaleDenom;
+
+        vkeys_maxy_ = static_cast<int32_t>(disp_maxy) + height + y_offset;
+
+        int x2 = -border * kBorderAdjustNum / kBorderAdjustDenom;
+        for (int i = 0; i < num_keys; ++i) {
+            int x1 = x2 + border;
+            x2 = x1 + width;
+
+            VirtualKeyRegion region;
+            region.key_code = key_codes_[i];
+            region.x_min = x1;
+            region.x_max = x2;
+            regions_.push_back(region);
+
+            LOG(INFO) << "Virtual key " << region.key_code << ": x=[" << region.x_min << ", "
+                      << region.x_max << "], y=[" << disp_maxy << ", " << vkeys_maxy_ << "]";
+        }
+    }
+
+    uint32_t disp_maxy_;
+    int32_t vkeys_maxy_ = 0;
+    bool y_beyond_maxy_;
+    std::vector<uint16_t> key_codes_;
+    std::vector<VirtualKeyRegion> regions_;
 };
 
 class TouchSlotTracker {
@@ -209,20 +293,18 @@ bool TestBit(size_t bit, const unsigned long* array) {
     return (array[bit / kBitsPerLong] & (1UL << (bit % kBitsPerLong))) != 0;
 }
 
-std::optional<VirtualKeyMapper> ParseVirtualKeyConfig() {
+std::unique_ptr<VirtualKeyMapper> ParseExactKeyConfig() {
     std::string names_str = GetProperty(std::string(kPropPrefix) + "names", "");
     if (names_str.empty()) {
-        LOG(ERROR) << "No virtual key specified";
-        return std::nullopt;
+        return nullptr;
     }
 
     std::vector<std::string> names = Split(names_str, ",");
     if (names.empty()) {
-        LOG(ERROR) << "No virtual key specified";
-        return std::nullopt;
+        return nullptr;
     }
 
-    VirtualKeyMapper mapper;
+    auto mapper = std::make_unique<ExactKeyMapper>();
 
     for (const std::string& name : names) {
         auto x = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".x", 0);
@@ -234,17 +316,82 @@ std::optional<VirtualKeyMapper> ParseVirtualKeyConfig() {
             continue;
         }
 
-        mapper.AddKey(x, y, key_code);
+        mapper->AddKey(x, y, key_code);
         LOG(INFO) << "Registered virtual key '" << name << "' at (" << x << ", " << y
                   << ") with key_code=" << key_code;
     }
 
-    if (mapper.GetKeyCodes().empty()) {
-        LOG(ERROR) << "No valid virtual keys configured";
-        return std::nullopt;
+    if (mapper->GetKeyCodes().empty()) {
+        return nullptr;
     }
 
     return mapper;
+}
+
+std::unique_ptr<VirtualKeyMapper> ParseGenVkeysConfig() {
+    constexpr char kGenVkeysPrefix[] = "vendor.ts_vkeys.genvkeys.";
+
+    auto disp_maxx = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "disp_maxx", 0);
+    auto disp_maxy = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "disp_maxy", 0);
+    auto panel_maxx = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "panel_maxx", 0);
+    auto panel_maxy = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "panel_maxy", 0);
+
+    if (disp_maxx == 0 || disp_maxy == 0 || panel_maxx == 0 || panel_maxy == 0) {
+        return nullptr;
+    }
+
+    std::string key_codes_str = GetProperty(std::string(kGenVkeysPrefix) + "key_codes", "");
+    if (key_codes_str.empty()) {
+        LOG(ERROR) << "genvkeys: No key codes specified";
+        return nullptr;
+    }
+
+    std::vector<std::string> key_code_strs = Split(key_codes_str, ",");
+    std::vector<uint16_t> key_codes;
+    key_codes.reserve(key_code_strs.size());
+
+    for (const std::string& s : key_code_strs) {
+        uint16_t value = 0;
+        if (!android::base::ParseUint(s, &value) || value == 0) {
+            LOG(ERROR) << "genvkeys: Invalid key code value: '" << s << "'";
+            return nullptr;
+        }
+        key_codes.push_back(value);
+    }
+
+    if (key_codes.empty()) {
+        LOG(ERROR) << "genvkeys: No valid key codes";
+        return nullptr;
+    }
+
+    int32_t y_offset =
+        android::base::GetIntProperty<int32_t>(std::string(kGenVkeysPrefix) + "y_offset", 0);
+
+    bool y_beyond_maxy =
+        android::base::GetBoolProperty(std::string(kGenVkeysPrefix) + "y_beyond_maxy", false);
+
+    LOG(INFO) << "genvkeys: disp=" << disp_maxx << "x" << disp_maxy
+              << " panel=" << panel_maxx << "x" << panel_maxy
+              << " num_keys=" << key_codes.size() << " y_offset=" << y_offset
+              << " y_beyond_maxy=" << y_beyond_maxy;
+
+    return std::make_unique<GenVkeysMapper>(disp_maxx, disp_maxy, panel_maxx, panel_maxy,
+                                            std::move(key_codes), y_offset, y_beyond_maxy);
+}
+
+std::unique_ptr<VirtualKeyMapper> ParseVirtualKeyConfig() {
+    if (auto mapper = ParseGenVkeysConfig()) {
+        LOG(INFO) << "Using genvkeys configuration";
+        return mapper;
+    }
+
+    if (auto mapper = ParseExactKeyConfig()) {
+        LOG(INFO) << "Using exact key coordinate configuration";
+        return mapper;
+    }
+
+    LOG(ERROR) << "No virtual key configuration found";
+    return nullptr;
 }
 
 unique_fd FindTouchscreenDevice() {
@@ -373,7 +520,7 @@ int main(int argc, char** argv) {
 #endif
 
     auto mapper = ParseVirtualKeyConfig();
-    if (!mapper.has_value()) {
+    if (!mapper) {
         return EXIT_SUCCESS;
     }
 
