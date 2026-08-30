@@ -117,6 +117,7 @@ class IioBackend : public ISensorBackend {
                                           size_t num_samples);
     bool EnableDeviceBuffer(IioDeviceState* device, bool enable);
     bool SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_period_ns);
+    bool SetupDeviceTrigger(IioDeviceState* device, int32_t sampling_period_ns);
     void TeardownHrtimerTrigger(IioDeviceState* device);
     bool OpenDeviceBufferFd(IioDeviceState* device);
     void CloseDeviceBufferFd(IioDeviceState* device);

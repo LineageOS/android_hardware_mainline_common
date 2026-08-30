@@ -1033,7 +1033,10 @@ void IioBackend::PollSensorThread(IioSensorData* sensor) {
 
     if (!sensor->is_poll_mode) {
         BufferSensorThread(sensor);
-        return;
+        if (!sensor->is_poll_mode) {
+            return;
+        }
+        LOG(INFO) << "Sensor " << sensor->handle << " fell back to poll mode";
     }
 
     while (!sensor->stop_thread.load()) {
@@ -1174,6 +1177,65 @@ bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_pe
     return true;
 }
 
+bool IioBackend::SetupDeviceTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
+    std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
+    
+    std::string current_trigger;
+    if (::android::base::ReadFileToString(current_trigger_path, &current_trigger)) {
+        current_trigger = ::android::base::Trim(current_trigger);
+        if (!current_trigger.empty()) {
+            LOG(INFO) << "Device " << device->dev_num << " already has trigger: " << current_trigger;
+            device->trigger_name = current_trigger;
+            return true;
+        }
+    }
+
+    std::string device_name;
+    std::string name_path = device->sysfs_path + "/name";
+    if (!::android::base::ReadFileToString(name_path, &device_name)) {
+        LOG(WARNING) << "Cannot read device name for device " << device->dev_num;
+        return false;
+    }
+    device_name = ::android::base::Trim(device_name);
+
+    std::error_code ec;
+    std::filesystem::directory_iterator dir_it(kIioBasePath, ec);
+    if (ec) {
+        LOG(WARNING) << "Cannot scan IIO devices for triggers: " << ec.message();
+        return false;
+    }
+
+    std::string dev_pattern = "dev" + std::to_string(device->dev_num);
+
+    for (const auto& entry : dir_it) {
+        std::string name = entry.path().filename().string();
+        if (name.find("trigger") == std::string::npos) {
+            continue;
+        }
+
+        std::string trig_name_path = entry.path().string() + "/name";
+        std::string trig_name;
+        if (!::android::base::ReadFileToString(trig_name_path, &trig_name)) {
+            continue;
+        }
+        trig_name = ::android::base::Trim(trig_name);
+
+        if (trig_name.find(device_name) != std::string::npos ||
+            trig_name.find(dev_pattern) != std::string::npos) {
+            
+            if (::android::base::WriteStringToFile(trig_name, current_trigger_path)) {
+                LOG(INFO) << "Using device trigger " << trig_name << " for device " << device->dev_num;
+                device->trigger_name = trig_name;
+                return true;
+            }
+        }
+    }
+
+    LOG(WARNING) << "No device trigger found for device " << device->dev_num 
+                 << " (name: " << device_name << ")";
+    return false;
+}
+
 void IioBackend::TeardownHrtimerTrigger(IioDeviceState* device) {
     if (device->trigger_name.empty()) {
         return;
@@ -1185,9 +1247,12 @@ void IioBackend::TeardownHrtimerTrigger(IioDeviceState* device) {
     std::error_code ec;
     std::string trigger_path =
             std::string(kHrtimerTriggerConfigfsPath) + "/" + device->trigger_name;
-    std::filesystem::remove(trigger_path, ec);
-
-    LOG(INFO) << "hrtimer trigger " << device->trigger_name << " torn down";
+    if (std::filesystem::exists(trigger_path, ec)) {
+        std::filesystem::remove(trigger_path, ec);
+        LOG(INFO) << "hrtimer trigger " << device->trigger_name << " torn down";
+    } else {
+        LOG(INFO) << "Trigger " << device->trigger_name << " detached";
+    }
     device->trigger_name.clear();
 }
 
@@ -1234,7 +1299,12 @@ bool IioBackend::EnableDeviceBuffer(IioDeviceState* device, bool enable) {
         bool has_trigger = SetupHrtimerTrigger(device, sampling_period_ns);
         if (!has_trigger) {
             LOG(INFO) << "hrtimer trigger not available for device " << device->dev_num
-                      << ", attempting buffer mode without external trigger";
+                      << ", trying device trigger";
+            has_trigger = SetupDeviceTrigger(device, sampling_period_ns);
+        }
+        if (!has_trigger) {
+            LOG(INFO) << "No trigger available for device " << device->dev_num
+                      << ", attempting push-based buffer mode";
         }
 
         std::string scan_dir = device->sysfs_path + "/scan_elements";
@@ -1401,6 +1471,7 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
 
     if (!sensor->device_state) {
         LOG(ERROR) << "No device state for sensor " << sensor->handle;
+        sensor->is_poll_mode = true;
         return;
     }
 
@@ -1417,8 +1488,10 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
                 device->reader_running = true;
                 device->reader_thread = std::thread(&IioBackend::DeviceBufferReaderThread, this, device.get());
             } else {
-                LOG(WARNING) << "Failed to enable device buffer for " << device->dev_num;
+                LOG(WARNING) << "Failed to enable device buffer for " << device->dev_num 
+                             << ", falling back to poll mode";
                 device->active_sensors.pop_back();
+                sensor->is_poll_mode = true;
                 return;
             }
         }
