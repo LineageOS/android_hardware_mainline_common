@@ -6,5 +6,8 @@ service ts_vkeys /system/bin/ts_vkeys
     oneshot
     disabled
 
+on property:vendor.ts_vkeys.genvkeys.key_codes=*
+    enable ts_vkeys
+
 on property:vendor.ts_vkeys.names=*
     enable ts_vkeys
