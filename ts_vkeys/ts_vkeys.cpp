@@ -15,6 +15,7 @@
 #include <linux/uinput.h>
 #include <sys/epoll.h>
 
+#include <cctype>
 #include <cerrno>
 #include <cstring>
 #include <memory>
@@ -289,8 +290,21 @@ bool TestBit(size_t bit, const unsigned long* array) {
     return (array[bit / kBitsPerLong] & (1UL << (bit % kBitsPerLong))) != 0;
 }
 
-std::unique_ptr<VirtualKeyMapper> ParseExactKeyConfig() {
-    std::string names_str = GetProperty(std::string(kPropPrefix) + "names", "");
+std::string SanitizeDeviceName(const std::string& name) {
+    std::string result;
+    result.reserve(name.size());
+    for (char c : name) {
+        if (std::isalnum(c) || c == '-') {
+            result += c;
+        } else {
+            result += '_';
+        }
+    }
+    return result;
+}
+
+std::unique_ptr<VirtualKeyMapper> ParseExactKeyConfig(const std::string& prefix) {
+    std::string names_str = GetProperty(prefix + "names", "");
     if (names_str.empty()) {
         return nullptr;
     }
@@ -303,9 +317,9 @@ std::unique_ptr<VirtualKeyMapper> ParseExactKeyConfig() {
     auto mapper = std::make_unique<ExactKeyMapper>();
 
     for (const std::string& name : names) {
-        auto x = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".x", 0);
-        auto y = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".y", 0);
-        auto key_code = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".key_code", 0);
+        auto x = GetUintProperty<uint16_t>(prefix + name + ".x", 0);
+        auto y = GetUintProperty<uint16_t>(prefix + name + ".y", 0);
+        auto key_code = GetUintProperty<uint16_t>(prefix + name + ".key_code", 0);
 
         if (x == 0 || y == 0 || key_code == 0) {
             LOG(ERROR) << "Virtual key '" << name << "' has missing or invalid properties";
@@ -324,19 +338,17 @@ std::unique_ptr<VirtualKeyMapper> ParseExactKeyConfig() {
     return mapper;
 }
 
-std::unique_ptr<VirtualKeyMapper> ParseGenVkeysConfig() {
-    constexpr char kGenVkeysPrefix[] = "vendor.ts_vkeys.genvkeys.";
-
-    auto disp_maxx = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "disp_maxx", 0);
-    auto disp_maxy = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "disp_maxy", 0);
-    auto panel_maxx = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "panel_maxx", 0);
-    auto panel_maxy = GetUintProperty<uint32_t>(std::string(kGenVkeysPrefix) + "panel_maxy", 0);
+std::unique_ptr<VirtualKeyMapper> ParseGenVkeysConfig(const std::string& prefix) {
+    auto disp_maxx = GetUintProperty<uint32_t>(prefix + "disp_maxx", 0);
+    auto disp_maxy = GetUintProperty<uint32_t>(prefix + "disp_maxy", 0);
+    auto panel_maxx = GetUintProperty<uint32_t>(prefix + "panel_maxx", 0);
+    auto panel_maxy = GetUintProperty<uint32_t>(prefix + "panel_maxy", 0);
 
     if (disp_maxx == 0 || disp_maxy == 0 || panel_maxx == 0 || panel_maxy == 0) {
         return nullptr;
     }
 
-    std::string key_codes_str = GetProperty(std::string(kGenVkeysPrefix) + "key_codes", "");
+    std::string key_codes_str = GetProperty(prefix + "key_codes", "");
     if (key_codes_str.empty()) {
         LOG(ERROR) << "genvkeys: No key codes specified";
         return nullptr;
@@ -360,11 +372,9 @@ std::unique_ptr<VirtualKeyMapper> ParseGenVkeysConfig() {
         return nullptr;
     }
 
-    int32_t y_offset =
-            android::base::GetIntProperty<int32_t>(std::string(kGenVkeysPrefix) + "y_offset", 0);
+    int32_t y_offset = android::base::GetIntProperty<int32_t>(prefix + "y_offset", 0);
 
-    bool y_beyond_maxy =
-            android::base::GetBoolProperty(std::string(kGenVkeysPrefix) + "y_beyond_maxy", false);
+    bool y_beyond_maxy = android::base::GetBoolProperty(prefix + "y_beyond_maxy", false);
 
     LOG(INFO) << "genvkeys: disp=" << disp_maxx << "x" << disp_maxy << " panel=" << panel_maxx
               << "x" << panel_maxy << " num_keys=" << key_codes.size() << " y_offset=" << y_offset
@@ -374,22 +384,40 @@ std::unique_ptr<VirtualKeyMapper> ParseGenVkeysConfig() {
                                             std::move(key_codes), y_offset, y_beyond_maxy);
 }
 
-std::unique_ptr<VirtualKeyMapper> ParseVirtualKeyConfig() {
-    if (auto mapper = ParseGenVkeysConfig()) {
-        LOG(INFO) << "Using genvkeys configuration";
-        return mapper;
+std::unique_ptr<VirtualKeyMapper> ParseVirtualKeyConfig(const std::string& device_name) {
+    std::vector<std::string> prefixes;
+
+    if (!device_name.empty()) {
+        std::string sanitized_name = SanitizeDeviceName(device_name);
+        prefixes.push_back(std::string(kPropPrefix) + sanitized_name + ".");
     }
 
-    if (auto mapper = ParseExactKeyConfig()) {
-        LOG(INFO) << "Using exact key coordinate configuration";
-        return mapper;
+    prefixes.push_back(std::string(kPropPrefix));
+
+    for (const auto& prefix : prefixes) {
+        LOG(INFO) << "Trying configuration with prefix: " << prefix;
+
+        if (auto mapper = ParseGenVkeysConfig(prefix + "genvkeys.")) {
+            LOG(INFO) << "Using genvkeys configuration with prefix: " << prefix;
+            return mapper;
+        }
+
+        if (auto mapper = ParseExactKeyConfig(prefix)) {
+            LOG(INFO) << "Using exact key coordinate configuration with prefix: " << prefix;
+            return mapper;
+        }
     }
 
     LOG(ERROR) << "No virtual key configuration found";
     return nullptr;
 }
 
-unique_fd FindTouchscreenDevice() {
+struct TouchscreenDevice {
+    unique_fd fd;
+    std::string name;
+};
+
+std::optional<TouchscreenDevice> FindTouchscreenDevice() {
     for (int round = 0; round < kDeviceSearchRounds; ++round) {
         for (int node = 0; node < kDeviceSearchMaxNodes; ++node) {
             std::string path = "/dev/input/event" + std::to_string(node);
@@ -402,11 +430,22 @@ unique_fd FindTouchscreenDevice() {
             constexpr size_t kEvMaxBits = (EV_MAX + kBitsPerLong - 1) / kBitsPerLong;
             unsigned long ev_bits[kEvMaxBits] = {};
 
-            if (ioctl(fd.get(), EVIOCGBIT(0, sizeof(ev_bits)), ev_bits) >= 0 &&
-                TestBit(EV_ABS, ev_bits)) {
-                LOG(INFO) << "Found touchscreen device: " << path;
-                return fd;
+            if (ioctl(fd.get(), EVIOCGBIT(0, sizeof(ev_bits)), ev_bits) < 0 ||
+                !TestBit(EV_ABS, ev_bits)) {
+                continue;
             }
+
+            char name_buf[256] = {};
+            if (ioctl(fd.get(), EVIOCGNAME(sizeof(name_buf)), name_buf) < 0) {
+                name_buf[0] = '\0';
+            }
+
+            LOG(INFO) << "Found touchscreen device: " << path << " (" << name_buf << ")";
+
+            TouchscreenDevice device;
+            device.fd = std::move(fd);
+            device.name = name_buf;
+            return device;
         }
 
         if (round < kDeviceSearchRounds - 1) {
@@ -415,7 +454,7 @@ unique_fd FindTouchscreenDevice() {
         }
     }
 
-    return unique_fd();
+    return std::nullopt;
 }
 
 void HandleEvent(const struct input_event& ev, TouchSlotTracker& tracker) {
@@ -514,15 +553,15 @@ int main(int argc, char** argv) {
     android::base::InitLogging(argv, &android::base::KernelLogger);
 #endif
 
-    auto mapper = ParseVirtualKeyConfig();
-    if (!mapper) {
-        return EXIT_SUCCESS;
-    }
-
-    unique_fd device_fd = FindTouchscreenDevice();
-    if (!device_fd.ok()) {
+    auto device = FindTouchscreenDevice();
+    if (!device.has_value()) {
         LOG(ERROR) << "Failed to find touchscreen device";
         return EXIT_FAILURE;
+    }
+
+    auto mapper = ParseVirtualKeyConfig(device->name);
+    if (!mapper) {
+        return EXIT_SUCCESS;
     }
 
     UinputDevice uinput;
@@ -534,5 +573,5 @@ int main(int argc, char** argv) {
     TouchSlotTracker tracker(*mapper);
     tracker.SetUinputDevice(&uinput);
 
-    return RunEventLoop(std::move(device_fd), tracker);
+    return RunEventLoop(std::move(device->fd), tracker);
 }
