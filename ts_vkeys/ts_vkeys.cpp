@@ -8,305 +8,389 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
+#include <android-base/unique_fd.h>
 
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <sys/epoll.h>
 
+#include <cerrno>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <fcntl.h>
-#include <stdlib.h>
 #include <unistd.h>
+
+namespace {
 
 using android::base::GetProperty;
 using android::base::GetUintProperty;
 using android::base::Split;
+using android::base::unique_fd;
 
-#define BITS_PER_LONG (sizeof(unsigned long) * 8)
-#define BITS_TO_LONGS(bits) (((bits) + BITS_PER_LONG - 1) / BITS_PER_LONG)
+constexpr char kPropPrefix[] = "vendor.ts_vkeys.";
+constexpr int kDeviceSearchRounds = 10;
+constexpr int kDeviceSearchMaxNodes = 10;
+constexpr int kEpollMaxEvents = 10;
 
-typedef struct vkey_key_info {
-    __u16 key_code;
-} vkey_key_info_t;
-
-typedef struct mt_slot {
-    bool active;
-    __s32 x;
-    __s32 y;
-    __u16 key_code;
-} mt_slot_t;
-
-/*
-Example properties:
-    setprop vendor.ts_vkeys.names menu,home,back
-    setprop vendor.ts_vkeys.menu.x 160
-    setprop vendor.ts_vkeys.menu.y 1344
-    setprop vendor.ts_vkeys.menu.key_code 139
-    setprop vendor.ts_vkeys.home.x 360
-    setprop vendor.ts_vkeys.home.y 1344
-    setprop vendor.ts_vkeys.home.key_code 172
-    setprop vendor.ts_vkeys.back.x 570
-    setprop vendor.ts_vkeys.back.y 1344
-    setprop vendor.ts_vkeys.back.key_code 158
- */
-static const std::string kPropPrefix = "vendor.ts_vkeys.";
-
-static const struct uinput_setup usetup = {
-        .id =
-                {
-                        .bustype = BUS_VIRTUAL,
-                        .vendor = 0xCAFE,
-                        .product = 0x0000,
-                },
-        .name = "ts_vkeys",
+struct TouchSlot {
+    bool active = false;
+    int32_t x = 0;
+    int32_t y = 0;
+    uint16_t key_code = 0;
 };
 
-static int g_uinput_fd;
-static std::unordered_map<__u16 /*slot*/, mt_slot_t> g_mt_slots;
-static std::unordered_map<__u16 /*y*/, std::unordered_map<__u16 /*x*/, vkey_key_info_t>> g_vkey_map;
-static std::vector<__u16> g_vkey_key_codes;
+class UinputDevice {
+  public:
+    UinputDevice() = default;
+    ~UinputDevice() { Destroy(); }
 
-static bool test_bit(size_t bit, unsigned long* array) {
-    return (array[bit / BITS_PER_LONG] & (1UL << (bit % BITS_PER_LONG))) != 0;
-}
+    UinputDevice(const UinputDevice&) = delete;
+    UinputDevice& operator=(const UinputDevice&) = delete;
 
-static void setup_uinput_device() {
-    g_uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (g_uinput_fd < 0) {
-        LOG(ERROR) << "Failed to open /dev/uinput";
-        return;
-    }
-
-    ioctl(g_uinput_fd, UI_SET_EVBIT, EV_KEY);
-    for (const auto& key_code : g_vkey_key_codes) {
-        ioctl(g_uinput_fd, UI_SET_KEYBIT, key_code);
-    }
-
-    if (ioctl(g_uinput_fd, UI_DEV_SETUP, usetup) < 0) {
-        LOG(ERROR) << "ioctl(UI_DEV_SETUP) failed";
-        return;
-    }
-
-    if (ioctl(g_uinput_fd, UI_DEV_CREATE) < 0) {
-        LOG(ERROR) << "ioctl(UI_DEV_CREATE) failed";
-        return;
-    }
-}
-
-static void send_input_event(__u16 type, __u16 code, __s32 value) {
-    struct input_event ev = {
-            .code = code,
-            .type = type,
-            .value = value,
-    };
-    if (write(g_uinput_fd, &ev, sizeof(ev)) < 0) {
-        LOG(ERROR) << "write(g_uinput_fd) failed";
-    }
-}
-
-static void report_key(__u16 code, __s32 value) {
-    send_input_event(EV_KEY, code, value);
-}
-
-static void report_sync() {
-    send_input_event(EV_SYN, SYN_REPORT, 0);
-}
-
-static void slot_make_active(__s32 slot) {
-    g_mt_slots[slot].active = true;
-}
-
-static void slot_make_inactive(__s32 slot) {
-    if (g_mt_slots.contains(slot) && g_mt_slots[slot].active) {
-        if (g_mt_slots[slot].key_code) {
-            report_key(g_mt_slots[slot].key_code, 0);
-            report_sync();
-            g_mt_slots[slot].key_code = 0;
+    bool Create(const std::vector<uint16_t>& key_codes) {
+        fd_.reset(open("/dev/uinput", O_WRONLY | O_NONBLOCK));
+        if (!fd_.ok()) {
+            PLOG(ERROR) << "Failed to open /dev/uinput";
+            return false;
         }
-        g_mt_slots[slot].active = false;
-    }
-}
 
-static void all_slots_make_inactive() {
-    for (auto& s : g_mt_slots) {
-        if (s.second.active) {
-            if (s.second.key_code) {
-                report_key(s.second.key_code, 0);
-                report_sync();
-                s.second.key_code = 0;
+        if (ioctl(fd_.get(), UI_SET_EVBIT, EV_KEY) < 0) {
+            PLOG(ERROR) << "ioctl(UI_SET_EVBIT) failed";
+            return false;
+        }
+
+        for (uint16_t key_code : key_codes) {
+            if (ioctl(fd_.get(), UI_SET_KEYBIT, key_code) < 0) {
+                PLOG(ERROR) << "ioctl(UI_SET_KEYBIT) failed for key_code=" << key_code;
+                return false;
             }
-            s.second.active = false;
+        }
+
+        struct uinput_setup setup = {};
+        setup.id.bustype = BUS_VIRTUAL;
+        setup.id.vendor = 0xCAFE;
+        setup.id.product = 0x0000;
+        strncpy(setup.name, "ts_vkeys", UINPUT_MAX_NAME_SIZE - 1);
+
+        if (ioctl(fd_.get(), UI_DEV_SETUP, &setup) < 0) {
+            PLOG(ERROR) << "ioctl(UI_DEV_SETUP) failed";
+            return false;
+        }
+
+        if (ioctl(fd_.get(), UI_DEV_CREATE) < 0) {
+            PLOG(ERROR) << "ioctl(UI_DEV_CREATE) failed";
+            return false;
+        }
+
+        created_ = true;
+        return true;
+    }
+
+    void SendEvent(uint16_t type, uint16_t code, int32_t value) {
+        struct input_event ev = {};
+        ev.type = type;
+        ev.code = code;
+        ev.value = value;
+
+        if (write(fd_.get(), &ev, sizeof(ev)) < 0) {
+            PLOG(ERROR) << "Failed to write input event";
         }
     }
-}
 
-static void all_slots_check_and_report_key() {
-    for (auto& s : g_mt_slots) {
-        if (!s.second.active) continue;
-        if (g_vkey_map.contains(s.second.y) && g_vkey_map[s.second.y].contains(s.second.x)) {
-            s.second.key_code = g_vkey_map[s.second.y][s.second.x].key_code;
-            report_key(s.second.key_code, 1);
-            report_sync();
+    void ReportKey(uint16_t code, int32_t value) {
+        SendEvent(EV_KEY, code, value);
+        SendEvent(EV_SYN, SYN_REPORT, 0);
+    }
+
+  private:
+    void Destroy() {
+        if (created_ && fd_.ok()) {
+            ioctl(fd_.get(), UI_DEV_DESTROY);
+            created_ = false;
         }
     }
+
+    unique_fd fd_;
+    bool created_ = false;
+};
+
+class VirtualKeyMapper {
+  public:
+    void AddKey(uint16_t x, uint16_t y, uint16_t key_code) {
+        key_map_[y][x] = key_code;
+        key_codes_.push_back(key_code);
+    }
+
+    std::optional<uint16_t> LookupKey(int32_t x, int32_t y) const {
+        auto y_it = key_map_.find(static_cast<uint16_t>(y));
+        if (y_it == key_map_.end()) {
+            return std::nullopt;
+        }
+        auto x_it = y_it->second.find(static_cast<uint16_t>(x));
+        if (x_it == y_it->second.end()) {
+            return std::nullopt;
+        }
+        return x_it->second;
+    }
+
+    const std::vector<uint16_t>& GetKeyCodes() const { return key_codes_; }
+
+  private:
+    std::unordered_map<uint16_t, std::unordered_map<uint16_t, uint16_t>> key_map_;
+    std::vector<uint16_t> key_codes_;
+};
+
+class TouchSlotTracker {
+  public:
+    explicit TouchSlotTracker(const VirtualKeyMapper& mapper) : mapper_(mapper) {}
+
+    void SetCurrentSlot(int32_t slot) { current_slot_ = slot; }
+    int32_t GetCurrentSlot() const { return current_slot_; }
+
+    void ActivateSlot(int32_t slot) { slots_[slot].active = true; }
+
+    void DeactivateSlot(int32_t slot) {
+        auto it = slots_.find(slot);
+        if (it == slots_.end() || !it->second.active) {
+            return;
+        }
+
+        if (it->second.key_code != 0) {
+            uinput_->ReportKey(it->second.key_code, 0);
+            it->second.key_code = 0;
+        }
+        it->second.active = false;
+    }
+
+    void DeactivateAllSlots() {
+        for (auto& [slot_num, slot] : slots_) {
+            if (!slot.active) {
+                continue;
+            }
+            if (slot.key_code != 0) {
+                uinput_->ReportKey(slot.key_code, 0);
+                slot.key_code = 0;
+            }
+            slot.active = false;
+        }
+    }
+
+    void UpdateSlotX(int32_t slot, int32_t x) { slots_[slot].x = x; }
+    void UpdateSlotY(int32_t slot, int32_t y) { slots_[slot].y = y; }
+
+    void CheckAndReportKeys() {
+        for (auto& [slot_num, slot] : slots_) {
+            if (!slot.active) {
+                continue;
+            }
+            auto key_code = mapper_.LookupKey(slot.x, slot.y);
+            if (key_code.has_value()) {
+                slot.key_code = key_code.value();
+                uinput_->ReportKey(slot.key_code, 1);
+            }
+        }
+    }
+
+    void SetUinputDevice(UinputDevice* uinput) { uinput_ = uinput; }
+
+  private:
+    const VirtualKeyMapper& mapper_;
+    UinputDevice* uinput_ = nullptr;
+    std::unordered_map<int32_t, TouchSlot> slots_;
+    int32_t current_slot_ = 0;
+};
+
+bool TestBit(size_t bit, const unsigned long* array) {
+    constexpr size_t kBitsPerLong = sizeof(unsigned long) * 8;
+    return (array[bit / kBitsPerLong] & (1UL << (bit % kBitsPerLong))) != 0;
 }
 
-static void handle_event(struct input_event* ev) {
-    static __s32 slot = 0;
+std::optional<VirtualKeyMapper> ParseVirtualKeyConfig() {
+    std::string names_str = GetProperty(std::string(kPropPrefix) + "names", "");
+    if (names_str.empty()) {
+        LOG(ERROR) << "No virtual key specified";
+        return std::nullopt;
+    }
 
-    __u16* type = &ev->type;
-    __u16* code = &ev->code;
-    __s32* value = &ev->value;
+    std::vector<std::string> names = Split(names_str, ",");
+    if (names.empty()) {
+        LOG(ERROR) << "No virtual key specified";
+        return std::nullopt;
+    }
 
-    switch (*type) {
+    VirtualKeyMapper mapper;
+
+    for (const std::string& name : names) {
+        auto x = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".x", 0);
+        auto y = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".y", 0);
+        auto key_code = GetUintProperty<uint16_t>(std::string(kPropPrefix) + name + ".key_code", 0);
+
+        if (x == 0 || y == 0 || key_code == 0) {
+            LOG(ERROR) << "Virtual key '" << name << "' has missing or invalid properties";
+            continue;
+        }
+
+        mapper.AddKey(x, y, key_code);
+        LOG(INFO) << "Registered virtual key '" << name << "' at (" << x << ", " << y
+                  << ") with key_code=" << key_code;
+    }
+
+    if (mapper.GetKeyCodes().empty()) {
+        LOG(ERROR) << "No valid virtual keys configured";
+        return std::nullopt;
+    }
+
+    return mapper;
+}
+
+unique_fd FindTouchscreenDevice() {
+    for (int round = 0; round < kDeviceSearchRounds; ++round) {
+        for (int node = 0; node < kDeviceSearchMaxNodes; ++node) {
+            std::string path = "/dev/input/event" + std::to_string(node);
+            unique_fd fd(open(path.c_str(), O_RDONLY | O_NONBLOCK));
+            if (!fd.ok()) {
+                continue;
+            }
+
+            constexpr size_t kBitsPerLong = sizeof(unsigned long) * 8;
+            constexpr size_t kEvMaxBits = (EV_MAX + kBitsPerLong - 1) / kBitsPerLong;
+            unsigned long ev_bits[kEvMaxBits] = {};
+
+            if (ioctl(fd.get(), EVIOCGBIT(0, sizeof(ev_bits)), ev_bits) >= 0 &&
+                TestBit(EV_ABS, ev_bits)) {
+                LOG(INFO) << "Found touchscreen device: " << path;
+                return fd;
+            }
+        }
+
+        if (round < kDeviceSearchRounds - 1) {
+            LOG(INFO) << "Touchscreen not found, retrying in 1 second...";
+            sleep(1);
+        }
+    }
+
+    return unique_fd();
+}
+
+void HandleEvent(const struct input_event& ev, TouchSlotTracker& tracker) {
+    switch (ev.type) {
         case EV_ABS:
-            switch (*code) {
+            switch (ev.code) {
                 case ABS_MT_SLOT:
-                    slot = *value;
+                    tracker.SetCurrentSlot(ev.value);
                     break;
                 case ABS_MT_TRACKING_ID:
-                    if (*value < 0) {
-                        slot_make_inactive(slot);
+                    if (ev.value < 0) {
+                        tracker.DeactivateSlot(tracker.GetCurrentSlot());
                     } else {
-                        slot_make_active(slot);
+                        tracker.ActivateSlot(tracker.GetCurrentSlot());
                     }
                     break;
                 case ABS_MT_POSITION_X:
                 case ABS_X:
-                    g_mt_slots[slot].x = *value;
+                    tracker.UpdateSlotX(tracker.GetCurrentSlot(), ev.value);
                     break;
                 case ABS_MT_POSITION_Y:
                 case ABS_Y:
-                    g_mt_slots[slot].y = *value;
-                    break;
-                default:
+                    tracker.UpdateSlotY(tracker.GetCurrentSlot(), ev.value);
                     break;
             }
             break;
+
         case EV_KEY:
-            if (*code == BTN_TOUCH) {
-                if (*value) {
-                    // For supporting legacy touchscreen drivers that does not support MT Protocol B
-                    slot_make_active(0);
+            if (ev.code == BTN_TOUCH) {
+                if (ev.value != 0) {
+                    tracker.ActivateSlot(0);
                 } else {
-                    all_slots_make_inactive();
+                    tracker.DeactivateAllSlots();
                 }
             }
             break;
+
         case EV_SYN:
-            if (*value == SYN_REPORT) all_slots_check_and_report_key();
-            break;
-        default:
+            if (ev.value == SYN_REPORT) {
+                tracker.CheckAndReportKeys();
+            }
             break;
     }
 }
 
-int main(int argc, char** argv) {
-    int fd, epoll_fd;
-    std::string tmp_str;
-    std::vector<std::string> vkey_names;
-    struct input_event ev;
-    struct epoll_event event, events[10];
+int RunEventLoop(unique_fd device_fd, TouchSlotTracker& tracker) {
+    unique_fd epoll_fd(epoll_create1(0));
+    if (!epoll_fd.ok()) {
+        PLOG(ERROR) << "epoll_create1() failed";
+        return EXIT_FAILURE;
+    }
 
+    struct epoll_event event = {};
+    event.events = EPOLLIN;
+    event.data.fd = device_fd.get();
+
+    if (epoll_ctl(epoll_fd.get(), EPOLL_CTL_ADD, device_fd.get(), &event) < 0) {
+        PLOG(ERROR) << "epoll_ctl() failed";
+        return EXIT_FAILURE;
+    }
+
+    struct epoll_event events[kEpollMaxEvents];
+    while (true) {
+        int num_events = epoll_wait(epoll_fd.get(), events, kEpollMaxEvents, -1);
+        if (num_events < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            PLOG(ERROR) << "epoll_wait() failed";
+            return EXIT_FAILURE;
+        }
+
+        for (int i = 0; i < num_events; ++i) {
+            if (!(events[i].events & EPOLLIN)) {
+                continue;
+            }
+
+            struct input_event ev;
+            ssize_t bytes_read = read(device_fd.get(), &ev, sizeof(ev));
+            if (bytes_read == sizeof(ev)) {
+                HandleEvent(ev, tracker);
+            } else if (bytes_read < 0 && errno != EAGAIN && errno != EINTR) {
+                PLOG(ERROR) << "read() failed";
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
+    return EXIT_SUCCESS;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
 #if defined(__ANDROID_RECOVERY__)
     android::base::InitLogging(argv, &android::base::KernelLogger);
 #endif
 
-    // Parse properties
-    tmp_str = GetProperty(kPropPrefix + "names", "");
-    vkey_names = Split(tmp_str, ",");
-    if (tmp_str.empty() || vkey_names.empty()) {
-        LOG(ERROR) << "No virtual key specified";
+    auto mapper = ParseVirtualKeyConfig();
+    if (!mapper.has_value()) {
         return EXIT_SUCCESS;
     }
 
-    for (const auto& name : vkey_names) {
-        auto x = GetUintProperty<__u16>(kPropPrefix + name + ".x", 0);
-        auto y = GetUintProperty<__u16>(kPropPrefix + name + ".y", 0);
-        auto key_code = GetUintProperty<__u16>(kPropPrefix + name + ".key_code", 0);
-        if (!x || !y || !key_code) {
-            LOG(ERROR) << "Virtual key " << name << " has missing properties";
-            continue;
-        }
-        g_vkey_map[y][x].key_code = key_code;
-        g_vkey_key_codes.push_back(key_code);
+    unique_fd device_fd = FindTouchscreenDevice();
+    if (!device_fd.ok()) {
+        LOG(ERROR) << "Failed to find touchscreen device";
+        return EXIT_FAILURE;
     }
 
-    // Find the source input device
-    for (int i = 0; i < 10; ++i) {
-        for (int j = 0; j < 10; ++j) {
-            unsigned long ev_bits[BITS_TO_LONGS(EV_MAX)];
-
-            tmp_str = "/dev/input/event" + std::to_string(j);
-            fd = open(tmp_str.c_str(), O_RDONLY | O_NONBLOCK);
-            if (fd < 0) continue;
-
-            if (ioctl(fd, EVIOCGBIT(0, sizeof(ev_bits)), ev_bits) >= 0 && test_bit(EV_ABS, ev_bits)) {
-                goto device_found;
-            }
-
-            close(fd);
-        }
-        LOG(INFO) << "Sleep for 1 second to search for source input device again";
-        sleep(1);
+    UinputDevice uinput;
+    if (!uinput.Create(mapper->GetKeyCodes())) {
+        LOG(ERROR) << "Failed to create uinput device";
+        return EXIT_FAILURE;
     }
 
-    LOG(ERROR) << "Device not found";
-    return EXIT_SUCCESS;
+    TouchSlotTracker tracker(*mapper);
+    tracker.SetUinputDevice(&uinput);
 
-device_found:
-    LOG(INFO) << "Using device: " << tmp_str;
-
-    // Setup uinput device
-    setup_uinput_device();
-    if (g_uinput_fd < 0) {
-        LOG(ERROR) << "Failed to setup uinput device";
-        goto err_setup_uinput;
-    }
-
-    // Setup epoll
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0) {
-        LOG(ERROR) << "epoll_create1() failed";
-        goto err_epoll;
-    }
-
-    event.events = EPOLLIN;
-    event.data.fd = fd;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0) {
-        LOG(ERROR) << "epoll_ctl() failed";
-        goto err_epoll;
-    }
-
-    while (true) {
-        int epoll_ret = epoll_wait(epoll_fd, events, 10, -1);
-        if (epoll_ret > 0) {
-            for (int i = 0; i < epoll_ret; ++i) {
-                if (events[i].events & EPOLLIN) {
-                    int read_ret = read(fd, &ev, sizeof(ev));
-                    if (read_ret == sizeof(ev)) {
-                        handle_event(&ev);
-                    } else if (read_ret < 0 && errno != EAGAIN) {
-                        LOG(ERROR) << "read() failed";
-                        break;
-                    }
-                }
-            }
-        } else if (epoll_ret < 0) {
-            LOG(ERROR) << "epoll_wait() failed";
-            break;
-        }
-    }
-
-    close(epoll_fd);
-err_epoll:
-    ioctl(g_uinput_fd, UI_DEV_DESTROY);
-    close(g_uinput_fd);
-err_setup_uinput:
-    close(fd);
-    return EXIT_FAILURE;
+    return RunEventLoop(std::move(device_fd), tracker);
 }
