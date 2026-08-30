@@ -6,26 +6,110 @@
 #pragma once
 
 #include <linux/input.h>
-#include <stdbool.h>
+#include <linux/uinput.h>
+
+#include <cstdint>
 
 #ifndef TRKID_MAX
-// Taken from kernel/include/linux/input/mt.h
 #define TRKID_MAX 0xffff
 #endif
 
-// Function to setup the uinput device
-extern int libtablet2multitouch_setup_uinput_device(const struct uinput_setup* usetup,
-                                                    struct input_absinfo* abs_x_info,
-                                                    struct input_absinfo* abs_y_info);
-// Function to send input events
-extern void libtablet2multitouch_send_input_event(int uinput_fd, __u16 type, __u16 code,
-                                                  __s32 value);
-// Function to send SYN_REPORT
-extern void libtablet2multitouch_report_sync(int uinput_fd);
-// Function to send multitouch events
-extern void libtablet2multitouch_report_multitouch(int uinput_fd, bool active, bool contact,
-                                                   int tracking_id, __s32 x, __s32 y);
-// Function to send key events
-extern void libtablet2multitouch_report_key(int uinput_fd, __u16 code, __s32 value);
-// Function to handle tablet to multitouch and key translation
-extern void libtablet2multitouch_handle_event(int uinput_fd, struct input_event* ev);
+namespace tablet2multitouch {
+
+struct AbsInfo {
+    int32_t minimum;
+    int32_t maximum;
+};
+
+struct UinputDeviceConfig {
+    const char* name;
+    uint16_t bustype;
+    uint16_t vendor;
+    uint16_t product;
+    AbsInfo abs_x;
+    AbsInfo abs_y;
+    bool report_hover;
+};
+
+class UinputDevice {
+  public:
+    UinputDevice() = default;
+    ~UinputDevice();
+
+    UinputDevice(const UinputDevice&) = delete;
+    UinputDevice& operator=(const UinputDevice&) = delete;
+    UinputDevice(UinputDevice&& other) noexcept;
+    UinputDevice& operator=(UinputDevice&& other) noexcept;
+
+    bool Create(const UinputDeviceConfig& config);
+    void Destroy();
+
+    void SendEvent(uint16_t type, uint16_t code, int32_t value);
+    void ReportSync();
+    void ReportKey(uint16_t code, int32_t value);
+    void ReportMultitouch(bool active, bool contact, int tracking_id, int32_t x, int32_t y);
+
+    int GetFd() const { return fd_; }
+    bool IsValid() const { return fd_ >= 0; }
+
+  private:
+    int fd_ = -1;
+    bool created_ = false;
+};
+
+struct MouseUinputDeviceConfig {
+    const char* name;
+    uint16_t bustype;
+    uint16_t vendor;
+    uint16_t product;
+};
+
+class MouseUinputDevice {
+  public:
+    MouseUinputDevice() = default;
+    ~MouseUinputDevice();
+
+    MouseUinputDevice(const MouseUinputDevice&) = delete;
+    MouseUinputDevice& operator=(const MouseUinputDevice&) = delete;
+    MouseUinputDevice(MouseUinputDevice&& other) noexcept;
+    MouseUinputDevice& operator=(MouseUinputDevice&& other) noexcept;
+
+    bool Create(const MouseUinputDeviceConfig& config);
+    void Destroy();
+
+    void ForwardEvent(const struct input_event& ev);
+
+    int GetFd() const { return fd_; }
+    bool IsValid() const { return fd_ >= 0; }
+
+  private:
+    int fd_ = -1;
+    bool created_ = false;
+};
+
+class TabletEventTranslator {
+  public:
+    explicit TabletEventTranslator(UinputDevice& uinput, bool report_hover);
+
+    void HandleEvent(const struct input_event& ev);
+
+  private:
+    void ProcessKeyEvent(uint16_t code, int32_t value);
+    void ProcessRelEvent(uint16_t code, int32_t value);
+    void ProcessAbsEvent(uint16_t code, int32_t value);
+    void ProcessSynEvent(uint16_t code);
+
+    UinputDevice& uinput_;
+    bool report_hover_;
+
+    bool active_ = false;
+    bool contact_ = false;
+    bool prev_active_ = false;
+    bool pending_report_ = false;
+    bool pending_multitouch_ = false;
+    int tracking_id_ = 0;
+    int32_t x_ = 0;
+    int32_t y_ = 0;
+};
+
+}  // namespace tablet2multitouch
