@@ -76,8 +76,7 @@ bool Hwdb::Parse(const std::string& content) {
             collecting_properties = true;
         } else {
             if (collecting_properties) {
-                if (!current_entry.match_patterns.empty() &&
-                    !current_entry.properties.empty()) {
+                if (!current_entry.match_patterns.empty() && !current_entry.properties.empty()) {
                     entries_.push_back(std::move(current_entry));
                 }
                 current_entry = Entry{};
@@ -103,7 +102,7 @@ bool Hwdb::Parse(const std::string& content) {
 }
 
 void Hwdb::MatchAndCollect(const std::string& query,
-                            std::map<std::string, std::string>& result) const {
+                           std::map<std::string, std::string>& result) const {
     for (const auto& entry : entries_) {
         bool matched = false;
         for (const auto& pattern : entry.match_patterns) {
@@ -128,7 +127,7 @@ std::map<std::string, std::string> Hwdb::GetProperties(const std::string& query)
 }
 
 std::string Hwdb::GetProperty(const std::string& query, const std::string& key,
-                               const std::string& default_value) const {
+                              const std::string& default_value) const {
     auto props = GetProperties(query);
     auto it = props.find(key);
     if (it != props.end()) {

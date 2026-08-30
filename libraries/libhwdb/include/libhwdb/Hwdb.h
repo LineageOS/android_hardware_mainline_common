@@ -22,8 +22,7 @@ class Hwdb {
     std::string GetProperty(const std::string& query, const std::string& key,
                             const std::string& default_value = "") const;
 
-    std::map<std::string, std::string> GetProperties(
-            const std::vector<std::string>& queries) const;
+    std::map<std::string, std::string> GetProperties(const std::vector<std::string>& queries) const;
 
   private:
     struct Entry {
