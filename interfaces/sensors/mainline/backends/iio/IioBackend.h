@@ -104,6 +104,7 @@ class IioBackend : public ISensorBackend {
     void CloseBufferFd(IioSensorData* sensor);
 
     std::optional<SensorType> MapIioTypeToSensorType(const std::string& iio_name);
+    std::optional<SensorType> ClassifyChannelByName(const std::string& channel_name);
     std::optional<SensorType> DetectTypeFromScanElements(const std::string& sysfs_path);
     std::optional<SensorType> DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
     std::string ParseVendorFromCompatible(const std::string& of_compatible);
@@ -119,6 +120,7 @@ class IioBackend : public ISensorBackend {
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
     std::map<int32_t, std::unique_ptr<IioSensorData>> sensors_;
+    std::map<int32_t, int32_t> device_active_count_;
     std::unique_ptr<SensorHwdb> sensor_hwdb_;
     int32_t next_handle_ = 1;
     PostEventsCallback post_events_callback_;

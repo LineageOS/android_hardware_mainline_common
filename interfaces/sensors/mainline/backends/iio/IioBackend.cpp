@@ -222,6 +222,23 @@ std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& 
     return std::nullopt;
 }
 
+std::optional<SensorType> IioBackend::ClassifyChannelByName(const std::string& channel_name) {
+    std::string name = channel_name;
+    if (name.find("in_") == 0) {
+        name = name.substr(3);
+    }
+    if (name.find("accel") == 0) return SensorType::ACCELEROMETER;
+    if (name.find("anglvel") == 0 || name.find("gyro") == 0) return SensorType::GYROSCOPE;
+    if (name.find("magn") == 0) return SensorType::MAGNETIC_FIELD;
+    if (name.find("illuminance") == 0 || name.find("intensity") == 0 || name.find("light") == 0)
+        return SensorType::LIGHT;
+    if (name.find("proximity") == 0 || name.find("prox") == 0) return SensorType::PROXIMITY;
+    if (name.find("temp") == 0) return SensorType::AMBIENT_TEMPERATURE;
+    if (name.find("pressure") == 0 || name.find("baro") == 0) return SensorType::PRESSURE;
+    if (name.find("humidity") == 0) return SensorType::RELATIVE_HUMIDITY;
+    return std::nullopt;
+}
+
 std::optional<SensorType> IioBackend::DetectTypeFromScanElements(const std::string& sysfs_path) {
     std::error_code ec;
     std::filesystem::path scan_dir = std::filesystem::path(sysfs_path) / "scan_elements";
@@ -809,51 +826,128 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 
             sensor->channels.push_back(channel);
         }
+
+        std::sort(sensor->channels.begin(), sensor->channels.end(),
+                  [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                      return a.index < b.index;
+                  });
+
+        sensor->sensor_info.sensorHandle = sensor->handle;
+        sensor->sensor_info.name = device_name;
+        std::string parsed_vendor = ParseVendorFromCompatible(of_compatible);
+        sensor->sensor_info.vendor = parsed_vendor.empty() ? "Linux IIO" : parsed_vendor;
+        sensor->sensor_info.version = 1;
+        sensor->sensor_info.type = sensor->type;
+        sensor->sensor_info.typeAsString = "";
+        sensor->sensor_info.fifoReservedEventCount = 0;
+        sensor->sensor_info.fifoMaxEventCount = 0;
+        sensor->sensor_info.requiredPermission = "";
+
+        DeriveSensorInfoFromSysfs(sensor.get());
+        ApplyHwdbProperties(sensor.get());
+        ApplySensorInfoOverrides(sensor.get());
+
+        int32_t handle = sensor->handle;
+        sensors_[handle] = std::move(sensor);
+        LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
+                  << ", type=" << static_cast<int32_t>(*sensor_type) << ", poll_mode="
+                  << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
     } else {
         std::string dev_path = "/dev/iio:device" + std::to_string(dev_num);
-        if (std::filesystem::exists(dev_path, ec)) {
-            sensor->is_poll_mode = false;
-        }
-    }
+        bool has_dev = std::filesystem::exists(dev_path, ec);
 
-    std::sort(sensor->channels.begin(), sensor->channels.end(),
-              [](const IioChannelInfo& a, const IioChannelInfo& b) {
-                  return a.index < b.index;
-              });
+        std::sort(sensor->channels.begin(), sensor->channels.end(),
+                  [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                      return a.index < b.index;
+                  });
 
-    if (!sensor->is_poll_mode) {
-        int32_t offset = 0;
-        for (auto& channel : sensor->channels) {
-            int32_t storage_bytes = (channel.storagebits + 7) / 8;
-            int32_t alignment = storage_bytes;
-            if (alignment > 0 && (offset % alignment) != 0) {
-                offset += alignment - (offset % alignment);
+        if (has_dev) {
+            int32_t offset = 0;
+            for (auto& channel : sensor->channels) {
+                int32_t storage_bytes = (channel.storagebits + 7) / 8;
+                int32_t alignment = storage_bytes;
+                if (alignment > 0 && (offset % alignment) != 0) {
+                    offset += alignment - (offset % alignment);
+                }
+                channel.location = offset;
+                offset += storage_bytes;
             }
-            channel.location = offset;
-            offset += storage_bytes;
+        }
+
+        std::map<SensorType, std::vector<IioChannelInfo>> channels_by_type;
+        bool has_timestamp = false;
+        IioChannelInfo timestamp_channel;
+
+        for (const auto& channel : sensor->channels) {
+            if (channel.name.find("timestamp") != std::string::npos) {
+                has_timestamp = true;
+                timestamp_channel = channel;
+                continue;
+            }
+            auto chan_type = ClassifyChannelByName(channel.name);
+            if (chan_type.has_value()) {
+                channels_by_type[*chan_type].push_back(channel);
+            }
+        }
+
+        if (channels_by_type.empty()) {
+            LOG(DEBUG) << "IIO device " << dev_num << " has no classifiable channels, skipping";
+            return;
+        }
+
+        if (channels_by_type.size() > 1) {
+            LOG(INFO) << "IIO device " << dev_num << " (" << device_name
+                      << ") has multiple sensor types, creating separate sensors";
+        }
+
+        for (const auto& [type, type_channels] : channels_by_type) {
+            auto new_sensor = std::make_unique<IioSensorData>();
+            new_sensor->handle = next_handle_++;
+            new_sensor->sysfs_path = sysfs_path;
+            new_sensor->device_name = device_name;
+            new_sensor->type = type;
+            new_sensor->is_poll_mode = !has_dev;
+            new_sensor->enabled = false;
+            new_sensor->sampling_period_ns = 200 * 1000 * 1000;
+            new_sensor->stop_thread = false;
+            new_sensor->dev_num = dev_num;
+            new_sensor->parent_modalias = parent_modalias;
+            new_sensor->label = device_label;
+
+            ParseMountMatrix(sysfs_path, new_sensor->mount_matrix);
+
+            new_sensor->channels = type_channels;
+            if (has_timestamp) {
+                new_sensor->channels.push_back(timestamp_channel);
+            }
+
+            std::sort(new_sensor->channels.begin(), new_sensor->channels.end(),
+                      [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                          return a.index < b.index;
+                      });
+
+            new_sensor->sensor_info.sensorHandle = new_sensor->handle;
+            new_sensor->sensor_info.name = device_name;
+            std::string parsed_vendor = ParseVendorFromCompatible(of_compatible);
+            new_sensor->sensor_info.vendor = parsed_vendor.empty() ? "Linux IIO" : parsed_vendor;
+            new_sensor->sensor_info.version = 1;
+            new_sensor->sensor_info.type = type;
+            new_sensor->sensor_info.typeAsString = "";
+            new_sensor->sensor_info.fifoReservedEventCount = 0;
+            new_sensor->sensor_info.fifoMaxEventCount = 0;
+            new_sensor->sensor_info.requiredPermission = "";
+
+            DeriveSensorInfoFromSysfs(new_sensor.get());
+            ApplyHwdbProperties(new_sensor.get());
+            ApplySensorInfoOverrides(new_sensor.get());
+
+            int32_t handle = new_sensor->handle;
+            sensors_[handle] = std::move(new_sensor);
+            LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
+                      << ", type=" << static_cast<int32_t>(type) << ", poll_mode="
+                      << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
         }
     }
-
-    sensor->sensor_info.sensorHandle = sensor->handle;
-    sensor->sensor_info.name = device_name;
-    std::string parsed_vendor = ParseVendorFromCompatible(of_compatible);
-    sensor->sensor_info.vendor = parsed_vendor.empty() ? "Linux IIO" : parsed_vendor;
-    sensor->sensor_info.version = 1;
-    sensor->sensor_info.type = sensor->type;
-    sensor->sensor_info.typeAsString = "";
-    sensor->sensor_info.fifoReservedEventCount = 0;
-    sensor->sensor_info.fifoMaxEventCount = 0;
-    sensor->sensor_info.requiredPermission = "";
-
-    DeriveSensorInfoFromSysfs(sensor.get());
-    ApplyHwdbProperties(sensor.get());
-    ApplySensorInfoOverrides(sensor.get());
-
-    int32_t handle = sensor->handle;
-    sensors_[handle] = std::move(sensor);
-    LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
-              << ", type=" << static_cast<int32_t>(*sensor_type) << ", poll_mode="
-              << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
 }
 
 int32_t IioBackend::Initialize(const PostEventsCallback& callback) {
@@ -877,7 +971,11 @@ void IioBackend::Deinitialize() {
         if (sensor->enabled.load()) {
             sensor->enabled = false;
             if (!sensor->is_poll_mode) {
-                EnableRingBuffer(sensor.get(), false);
+                device_active_count_[sensor->dev_num]--;
+                if (device_active_count_[sensor->dev_num] <= 0) {
+                    EnableRingBuffer(sensor.get(), false);
+                    device_active_count_[sensor->dev_num] = 0;
+                }
             }
         }
         sensor->stop_thread = true;
@@ -890,6 +988,7 @@ void IioBackend::Deinitialize() {
         }
         CloseBufferFd(sensor.get());
     }
+    device_active_count_.clear();
     post_events_callback_ = nullptr;
     LOG(INFO) << "IIO backend deinitialized";
 }
@@ -1347,8 +1446,14 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
         sensor->enabled = true;
 
         if (!sensor->is_poll_mode) {
-            if (!EnableRingBuffer(sensor.get(), true)) {
-                sensor->is_poll_mode = true;
+            bool is_first_on_device = (device_active_count_[sensor->dev_num] == 0);
+            device_active_count_[sensor->dev_num]++;
+
+            if (is_first_on_device) {
+                if (!EnableRingBuffer(sensor.get(), true)) {
+                    sensor->is_poll_mode = true;
+                    device_active_count_[sensor->dev_num]--;
+                }
             }
         }
 
@@ -1357,7 +1462,11 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
         sensor->enabled = false;
 
         if (!sensor->is_poll_mode) {
-            EnableRingBuffer(sensor.get(), false);
+            device_active_count_[sensor->dev_num]--;
+            if (device_active_count_[sensor->dev_num] <= 0) {
+                EnableRingBuffer(sensor.get(), false);
+                device_active_count_[sensor->dev_num] = 0;
+            }
         }
 
         sensor->stop_thread = true;
