@@ -30,7 +30,7 @@ int main() {
 
     auto vibManager = ndk::SharedRefBase::make<VibratorManager>(std::move(managedVib));
     status = AServiceManager_addService(vibManager->asBinder().get(),
-                                         VibratorManager::makeServiceName("default").c_str());
+                                        VibratorManager::makeServiceName("default").c_str());
     CHECK_EQ(status, STATUS_OK);
 
     LOG(INFO) << "service started";

@@ -74,12 +74,12 @@ void Vibrator::loadProperties() {
             "vendor.vibrator.effect.click.duration_ms", 30);
     mCachedDoubleClickDuration = ::android::base::GetIntProperty<int32_t>(
             "vendor.vibrator.effect.double_click.duration_ms", 80);
-    mCachedTickDuration = ::android::base::GetIntProperty<int32_t>(
-            "vendor.vibrator.effect.tick.duration_ms", 15);
-    mCachedThudDuration = ::android::base::GetIntProperty<int32_t>(
-            "vendor.vibrator.effect.thud.duration_ms", 50);
-    mCachedPopDuration = ::android::base::GetIntProperty<int32_t>(
-            "vendor.vibrator.effect.pop.duration_ms", 10);
+    mCachedTickDuration =
+            ::android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.tick.duration_ms", 15);
+    mCachedThudDuration =
+            ::android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.thud.duration_ms", 50);
+    mCachedPopDuration =
+            ::android::base::GetIntProperty<int32_t>("vendor.vibrator.effect.pop.duration_ms", 10);
     mCachedHeavyClickDuration = ::android::base::GetIntProperty<int32_t>(
             "vendor.vibrator.effect.heavy_click.duration_ms", 50);
     mCachedTextureTickDuration = ::android::base::GetIntProperty<int32_t>(
@@ -88,8 +88,7 @@ void Vibrator::loadProperties() {
             "vendor.vibrator.effect.ringtone.duration_ms", 500);
 
     LOG(INFO) << "cached properties - resonant_freq=" << mCachedResonantFrequency
-              << " q_factor=" << mCachedQFactor
-              << " click=" << mCachedClickDuration << "ms"
+              << " q_factor=" << mCachedQFactor << " click=" << mCachedClickDuration << "ms"
               << " double_click=" << mCachedDoubleClickDuration << "ms"
               << " tick=" << mCachedTickDuration << "ms"
               << " thud=" << mCachedThudDuration << "ms"
@@ -191,12 +190,9 @@ bool Vibrator::queryCapabilities() {
     }
     memcpy(mFfBits, ffBits, std::min(sizeof(mFfBits), sizeof(ffBits)));
 
-    LOG(INFO) << "FF_RUMBLE "
-              << (hasFfEffect(FF_RUMBLE) ? "supported" : "not supported");
-    LOG(INFO) << "FF_CONSTANT "
-              << (hasFfEffect(FF_CONSTANT) ? "supported" : "not supported");
-    LOG(INFO) << "FF_PERIODIC "
-              << (hasFfEffect(FF_PERIODIC) ? "supported" : "not supported");
+    LOG(INFO) << "FF_RUMBLE " << (hasFfEffect(FF_RUMBLE) ? "supported" : "not supported");
+    LOG(INFO) << "FF_CONSTANT " << (hasFfEffect(FF_CONSTANT) ? "supported" : "not supported");
+    LOG(INFO) << "FF_PERIODIC " << (hasFfEffect(FF_PERIODIC) ? "supported" : "not supported");
 
     return true;
 }
@@ -307,7 +303,8 @@ bool Vibrator::uploadEffect(int32_t durationMs, float amplitude) {
     effect.id = -1;
     effect.u.rumble.strong_magnitude = magnitude;
     effect.u.rumble.weak_magnitude = magnitude;
-    effect.replay.length = static_cast<uint16_t>(std::min(durationMs, static_cast<int32_t>(UINT16_MAX)));
+    effect.replay.length =
+            static_cast<uint16_t>(std::min(durationMs, static_cast<int32_t>(UINT16_MAX)));
     effect.replay.delay = 0;
 
     if (ioctl(mEventFd.get(), EVIOCSFF, &effect) < 0) {
@@ -377,7 +374,7 @@ bool Vibrator::eraseEffect(int effectId) {
 }
 
 void Vibrator::dispatchVibrate(int32_t timeoutMs,
-                                const std::shared_ptr<IVibratorCallback>& callback) {
+                               const std::shared_ptr<IVibratorCallback>& callback) {
     {
         std::lock_guard lock(mMutex);
         if (mIsVibrating) {
@@ -505,7 +502,7 @@ ndk::ScopedAStatus Vibrator::off() {
 }
 
 ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
-                                 const std::shared_ptr<IVibratorCallback>& callback) {
+                                const std::shared_ptr<IVibratorCallback>& callback) {
     LOG(VERBOSE) << "on for " << timeoutMs << "ms";
 
     if (!uploadEffect(timeoutMs, mCurrentAmplitude)) {
@@ -519,10 +516,9 @@ ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
 }
 
 ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
-                                      const std::shared_ptr<IVibratorCallback>& callback,
-                                      int32_t* _aidl_return) {
-    LOG(VERBOSE) << "perform effect=" << toString(effect)
-                 << " strength=" << toString(strength);
+                                     const std::shared_ptr<IVibratorCallback>& callback,
+                                     int32_t* _aidl_return) {
+    LOG(VERBOSE) << "perform effect=" << toString(effect) << " strength=" << toString(strength);
 
     std::vector<Effect> supported;
     getSupportedEffects(&supported);
@@ -649,8 +645,8 @@ ndk::ScopedAStatus Vibrator::performVendorEffect(
 
 ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect>* _aidl_return) {
     *_aidl_return = {
-            Effect::CLICK,       Effect::DOUBLE_CLICK, Effect::TICK,   Effect::THUD,
-            Effect::POP,         Effect::HEAVY_CLICK,  Effect::TEXTURE_TICK,
+            Effect::CLICK, Effect::DOUBLE_CLICK, Effect::TICK,         Effect::THUD,
+            Effect::POP,   Effect::HEAVY_CLICK,  Effect::TEXTURE_TICK,
     };
     return ndk::ScopedAStatus::ok();
 }
@@ -719,7 +715,7 @@ ndk::ScopedAStatus Vibrator::getSupportedPrimitives(std::vector<CompositePrimiti
 }
 
 ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive primitive,
-                                                   int32_t* durationMs) {
+                                                  int32_t* durationMs) {
     std::vector<CompositePrimitive> supported;
     getSupportedPrimitives(&supported);
     if (std::find(supported.begin(), supported.end(), primitive) == supported.end()) {
@@ -730,7 +726,7 @@ ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive primitive,
 }
 
 ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composite,
-                                      const std::shared_ptr<IVibratorCallback>& callback) {
+                                     const std::shared_ptr<IVibratorCallback>& callback) {
     if (composite.size() > static_cast<size_t>(kComposeSizeMax)) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
     }
@@ -858,7 +854,7 @@ ndk::ScopedAStatus Vibrator::getSupportedBraking(std::vector<Braking>* supported
 }
 
 ndk::ScopedAStatus Vibrator::composePwle(const std::vector<PrimitivePwle>& composite,
-                                          const std::shared_ptr<IVibratorCallback>& callback) {
+                                         const std::shared_ptr<IVibratorCallback>& callback) {
     return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
@@ -880,7 +876,7 @@ ndk::ScopedAStatus Vibrator::getPwleV2CompositionSizeMax(int32_t* maxSize) {
 }
 
 ndk::ScopedAStatus Vibrator::composePwleV2(const CompositePwleV2& composite,
-                                            const std::shared_ptr<IVibratorCallback>& callback) {
+                                           const std::shared_ptr<IVibratorCallback>& callback) {
     return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 

@@ -72,7 +72,7 @@ ndk::ScopedAStatus VibratorManager::getVibratorIds(std::vector<int32_t>* _aidl_r
 }
 
 ndk::ScopedAStatus VibratorManager::getVibrator(int32_t vibratorId,
-                                                 std::shared_ptr<IVibrator>* _aidl_return) {
+                                                std::shared_ptr<IVibrator>* _aidl_return) {
     LOG(VERBOSE) << "VibratorManager: getVibrator " << vibratorId;
     if (vibratorId == kDefaultVibratorId) {
         *_aidl_return = mDefaultVibrator;
@@ -122,10 +122,10 @@ ndk::ScopedAStatus VibratorManager::cancelSynced() {
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus VibratorManager::startSession(
-        const std::vector<int32_t>& vibratorIds, const VibrationSessionConfig&,
-        const std::shared_ptr<IVibratorCallback>& callback,
-        std::shared_ptr<IVibrationSession>* _aidl_return) {
+ndk::ScopedAStatus VibratorManager::startSession(const std::vector<int32_t>& vibratorIds,
+                                                 const VibrationSessionConfig&,
+                                                 const std::shared_ptr<IVibratorCallback>& callback,
+                                                 std::shared_ptr<IVibrationSession>* _aidl_return) {
     LOG(VERBOSE) << "VibratorManager: startSession";
     *_aidl_return = nullptr;
     int32_t capabilities = 0;
@@ -174,7 +174,7 @@ void VibratorManager::closeSession(int32_t delayMs) {
     }
     if (session) {
         auto callback = ndk::SharedRefBase::make<VibratorCallback>(delayMs, session,
-                                                                    this->ref<VibratorManager>());
+                                                                   this->ref<VibratorManager>());
         mDefaultVibrator->setGlobalVibrationCallback(callback);
     }
 }
