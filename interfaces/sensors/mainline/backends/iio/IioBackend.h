@@ -3,6 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/*
+ * IIO Backend Architecture
+ * ========================
+ *
+ * This backend bridges Android's sensor HAL with the Linux IIO subsystem.
+ * It discovers sensors from /sys/bus/iio/devices/ and supports three
+ * operating modes:
+ *
+ * 1. Buffer mode with hrtimer trigger (CONFIG_IIO_CONFIGFS required)
+ * 2. Buffer mode with device-provided hardware trigger (e.g., bmi160 data-ready)
+ * 3. Poll mode reading _raw sysfs attributes periodically
+ *
+ * Multi-Sensor Device Handling
+ * ----------------------------
+ * Some IIO devices expose multiple sensor types on a single device node.
+ * For example, the bmi160 IMU exposes both accelerometer (scan_index 7-9)
+ * and gyroscope (scan_index 4-6) on one IIO device with a shared buffer.
+ *
+ * The backend handles this by:
+ * - Creating separate IioSensorData entries for each sensor type
+ * - Sharing one IioDeviceState per physical IIO device
+ * - Computing scan_size from ALL channels on the device (not just one type)
+ * - Each sensor stores its channel subset with correct buffer byte offsets
+ * - One reader thread per device demuxes samples to all active sensors
+ *
+ * Trigger Setup Chain
+ * -------------------
+ * EnableDeviceBuffer() attempts triggers in order:
+ * 1. hrtimer (software periodic trigger, needs configfs)
+ * 2. Device trigger (hardware data-ready interrupt, auto-detected)
+ * 3. Push-based (no trigger, driver pushes data via callbacks)
+ * 4. Poll mode fallback (if all buffer attempts fail)
+ *
+ * Poll Mode Fallback
+ * ------------------
+ * When buffer enable fails, BufferSensorThread sets sensor->is_poll_mode=true.
+ * PollSensorThread detects this flag change after BufferSensorThread returns
+ * and continues with the poll loop instead of exiting.
+ */
+
 #pragma once
 
 #include <libsensors_mainline/SensorBackend.h>
@@ -22,6 +62,12 @@
 
 namespace aidl::android::hardware::sensors::mainline {
 
+/*
+ * Per-channel metadata parsed from scan_elements/in_*_type files.
+ * The 'location' field is the byte offset in the buffer for this channel,
+ * computed with proper alignment to handle mixed-size channels (e.g.,
+ * 16-bit data followed by 64-bit timestamp requires 8-byte alignment).
+ */
 struct IioChannelInfo {
     std::string name;
     int32_t index;
@@ -37,6 +83,19 @@ struct IioChannelInfo {
 
 struct IioSensorData;
 
+/*
+ * Shared state for all sensors on one physical IIO device.
+ *
+ * When an IIO device exposes multiple sensor types (e.g., bmi160 accel+gyro),
+ * multiple IioSensorData objects share one IioDeviceState via shared_ptr.
+ *
+ * Key responsibilities:
+ * - Owns the buffer fd (only one open fd per device, IIO reads are destructive)
+ * - Computes scan_size from ALL channels on the device (not just one sensor's)
+ * - Manages the trigger (hrtimer or device-provided)
+ * - Runs a single reader thread that demuxes samples to all active sensors
+ * - Tracks active sensors to know when to enable/disable the device buffer
+ */
 struct IioDeviceState {
     int32_t dev_num;
     std::string sysfs_path;
@@ -54,6 +113,17 @@ struct IioDeviceState {
     std::vector<IioChannelInfo> all_channels;
 };
 
+/*
+ * Per-sensor state.
+ *
+ * For multi-type devices, multiple IioSensorData objects may share the same
+ * IioDeviceState. Each sensor stores only its own channels (subset of device
+ * channels) but with the correct byte offsets into the shared device buffer.
+ *
+ * is_poll_mode: true for poll mode (reads _raw attributes), false for buffer
+ *               mode. May change from false to true at runtime if buffer
+ *               enable fails (see BufferSensorThread).
+ */
 struct IioSensorData {
     int32_t handle;
     std::string sysfs_path;

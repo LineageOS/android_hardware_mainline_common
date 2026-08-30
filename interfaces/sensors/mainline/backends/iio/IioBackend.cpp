@@ -367,6 +367,18 @@ std::string IioBackend::GetIioTypePrefix(SensorType type) {
     }
 }
 
+/*
+ * Read shared-by-type attributes with fallback.
+ *
+ * IIO drivers can expose channel attributes in two ways:
+ * 1. Per-axis: in_accel_x_scale, in_accel_y_scale, in_accel_z_scale
+ * 2. Shared-by-type: in_accel_scale (applies to all axes)
+ *
+ * This helper first tries the per-axis path (e.g., in_accel_x_scale),
+ * then falls back to the shared-by-type path (e.g., in_accel_scale).
+ *
+ * Used for reading scale and offset attributes during channel discovery.
+ */
 float IioBackend::ReadSharedAttribute(const std::string& sysfs_path, const std::string& channel_name,
                                       const std::string& suffix, float default_value) {
     std::error_code ec;
@@ -431,6 +443,19 @@ std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs
     return frequencies;
 }
 
+/*
+ * Derive sensor metadata from sysfs attributes.
+ *
+ * Computes maxRange and resolution from:
+ * - realbits: number of valid bits (from scan_type)
+ * - scale: conversion factor from raw to physical units
+ *
+ * 32-bit realbits guard: Some drivers (e.g., qcom-smgr) use 32-bit realbits.
+ * The expression (1 << 32) is undefined behavior in C++, so we use INT32_MAX
+ * as the max_raw value when realbits >= 32.
+ *
+ * Also derives minDelayUs/maxDelayUs from sampling_frequency_available if present.
+ */
 void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
     if (!sensor || sensor->channels.empty()) {
         return;
@@ -640,6 +665,20 @@ void IioBackend::DiscoverDevices() {
     }
 }
 
+/*
+ * Discover sensors for one IIO device.
+ *
+ * Type detection chain (in order of preference):
+ * 1. Device name attribute (e.g., "bmi120", "ak09918")
+ * 2. Device tree compatible string (e.g., "bosch,bmi120")
+ * 3. Device tree name (e.g., "imu", "magnetometer")
+ * 4. Scan elements channel prefixes (e.g., in_accel_x_en → accelerometer)
+ * 5. Sysfs attribute filenames (e.g., presence of in_accel_x_raw)
+ *
+ * If scan_elements exist, we parse all channels regardless of their _en state.
+ * Some drivers (e.g., qcom-smgr) default _en to "0" but still support buffer mode.
+ * We enable them later in EnableDeviceBuffer.
+ */
 void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     std::string device_name = ReadSysfsString(sysfs_path + "/name", "unknown");
     std::string of_name = ReadSysfsString(sysfs_path + "/of_node/name", "");
@@ -690,6 +729,20 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 
     ParseMountMatrix(sysfs_path, sensor->mount_matrix);
 
+    /*
+     * Scan Elements Parsing
+     * ---------------------
+     * Parse all channels from scan_elements/ directory.
+     *
+     * Key change: We do NOT check if _en == "1" before parsing.
+     * Some drivers (e.g., qcom-smgr) default _en to "0" but still support
+     * buffer mode. We enable all channels later in EnableDeviceBuffer.
+     *
+     * For each channel, we read:
+     * - _type: format string (e.g., "le:s16/16>>0")
+     * - _index: position in buffer (scan_index)
+     * - _scale, _offset: conversion factors (with shared-by-type fallback)
+     */
     bool has_scan_elements = false;
     std::filesystem::path scan_dir = std::filesystem::path(sysfs_path) / "scan_elements";
     std::error_code ec;
@@ -729,6 +782,20 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         }
     }
 
+    /*
+     * Poll Mode Fallback Path
+     * -----------------------
+     * If no scan_elements exist, or if channel parsing failed, we fall back
+     * to poll mode. This works for devices that expose _raw sysfs attributes
+     * (info_mask_separate with RAW).
+     *
+     * We construct channel info manually with reasonable defaults:
+     * - 16-bit signed for vec3 types (accel, gyro, magn)
+     * - 32-bit unsigned for scalar types (light, proximity, etc.)
+     * - Scale from in_<type>_scale attribute
+     *
+     * This allows basic sensors without buffer support to work.
+     */
     if (!has_scan_elements || sensor->channels.empty()) {
         sensor->channels.clear();
         sensor->is_poll_mode = true;
@@ -869,6 +936,16 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             return;
         }
 
+        /*
+         * Multi-Sensor Device Handling
+         * ----------------------------
+         * Some IIO devices (e.g., bmi160 IMU) expose multiple sensor types
+         * on a single device node. We handle this by:
+         * 1. Creating one IioDeviceState shared by all sensors on this device
+         * 2. Computing scan_size from ALL channels (not just one sensor's)
+         * 3. Storing correct byte offsets in each channel for buffer parsing
+         * 4. Creating separate IioSensorData for each sensor type
+         */
         auto device = std::make_shared<IioDeviceState>();
         device->dev_num = dev_num;
         device->sysfs_path = sysfs_path;
@@ -879,6 +956,16 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                       return a.index < b.index;
                   });
 
+        /*
+         * Buffer Layout Calculation
+         * -------------------------
+         * IIO channels can have mixed storage sizes (e.g., 16-bit data + 64-bit
+         * timestamp). We must compute byte offsets with proper alignment:
+         * - Each channel is aligned to its storage size
+         * - This matches how the kernel packs data into the buffer
+         * - Example: 3x 16-bit accel + 1x 64-bit timestamp
+         *   offsets: [0, 2, 4, 8] (timestamp aligned to 8 bytes)
+         */
         int32_t offset = 0;
         for (auto& channel : device->all_channels) {
             int32_t storage_bytes = (channel.storagebits + 7) / 8;
@@ -893,6 +980,13 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 
         device_states_[dev_num] = device;
 
+        /*
+         * Channel Classification
+         * ----------------------
+         * Group channels by sensor type. For multi-type devices (e.g., bmi160
+         * with accel+gyro), we create separate IioSensorData for each type.
+         * Timestamp channels are shared across all sensor types.
+         */
         std::map<SensorType, std::vector<IioChannelInfo>> channels_by_type;
         bool has_timestamp = false;
         IioChannelInfo timestamp_channel;
@@ -920,6 +1014,14 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                       << ") has multiple sensor types, creating separate sensors";
         }
 
+        /*
+         * Create One Sensor Per Type
+         * --------------------------
+         * Each sensor gets its own subset of channels but shares the device state.
+         * The channel locations (byte offsets) were already computed for the full
+         * device buffer, so each sensor reads from the correct offset in the shared
+         * buffer even though it only sees its own channels.
+         */
         for (const auto& [type, type_channels] : channels_by_type) {
             auto new_sensor = std::make_unique<IioSensorData>();
             new_sensor->handle = next_handle_++;
@@ -985,6 +1087,21 @@ int32_t IioBackend::Initialize(const PostEventsCallback& callback) {
     return 0;
 }
 
+/*
+ * Deinitialize the backend and clean up all resources.
+ *
+ * Cleanup order:
+ * 1. Stop all sensor poll threads
+ * 2. For each device in device_states_:
+ *    - Stop the device reader thread (if running)
+ *    - Disable the device buffer
+ *    - Close the buffer fd
+ *    - Tear down any hrtimer trigger
+ * 3. Clear device_states_ map
+ *
+ * This ensures proper cleanup even when multiple sensors share one device.
+ * Each device's resources are cleaned up only once, not per-sensor.
+ */
 void IioBackend::Deinitialize() {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -1028,6 +1145,16 @@ std::vector<SensorInfo> IioBackend::GetSensorsList() {
     return result;
 }
 
+/*
+ * Poll thread entry point.
+ *
+ * If sensor is in buffer mode, calls BufferSensorThread which may fail and
+ * set is_poll_mode = true. We detect this flag change and fall through to
+ * the poll mode loop below instead of returning.
+ *
+ * Poll mode reads _raw sysfs attributes periodically, which works for any
+ * IIO device that exposes info_mask_separate with RAW (e.g., bmi160, ak09918).
+ */
 void IioBackend::PollSensorThread(IioSensorData* sensor) {
     LOG(DEBUG) << "Poll thread started for sensor " << sensor->handle;
 
@@ -1133,6 +1260,17 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
     return events;
 }
 
+/*
+ * Setup hrtimer trigger via configfs.
+ * Returns true if trigger was successfully created and assigned.
+ * Returns false if CONFIG_IIO_CONFIGFS is not enabled or creation fails.
+ *
+ * This is the first trigger option in the chain:
+ * 1. hrtimer (software periodic trigger)
+ * 2. Device trigger (hardware data-ready interrupt)
+ * 3. Push-based buffer (no trigger needed)
+ * 4. Poll mode fallback (reads _raw sysfs attributes)
+ */
 bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
     std::error_code ec;
     if (!std::filesystem::exists(kHrtimerTriggerConfigfsPath, ec)) {
@@ -1177,6 +1315,19 @@ bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_pe
     return true;
 }
 
+/*
+ * Setup device-provided hardware trigger.
+ *
+ * Some IIO drivers (e.g., bmi160, ak09918) provide their own hardware trigger
+ * that fires on data-ready interrupts. This is more efficient than hrtimer
+ * because it doesn't require CONFIG_IIO_CONFIGFS and uses the hardware's
+ * native sampling rate.
+ *
+ * Strategy:
+ * 1. Check if trigger/current_trigger already has a trigger assigned
+ * 2. Scan /sys/bus/iio/devices/trigger* for matching device triggers
+ * 3. Match by device name (e.g., "bmi120") or device number pattern ("dev2")
+ */
 bool IioBackend::SetupDeviceTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
     std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
     
@@ -1290,6 +1441,17 @@ void IioBackend::CloseDeviceBufferFd(IioDeviceState* device) {
     }
 }
 
+/*
+ * Enable or disable the device's ring buffer.
+ *
+ * Trigger setup chain (in order of preference):
+ * 1. hrtimer trigger - software periodic, needs CONFIG_IIO_CONFIGFS
+ * 2. Device trigger - hardware data-ready interrupt, auto-detected
+ * 3. Push-based buffer - no trigger, driver pushes data via callbacks
+ *
+ * If all trigger attempts fail, the caller (BufferSensorThread) falls back
+ * to poll mode, reading _raw sysfs attributes periodically.
+ */
 bool IioBackend::EnableDeviceBuffer(IioDeviceState* device, bool enable) {
     std::string buffer_path = device->sysfs_path + "/buffer/enable";
     std::string length_path = device->sysfs_path + "/buffer/length";
@@ -1348,6 +1510,20 @@ bool IioBackend::EnableDeviceBuffer(IioDeviceState* device, bool enable) {
     }
 }
 
+/*
+ * Parse buffer samples for one sensor.
+ *
+ * For multi-sensor devices, each sensor has a subset of the device's channels,
+ * but the channel locations (byte offsets) are computed for the full device buffer.
+ * This allows each sensor to read from the correct offset in the shared buffer.
+ *
+ * The scan_size parameter comes from device->scan_size (full device buffer size),
+ * not from the sensor's channels alone.
+ *
+ * 32-bit realbits guard: Some drivers (e.g., qcom-smgr) use 32-bit realbits.
+ * The expression (1u << 32) is undefined behavior in C++, so we guard against
+ * realbits >= 32 and skip the masking/sign-extension step.
+ */
 std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
                                                    const uint8_t* data,
                                                    size_t num_samples) {
@@ -1466,6 +1642,22 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
     return events;
 }
 
+/*
+ * Buffer sensor thread manages the buffer lifecycle for one sensor.
+ *
+ * When called, it attempts to enable the device buffer. If buffer enable fails
+ * (e.g., no trigger available), it sets sensor->is_poll_mode = true and returns.
+ * The caller (PollSensorThread) detects this flag change and continues with
+ * poll mode instead of exiting.
+ *
+ * This allows sensors to work even when:
+ * - CONFIG_IIO_CONFIGFS is not enabled (no hrtimer)
+ * - Device doesn't provide a hardware trigger
+ * - Buffer enable fails for any reason
+ *
+ * The sensor falls back to reading _raw sysfs attributes periodically,
+ * which works for drivers that expose info_mask_separate with RAW.
+ */
 void IioBackend::BufferSensorThread(IioSensorData* sensor) {
     LOG(DEBUG) << "Buffer thread started for sensor " << sensor->handle;
 
@@ -1533,6 +1725,20 @@ void IioBackend::BufferSensorThread(IioSensorData* sensor) {
     LOG(DEBUG) << "Buffer thread stopped for sensor " << sensor->handle;
 }
 
+/*
+ * Device buffer reader thread.
+ *
+ * One thread per physical IIO device reads from the shared buffer and demuxes
+ * samples to all active sensors on that device.
+ *
+ * For multi-sensor devices (e.g., bmi160 accel+gyro):
+ * - The kernel buffer contains all channels interleaved
+ * - Each sensor has a subset of channels with correct byte offsets
+ * - ParseBufferSamples extracts each sensor's data from the shared buffer
+ *
+ * This avoids multiple threads reading from the same device fd (which would
+ * cause data loss since IIO buffer reads are destructive).
+ */
 void IioBackend::DeviceBufferReaderThread(IioDeviceState* device) {
     LOG(DEBUG) << "Device buffer reader thread started for device " << device->dev_num;
 
@@ -1593,6 +1799,22 @@ void IioBackend::DeviceBufferReaderThread(IioDeviceState* device) {
     LOG(DEBUG) << "Device buffer reader thread stopped for device " << device->dev_num;
 }
 
+/*
+ * Activate or deactivate a sensor.
+ *
+ * Buffer mode lifecycle:
+ * - Activate: starts poll_thread, which calls BufferSensorThread
+ * - BufferSensorThread: enables device buffer (first sensor) or registers with existing buffer
+ * - Deactivate: stops poll_thread, which unregisters from device buffer
+ * - Last sensor to deactivate: disables device buffer and tears down trigger
+ *
+ * Poll mode lifecycle:
+ * - Activate: starts poll_thread, which reads _raw attributes periodically
+ * - Deactivate: stops poll_thread
+ *
+ * The is_poll_mode flag may change from false to true at runtime if buffer
+ * enable fails (see BufferSensorThread).
+ */
 int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = sensors_.find(sensor_handle);
@@ -1623,6 +1845,18 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
     return 0;
 }
 
+/*
+ * Batch - set sampling rate for a sensor.
+ *
+ * For buffer mode, this updates the trigger sampling frequency.
+ * The frequency is written to:
+ * - in_<type>_sampling_frequency (per-channel, if exists)
+ * - sampling_frequency (device-level fallback)
+ * - trigger's sampling_frequency (if hrtimer trigger is active)
+ *
+ * For poll mode, this just updates the sensor's sampling_period_ns
+ * which controls how often ReadPollSensorData is called.
+ */
 int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
                            int64_t /* max_report_latency_ns */) {
     std::lock_guard<std::mutex> lock(mutex_);
