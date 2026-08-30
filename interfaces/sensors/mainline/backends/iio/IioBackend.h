@@ -35,6 +35,25 @@ struct IioChannelInfo {
     int32_t location;
 };
 
+struct IioSensorData;
+
+struct IioDeviceState {
+    int32_t dev_num;
+    std::string sysfs_path;
+    
+    ::android::base::unique_fd buffer_fd;
+    int signal_pipe_fd[2] = {-1, -1};
+    int32_t scan_size = 0;
+    std::string trigger_name;
+    
+    std::thread reader_thread;
+    std::atomic_bool reader_running{false};
+    
+    std::mutex mutex;
+    std::vector<IioSensorData*> active_sensors;
+    std::vector<IioChannelInfo> all_channels;
+};
+
 struct IioSensorData {
     int32_t handle;
     std::string sysfs_path;
@@ -51,12 +70,10 @@ struct IioSensorData {
     std::mutex poll_mutex;
     std::condition_variable poll_cv;
     std::atomic_bool stop_thread;
-    ::android::base::unique_fd buffer_fd;
-    int signal_pipe_fd[2] = {-1, -1};
-    int32_t scan_size = 0;
-    std::string trigger_name;
     std::string parent_modalias;
     std::string label;
+    
+    std::shared_ptr<IioDeviceState> device_state;
 };
 
 class IioBackend : public ISensorBackend {
@@ -94,14 +111,15 @@ class IioBackend : public ISensorBackend {
 
     void PollSensorThread(IioSensorData* sensor);
     void BufferSensorThread(IioSensorData* sensor);
+    void DeviceBufferReaderThread(IioDeviceState* device);
     std::vector<Event> ReadPollSensorData(IioSensorData* sensor);
     std::vector<Event> ParseBufferSamples(IioSensorData* sensor, const uint8_t* data,
                                           size_t num_samples);
-    bool EnableRingBuffer(IioSensorData* sensor, bool enable);
-    bool SetupHrtimerTrigger(IioSensorData* sensor);
-    void TeardownHrtimerTrigger(IioSensorData* sensor);
-    bool OpenBufferFd(IioSensorData* sensor);
-    void CloseBufferFd(IioSensorData* sensor);
+    bool EnableDeviceBuffer(IioDeviceState* device, bool enable);
+    bool SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_period_ns);
+    void TeardownHrtimerTrigger(IioDeviceState* device);
+    bool OpenDeviceBufferFd(IioDeviceState* device);
+    void CloseDeviceBufferFd(IioDeviceState* device);
 
     std::optional<SensorType> MapIioTypeToSensorType(const std::string& iio_name);
     std::optional<SensorType> ClassifyChannelByName(const std::string& channel_name);
@@ -110,6 +128,8 @@ class IioBackend : public ISensorBackend {
     std::string ParseVendorFromCompatible(const std::string& of_compatible);
     bool IsVec3Type(SensorType type);
     std::string GetIioTypePrefix(SensorType type);
+    float ReadSharedAttribute(const std::string& sysfs_path, const std::string& channel_name,
+                              const std::string& suffix, float default_value);
 
     void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
     void ApplyHwdbProperties(IioSensorData* sensor);
@@ -120,7 +140,7 @@ class IioBackend : public ISensorBackend {
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
     std::map<int32_t, std::unique_ptr<IioSensorData>> sensors_;
-    std::map<int32_t, int32_t> device_active_count_;
+    std::map<int32_t, std::shared_ptr<IioDeviceState>> device_states_;
     std::unique_ptr<SensorHwdb> sensor_hwdb_;
     int32_t next_handle_ = 1;
     PostEventsCallback post_events_callback_;

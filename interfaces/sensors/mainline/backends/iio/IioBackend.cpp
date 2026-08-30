@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -366,6 +367,33 @@ std::string IioBackend::GetIioTypePrefix(SensorType type) {
     }
 }
 
+float IioBackend::ReadSharedAttribute(const std::string& sysfs_path, const std::string& channel_name,
+                                      const std::string& suffix, float default_value) {
+    std::error_code ec;
+    std::string per_axis_path = sysfs_path + "/" + channel_name + "_" + suffix;
+    if (std::filesystem::exists(per_axis_path, ec)) {
+        return ReadSysfsFloat(per_axis_path, default_value);
+    }
+
+    std::string base_prefix = channel_name;
+    if (base_prefix.find("in_") == 0) {
+        base_prefix = base_prefix.substr(3);
+    }
+    auto axis_pos = base_prefix.find_last_of('_');
+    if (axis_pos != std::string::npos && axis_pos > 0) {
+        std::string maybe_axis = base_prefix.substr(axis_pos + 1);
+        if (maybe_axis == "x" || maybe_axis == "y" || maybe_axis == "z") {
+            std::string shared_path =
+                    sysfs_path + "/in_" + base_prefix.substr(0, axis_pos) + "_" + suffix;
+            if (std::filesystem::exists(shared_path, ec)) {
+                return ReadSysfsFloat(shared_path, default_value);
+            }
+        }
+    }
+
+    return default_value;
+}
+
 std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs_path,
                                                         SensorType type) {
     std::vector<float> frequencies;
@@ -413,7 +441,12 @@ void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
     uint8_t realbits = channel.realbits;
     bool is_signed = (channel.sign == 's');
 
-    int32_t max_raw = is_signed ? ((1 << (realbits - 1)) - 1) : ((1 << realbits) - 1);
+    int32_t max_raw;
+    if (realbits >= 32) {
+        max_raw = is_signed ? INT32_MAX : -1;
+    } else {
+        max_raw = is_signed ? ((1 << (realbits - 1)) - 1) : ((1 << realbits) - 1);
+    }
     float raw_max_range = static_cast<float>(max_raw) * scale;
     float resolution = scale;
 
@@ -687,46 +720,8 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                     continue;
                 }
 
-                std::string scale_path = sysfs_path + "/" + chan_prefix + "_scale";
-                if (!std::filesystem::exists(scale_path, ec)) {
-                    std::string base_prefix = chan_prefix;
-                    if (base_prefix.find("in_") == 0) {
-                        base_prefix = base_prefix.substr(3);
-                    }
-                    auto axis_pos = base_prefix.find_last_of('_');
-                    if (axis_pos != std::string::npos && axis_pos > 0) {
-                        std::string maybe_axis = base_prefix.substr(axis_pos + 1);
-                        if (maybe_axis == "x" || maybe_axis == "y" || maybe_axis == "z") {
-                            std::string shared_scale =
-                                    sysfs_path + "/in_" + base_prefix.substr(0, axis_pos) + "_scale";
-                            if (std::filesystem::exists(shared_scale, ec)) {
-                                scale_path = shared_scale;
-                            }
-                        }
-                    }
-                }
-                channel.scale = ReadSysfsFloat(scale_path, 1.0f);
-
-                std::string offset_path = sysfs_path + "/" + chan_prefix + "_offset";
-                if (!std::filesystem::exists(offset_path, ec)) {
-                    std::string base_prefix = chan_prefix;
-                    if (base_prefix.find("in_") == 0) {
-                        base_prefix = base_prefix.substr(3);
-                    }
-                    auto axis_pos = base_prefix.find_last_of('_');
-                    if (axis_pos != std::string::npos && axis_pos > 0) {
-                        std::string maybe_axis = base_prefix.substr(axis_pos + 1);
-                        if (maybe_axis == "x" || maybe_axis == "y" || maybe_axis == "z") {
-                            std::string shared_offset =
-                                    sysfs_path + "/in_" + base_prefix.substr(0, axis_pos) + "_offset";
-                            if (std::filesystem::exists(shared_offset, ec)) {
-                                offset_path = shared_offset;
-                            }
-                        }
-                    }
-                }
-                channel.offset = ReadSysfsFloat(offset_path, 0.0f);
-
+                channel.scale = ReadSharedAttribute(sysfs_path, chan_prefix, "scale", 1.0f);
+                channel.offset = ReadSharedAttribute(sysfs_path, chan_prefix, "offset", 0.0f);
                 channel.location = 0;
 
                 sensor->channels.push_back(channel);
@@ -738,15 +733,14 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         sensor->channels.clear();
         sensor->is_poll_mode = true;
 
+        std::string type_prefix = GetIioTypePrefix(sensor->type);
+        if (type_prefix.empty()) {
+            LOG(WARNING) << "Unknown sensor type for " << device_name;
+            return;
+        }
+
         if (IsVec3Type(sensor->type)) {
             std::vector<std::string> axes = {"x", "y", "z"};
-            std::string type_prefix;
-            if (sensor->type == SensorType::ACCELEROMETER)
-                type_prefix = "accel";
-            else if (sensor->type == SensorType::GYROSCOPE)
-                type_prefix = "anglvel";
-            else if (sensor->type == SensorType::MAGNETIC_FIELD)
-                type_prefix = "magn";
 
             for (size_t i = 0; i < axes.size(); i++) {
                 std::string raw_path =
@@ -773,18 +767,6 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                 sensor->channels.push_back(channel);
             }
         } else {
-            std::string type_prefix;
-            if (sensor->type == SensorType::LIGHT)
-                type_prefix = "illuminance";
-            else if (sensor->type == SensorType::PROXIMITY)
-                type_prefix = "proximity";
-            else if (sensor->type == SensorType::AMBIENT_TEMPERATURE)
-                type_prefix = "temp";
-            else if (sensor->type == SensorType::PRESSURE)
-                type_prefix = "pressure";
-            else if (sensor->type == SensorType::RELATIVE_HUMIDITY)
-                type_prefix = "humidityrelative";
-
             std::vector<std::string> suffixes = {"_input", "_raw"};
             std::string found_path;
             for (const auto& suffix : suffixes) {
@@ -856,29 +838,66 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
         std::string dev_path = "/dev/iio:device" + std::to_string(dev_num);
         bool has_dev = std::filesystem::exists(dev_path, ec);
 
-        std::sort(sensor->channels.begin(), sensor->channels.end(),
+        if (!has_dev) {
+            LOG(WARNING) << "IIO device " << dev_num << " has scan_elements but no device node, falling back to poll mode";
+            sensor->is_poll_mode = true;
+
+            std::sort(sensor->channels.begin(), sensor->channels.end(),
+                      [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                          return a.index < b.index;
+                      });
+
+            sensor->sensor_info.sensorHandle = sensor->handle;
+            sensor->sensor_info.name = device_name;
+            std::string parsed_vendor = ParseVendorFromCompatible(of_compatible);
+            sensor->sensor_info.vendor = parsed_vendor.empty() ? "Linux IIO" : parsed_vendor;
+            sensor->sensor_info.version = 1;
+            sensor->sensor_info.type = sensor->type;
+            sensor->sensor_info.typeAsString = "";
+            sensor->sensor_info.fifoReservedEventCount = 0;
+            sensor->sensor_info.fifoMaxEventCount = 0;
+            sensor->sensor_info.requiredPermission = "";
+
+            DeriveSensorInfoFromSysfs(sensor.get());
+            ApplyHwdbProperties(sensor.get());
+            ApplySensorInfoOverrides(sensor.get());
+
+            int32_t handle = sensor->handle;
+            sensors_[handle] = std::move(sensor);
+            LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
+                      << ", type=" << static_cast<int32_t>(*sensor_type) << ", poll_mode=yes)";
+            return;
+        }
+
+        auto device = std::make_shared<IioDeviceState>();
+        device->dev_num = dev_num;
+        device->sysfs_path = sysfs_path;
+        device->all_channels = sensor->channels;
+
+        std::sort(device->all_channels.begin(), device->all_channels.end(),
                   [](const IioChannelInfo& a, const IioChannelInfo& b) {
                       return a.index < b.index;
                   });
 
-        if (has_dev) {
-            int32_t offset = 0;
-            for (auto& channel : sensor->channels) {
-                int32_t storage_bytes = (channel.storagebits + 7) / 8;
-                int32_t alignment = storage_bytes;
-                if (alignment > 0 && (offset % alignment) != 0) {
-                    offset += alignment - (offset % alignment);
-                }
-                channel.location = offset;
-                offset += storage_bytes;
+        int32_t offset = 0;
+        for (auto& channel : device->all_channels) {
+            int32_t storage_bytes = (channel.storagebits + 7) / 8;
+            int32_t alignment = storage_bytes;
+            if (alignment > 0 && (offset % alignment) != 0) {
+                offset += alignment - (offset % alignment);
             }
+            channel.location = offset;
+            offset += storage_bytes;
         }
+        device->scan_size = offset;
+
+        device_states_[dev_num] = device;
 
         std::map<SensorType, std::vector<IioChannelInfo>> channels_by_type;
         bool has_timestamp = false;
         IioChannelInfo timestamp_channel;
 
-        for (const auto& channel : sensor->channels) {
+        for (const auto& channel : device->all_channels) {
             if (channel.name.find("timestamp") != std::string::npos) {
                 has_timestamp = true;
                 timestamp_channel = channel;
@@ -892,6 +911,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
 
         if (channels_by_type.empty()) {
             LOG(DEBUG) << "IIO device " << dev_num << " has no classifiable channels, skipping";
+            device_states_.erase(dev_num);
             return;
         }
 
@@ -906,13 +926,14 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             new_sensor->sysfs_path = sysfs_path;
             new_sensor->device_name = device_name;
             new_sensor->type = type;
-            new_sensor->is_poll_mode = !has_dev;
+            new_sensor->is_poll_mode = false;
             new_sensor->enabled = false;
             new_sensor->sampling_period_ns = 200 * 1000 * 1000;
             new_sensor->stop_thread = false;
             new_sensor->dev_num = dev_num;
             new_sensor->parent_modalias = parent_modalias;
             new_sensor->label = device_label;
+            new_sensor->device_state = device;
 
             ParseMountMatrix(sysfs_path, new_sensor->mount_matrix);
 
@@ -944,8 +965,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             int32_t handle = new_sensor->handle;
             sensors_[handle] = std::move(new_sensor);
             LOG(INFO) << "IIO sensor discovered: " << device_name << " (handle=" << handle
-                      << ", type=" << static_cast<int32_t>(type) << ", poll_mode="
-                      << (sensors_[handle]->is_poll_mode ? "yes" : "no") << ")";
+                      << ", type=" << static_cast<int32_t>(type) << ", buffer_mode=yes)";
         }
     }
 }
@@ -967,28 +987,34 @@ int32_t IioBackend::Initialize(const PostEventsCallback& callback) {
 
 void IioBackend::Deinitialize() {
     std::lock_guard<std::mutex> lock(mutex_);
+
     for (auto& [handle, sensor] : sensors_) {
-        if (sensor->enabled.load()) {
-            sensor->enabled = false;
-            if (!sensor->is_poll_mode) {
-                device_active_count_[sensor->dev_num]--;
-                if (device_active_count_[sensor->dev_num] <= 0) {
-                    EnableRingBuffer(sensor.get(), false);
-                    device_active_count_[sensor->dev_num] = 0;
-                }
-            }
-        }
+        sensor->enabled = false;
         sensor->stop_thread = true;
         sensor->poll_cv.notify_all();
         if (sensor->poll_thread.joinable()) {
             sensor->poll_thread.join();
         }
-        if (!sensor->is_poll_mode && !sensor->trigger_name.empty()) {
-            TeardownHrtimerTrigger(sensor.get());
-        }
-        CloseBufferFd(sensor.get());
     }
-    device_active_count_.clear();
+
+    for (auto& [dev_num, device] : device_states_) {
+        if (device->reader_running.load()) {
+            if (device->buffer_fd.ok() && device->signal_pipe_fd[1] >= 0) {
+                char shutdown_byte = 1;
+                write(device->signal_pipe_fd[1], &shutdown_byte, 1);
+            }
+            if (device->reader_thread.joinable()) {
+                device->reader_thread.join();
+            }
+        }
+        EnableDeviceBuffer(device.get(), false);
+        CloseDeviceBufferFd(device.get());
+        if (!device->trigger_name.empty()) {
+            TeardownHrtimerTrigger(device.get());
+        }
+    }
+
+    device_states_.clear();
     post_events_callback_ = nullptr;
     LOG(INFO) << "IIO backend deinitialized";
 }
@@ -1104,7 +1130,7 @@ std::vector<Event> IioBackend::ReadPollSensorData(IioSensorData* sensor) {
     return events;
 }
 
-bool IioBackend::SetupHrtimerTrigger(IioSensorData* sensor) {
+bool IioBackend::SetupHrtimerTrigger(IioDeviceState* device, int32_t sampling_period_ns) {
     std::error_code ec;
     if (!std::filesystem::exists(kHrtimerTriggerConfigfsPath, ec)) {
         LOG(WARNING) << "hrtimer trigger configfs not available at "
@@ -1112,9 +1138,9 @@ bool IioBackend::SetupHrtimerTrigger(IioSensorData* sensor) {
         return false;
     }
 
-    sensor->trigger_name = "mainline_sensors_" + std::to_string(sensor->dev_num);
+    device->trigger_name = "mainline_sensors_" + std::to_string(device->dev_num);
     std::string trigger_path =
-            std::string(kHrtimerTriggerConfigfsPath) + "/" + sensor->trigger_name;
+            std::string(kHrtimerTriggerConfigfsPath) + "/" + device->trigger_name;
 
     if (!std::filesystem::exists(trigger_path, ec)) {
         if (!std::filesystem::create_directory(trigger_path, ec)) {
@@ -1124,101 +1150,94 @@ bool IioBackend::SetupHrtimerTrigger(IioSensorData* sensor) {
         }
     }
 
-    if (sensor->sampling_period_ns > 0) {
+    if (sampling_period_ns > 0) {
         int32_t freq = static_cast<int32_t>(
                 static_cast<float>(kNanosecondsPerSecond) /
-                static_cast<float>(sensor->sampling_period_ns));
+                static_cast<float>(sampling_period_ns));
         if (freq < 1) freq = 1;
         std::string trig_freq_path =
-                    std::string(kIioBasePath) + "/" + sensor->trigger_name + "/sampling_frequency";
+                    std::string(kIioBasePath) + "/" + device->trigger_name + "/sampling_frequency";
         if (!WriteSysfsInt(trig_freq_path, freq)) {
             LOG(WARNING) << "Failed to set trigger sampling frequency at " << trig_freq_path;
         }
     }
 
-    std::string current_trigger_path = sensor->sysfs_path + "/trigger/current_trigger";
-    if (!::android::base::WriteStringToFile(sensor->trigger_name, current_trigger_path)) {
-        LOG(WARNING) << "Failed to assign trigger " << sensor->trigger_name
-                     << " to device " << sensor->dev_num;
+    std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
+    if (!::android::base::WriteStringToFile(device->trigger_name, current_trigger_path)) {
+        LOG(WARNING) << "Failed to assign trigger " << device->trigger_name
+                     << " to device " << device->dev_num;
         return false;
     }
 
-    LOG(INFO) << "hrtimer trigger " << sensor->trigger_name
-              << " set up for device " << sensor->dev_num;
+    LOG(INFO) << "hrtimer trigger " << device->trigger_name
+              << " set up for device " << device->dev_num;
     return true;
 }
 
-void IioBackend::TeardownHrtimerTrigger(IioSensorData* sensor) {
-    if (sensor->trigger_name.empty()) {
+void IioBackend::TeardownHrtimerTrigger(IioDeviceState* device) {
+    if (device->trigger_name.empty()) {
         return;
     }
 
-    std::string current_trigger_path = sensor->sysfs_path + "/trigger/current_trigger";
+    std::string current_trigger_path = device->sysfs_path + "/trigger/current_trigger";
     ::android::base::WriteStringToFile("", current_trigger_path);
 
     std::error_code ec;
     std::string trigger_path =
-            std::string(kHrtimerTriggerConfigfsPath) + "/" + sensor->trigger_name;
+            std::string(kHrtimerTriggerConfigfsPath) + "/" + device->trigger_name;
     std::filesystem::remove(trigger_path, ec);
 
-    LOG(INFO) << "hrtimer trigger " << sensor->trigger_name << " torn down";
-    sensor->trigger_name.clear();
+    LOG(INFO) << "hrtimer trigger " << device->trigger_name << " torn down";
+    device->trigger_name.clear();
 }
 
-bool IioBackend::OpenBufferFd(IioSensorData* sensor) {
-    sensor->scan_size = 0;
-    for (const auto& channel : sensor->channels) {
-        int32_t end = channel.location + (channel.storagebits + 7) / 8;
-        if (end > sensor->scan_size) {
-            sensor->scan_size = end;
-        }
-    }
-
-    if (sensor->scan_size <= 0) {
-        LOG(WARNING) << "Invalid scan size for sensor " << sensor->dev_num;
+bool IioBackend::OpenDeviceBufferFd(IioDeviceState* device) {
+    if (device->scan_size <= 0) {
+        LOG(WARNING) << "Invalid scan size for device " << device->dev_num;
         return false;
     }
 
-    std::string dev_path = "/dev/iio:device" + std::to_string(sensor->dev_num);
-    sensor->buffer_fd.reset(open(dev_path.c_str(), O_RDONLY));
-    if (!sensor->buffer_fd.ok()) {
+    std::string dev_path = "/dev/iio:device" + std::to_string(device->dev_num);
+    device->buffer_fd.reset(open(dev_path.c_str(), O_RDONLY | O_NONBLOCK));
+    if (!device->buffer_fd.ok()) {
         LOG(WARNING) << "Failed to open " << dev_path << ": " << strerror(errno);
         return false;
     }
 
-    if (pipe2(sensor->signal_pipe_fd, O_CLOEXEC | O_NONBLOCK) != 0) {
+    if (pipe2(device->signal_pipe_fd, O_CLOEXEC | O_NONBLOCK) != 0) {
         LOG(WARNING) << "Failed to create signal pipe: " << strerror(errno);
-        sensor->buffer_fd.reset();
+        device->buffer_fd.reset();
         return false;
     }
 
     return true;
 }
 
-void IioBackend::CloseBufferFd(IioSensorData* sensor) {
-    sensor->buffer_fd.reset();
-    if (sensor->signal_pipe_fd[0] >= 0) {
-        close(sensor->signal_pipe_fd[0]);
-        sensor->signal_pipe_fd[0] = -1;
+void IioBackend::CloseDeviceBufferFd(IioDeviceState* device) {
+    device->buffer_fd.reset();
+    if (device->signal_pipe_fd[0] >= 0) {
+        close(device->signal_pipe_fd[0]);
+        device->signal_pipe_fd[0] = -1;
     }
-    if (sensor->signal_pipe_fd[1] >= 0) {
-        close(sensor->signal_pipe_fd[1]);
-        sensor->signal_pipe_fd[1] = -1;
+    if (device->signal_pipe_fd[1] >= 0) {
+        close(device->signal_pipe_fd[1]);
+        device->signal_pipe_fd[1] = -1;
     }
 }
 
-bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
-    std::string buffer_path = sensor->sysfs_path + "/buffer/enable";
-    std::string length_path = sensor->sysfs_path + "/buffer/length";
+bool IioBackend::EnableDeviceBuffer(IioDeviceState* device, bool enable) {
+    std::string buffer_path = device->sysfs_path + "/buffer/enable";
+    std::string length_path = device->sysfs_path + "/buffer/length";
 
     if (enable) {
-        bool has_trigger = SetupHrtimerTrigger(sensor);
+        int32_t sampling_period_ns = 200 * 1000 * 1000;
+        bool has_trigger = SetupHrtimerTrigger(device, sampling_period_ns);
         if (!has_trigger) {
-            LOG(INFO) << "hrtimer trigger not available for device " << sensor->dev_num
+            LOG(INFO) << "hrtimer trigger not available for device " << device->dev_num
                       << ", attempting buffer mode without external trigger";
         }
 
-        std::string scan_dir = sensor->sysfs_path + "/scan_elements";
+        std::string scan_dir = device->sysfs_path + "/scan_elements";
         std::error_code ec;
         std::filesystem::directory_iterator scan_it(scan_dir, ec);
         if (!ec) {
@@ -1232,33 +1251,29 @@ bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
 
         WriteSysfsInt(length_path, kBufferLength);
         if (!WriteSysfsInt(buffer_path, 1)) {
-            LOG(WARNING) << "Failed to enable buffer for device " << sensor->dev_num
-                         << ", falling back to sysfs poll mode";
-            if (has_trigger) TeardownHrtimerTrigger(sensor);
+            LOG(WARNING) << "Failed to enable buffer for device " << device->dev_num;
+            if (has_trigger) TeardownHrtimerTrigger(device);
             return false;
         }
 
-        if (!OpenBufferFd(sensor)) {
-            LOG(WARNING) << "Failed to open buffer fd for device " << sensor->dev_num
-                         << ", falling back to sysfs poll mode";
+        if (!OpenDeviceBufferFd(device)) {
+            LOG(WARNING) << "Failed to open buffer fd for device " << device->dev_num;
             WriteSysfsInt(buffer_path, 0);
-            if (has_trigger) TeardownHrtimerTrigger(sensor);
+            if (has_trigger) TeardownHrtimerTrigger(device);
             return false;
         }
 
         return true;
     } else {
-        if (sensor->buffer_fd.ok()) {
+        if (device->buffer_fd.ok() && device->signal_pipe_fd[1] >= 0) {
             char shutdown_byte = 1;
-            ssize_t ret = write(sensor->signal_pipe_fd[1], &shutdown_byte, 1);
+            ssize_t ret = write(device->signal_pipe_fd[1], &shutdown_byte, 1);
             if (ret < 0) {
                 LOG(WARNING) << "Failed to write shutdown signal: " << strerror(errno);
             }
         }
 
         WriteSysfsInt(buffer_path, 0);
-        CloseBufferFd(sensor);
-        TeardownHrtimerTrigger(sensor);
         return true;
     }
 }
@@ -1267,7 +1282,12 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
                                                    const uint8_t* data,
                                                    size_t num_samples) {
     std::vector<Event> events;
-    if (num_samples == 0 || sensor->scan_size <= 0) {
+    if (!sensor->device_state) {
+        return events;
+    }
+
+    int32_t scan_size = sensor->device_state->scan_size;
+    if (num_samples == 0 || scan_size <= 0) {
         return events;
     }
 
@@ -1276,7 +1296,7 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
     int64_t timestamp = ts.tv_sec * kNanosecondsPerSecond + ts.tv_nsec;
 
     if (IsVec3Type(sensor->type) && sensor->channels.size() >= 3) {
-        const uint8_t* last_sample = data + (num_samples - 1) * sensor->scan_size;
+        const uint8_t* last_sample = data + (num_samples - 1) * scan_size;
         std::vector<float> values(3);
         for (size_t i = 0; i < 3; i++) {
             const auto& channel = sensor->channels[i];
@@ -1329,7 +1349,7 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
         event.payload.set<EventPayload::Tag::vec3>(vec3);
         events.push_back(event);
     } else if (!sensor->channels.empty()) {
-        const uint8_t* last_sample = data + (num_samples - 1) * sensor->scan_size;
+        const uint8_t* last_sample = data + (num_samples - 1) * scan_size;
         const auto& channel = sensor->channels[0];
         int32_t raw_value = 0;
         int32_t storage_bytes = (channel.storagebits + 7) / 8;
@@ -1379,53 +1399,125 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
 void IioBackend::BufferSensorThread(IioSensorData* sensor) {
     LOG(DEBUG) << "Buffer thread started for sensor " << sensor->handle;
 
+    if (!sensor->device_state) {
+        LOG(ERROR) << "No device state for sensor " << sensor->handle;
+        return;
+    }
+
+    auto device = sensor->device_state;
+    bool buffer_enabled = false;
+
+    {
+        std::lock_guard<std::mutex> lock(device->mutex);
+        device->active_sensors.push_back(sensor);
+
+        if (!device->reader_running.load()) {
+            if (EnableDeviceBuffer(device.get(), true)) {
+                buffer_enabled = true;
+                device->reader_running = true;
+                device->reader_thread = std::thread(&IioBackend::DeviceBufferReaderThread, this, device.get());
+            } else {
+                LOG(WARNING) << "Failed to enable device buffer for " << device->dev_num;
+                device->active_sensors.pop_back();
+                return;
+            }
+        }
+    }
+
+    while (sensor->enabled.load() && !sensor->stop_thread.load()) {
+        std::unique_lock<std::mutex> lock(sensor->poll_mutex);
+        sensor->poll_cv.wait_for(lock, std::chrono::milliseconds(100));
+    }
+
+    bool should_stop_reader = false;
+    {
+        std::lock_guard<std::mutex> lock(device->mutex);
+        device->active_sensors.erase(
+            std::remove(device->active_sensors.begin(), device->active_sensors.end(), sensor),
+            device->active_sensors.end());
+
+        if (device->active_sensors.empty() && device->reader_running.load()) {
+            should_stop_reader = true;
+            if (device->buffer_fd.ok() && device->signal_pipe_fd[1] >= 0) {
+                char shutdown_byte = 1;
+                write(device->signal_pipe_fd[1], &shutdown_byte, 1);
+            }
+        }
+    }
+
+    if (should_stop_reader) {
+        if (device->reader_thread.joinable()) {
+            device->reader_thread.join();
+        }
+        device->reader_running = false;
+        EnableDeviceBuffer(device.get(), false);
+        CloseDeviceBufferFd(device.get());
+        if (!device->trigger_name.empty()) {
+            TeardownHrtimerTrigger(device.get());
+        }
+    }
+
+    LOG(DEBUG) << "Buffer thread stopped for sensor " << sensor->handle;
+}
+
+void IioBackend::DeviceBufferReaderThread(IioDeviceState* device) {
+    LOG(DEBUG) << "Device buffer reader thread started for device " << device->dev_num;
+
     struct pollfd fds[2];
-    fds[0].fd = sensor->buffer_fd.get();
+    fds[0].fd = device->buffer_fd.get();
     fds[0].events = POLLIN;
-    fds[1].fd = sensor->signal_pipe_fd[0];
+    fds[1].fd = device->signal_pipe_fd[0];
     fds[1].events = POLLIN;
 
-    std::vector<uint8_t> raw_buf(sensor->scan_size * kBufferLength);
+    std::vector<uint8_t> raw_buf(device->scan_size * kBufferLength);
 
-    while (sensor->enabled.load() && !sensor->stop_thread.load() &&
-           operation_mode_ != OperationMode::DATA_INJECTION) {
-        int ret = poll(fds, 2, -1);
+    while (true) {
+        int ret = poll(fds, 2, 1000);
         if (ret < 0) {
             if (errno == EINTR) continue;
-            LOG(WARNING) << "poll() failed for sensor " << sensor->handle
+            LOG(WARNING) << "poll() failed for device " << device->dev_num
                          << ": " << strerror(errno);
             break;
         }
-        if (ret == 0) continue;
+
+        if (ret == 0) {
+            std::lock_guard<std::mutex> lock(device->mutex);
+            if (device->active_sensors.empty()) break;
+            continue;
+        }
 
         if (fds[1].revents & (POLLIN | POLLHUP)) {
             break;
         }
 
         if (fds[0].revents & POLLIN) {
-            ssize_t bytes_read = read(sensor->buffer_fd.get(), raw_buf.data(), raw_buf.size());
-            if (bytes_read < static_cast<ssize_t>(sensor->scan_size)) {
+            ssize_t bytes_read = read(device->buffer_fd.get(), raw_buf.data(), raw_buf.size());
+            if (bytes_read < static_cast<ssize_t>(device->scan_size)) {
                 continue;
             }
 
-            size_t num_samples = static_cast<size_t>(bytes_read) / sensor->scan_size;
-            std::vector<Event> events = ParseBufferSamples(sensor, raw_buf.data(), num_samples);
+            size_t num_samples = static_cast<size_t>(bytes_read) / device->scan_size;
 
-            if (!events.empty() && post_events_callback_) {
-                bool wakeup =
-                        (sensor->sensor_info.flags &
-                         static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
-                post_events_callback_(events, wakeup);
+            std::lock_guard<std::mutex> lock(device->mutex);
+            for (auto* sensor : device->active_sensors) {
+                if (!sensor->enabled.load() || sensor->stop_thread.load()) continue;
+
+                std::vector<Event> events = ParseBufferSamples(sensor, raw_buf.data(), num_samples);
+                if (!events.empty() && post_events_callback_) {
+                    bool wakeup = (sensor->sensor_info.flags &
+                                   static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_WAKE_UP)) != 0;
+                    post_events_callback_(events, wakeup);
+                }
             }
         }
 
         if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-            LOG(WARNING) << "Buffer fd error for sensor " << sensor->handle;
+            LOG(WARNING) << "Buffer fd error for device " << device->dev_num;
             break;
         }
     }
 
-    LOG(DEBUG) << "Buffer thread stopped for sensor " << sensor->handle;
+    LOG(DEBUG) << "Device buffer reader thread stopped for device " << device->dev_num;
 }
 
 int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
@@ -1444,31 +1536,9 @@ int32_t IioBackend::Activate(int32_t sensor_handle, bool enabled) {
     if (enabled) {
         sensor->stop_thread = false;
         sensor->enabled = true;
-
-        if (!sensor->is_poll_mode) {
-            bool is_first_on_device = (device_active_count_[sensor->dev_num] == 0);
-            device_active_count_[sensor->dev_num]++;
-
-            if (is_first_on_device) {
-                if (!EnableRingBuffer(sensor.get(), true)) {
-                    sensor->is_poll_mode = true;
-                    device_active_count_[sensor->dev_num]--;
-                }
-            }
-        }
-
         sensor->poll_thread = std::thread(&IioBackend::PollSensorThread, this, sensor.get());
     } else {
         sensor->enabled = false;
-
-        if (!sensor->is_poll_mode) {
-            device_active_count_[sensor->dev_num]--;
-            if (device_active_count_[sensor->dev_num] <= 0) {
-                EnableRingBuffer(sensor.get(), false);
-                device_active_count_[sensor->dev_num] = 0;
-            }
-        }
-
         sensor->stop_thread = true;
         sensor->poll_cv.notify_all();
         if (sensor->poll_thread.joinable()) {
@@ -1522,9 +1592,11 @@ int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
         }
         WriteSysfsInt(freq_path, freq);
 
-        if (!sensor->is_poll_mode && !sensor->trigger_name.empty()) {
+        if (!sensor->is_poll_mode && sensor->device_state &&
+            !sensor->device_state->trigger_name.empty()) {
             std::string trig_freq_path =
-                std::string(kIioBasePath) + "/" + sensor->trigger_name + "/sampling_frequency";
+                std::string(kIioBasePath) + "/" + sensor->device_state->trigger_name +
+                "/sampling_frequency";
             WriteSysfsInt(trig_freq_path, freq);
         }
     }
