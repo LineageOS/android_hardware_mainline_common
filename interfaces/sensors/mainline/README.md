@@ -126,6 +126,10 @@ PRODUCT_PACKAGES += \
 
 The IIO backend discovers sensors from `/sys/bus/iio/devices/iio:device*`.
 
+Both triggered and push-based (non-triggered) IIO buffers are supported, as well as
+poll-mode fallback for devices exposing `_raw` sysfs attributes. Buffer-only devices
+(those without `_raw` attributes) are fully supported.
+
 Supported sensor types:
 - Accelerometer (IIO_ACCEL)
 - Gyroscope (IIO_ANGL_VEL)

@@ -209,7 +209,8 @@ std::optional<SensorType> IioBackend::MapIioTypeToSensorType(const std::string& 
         iio_name.find("illuminance") != std::string::npos ||
         iio_name.find("intensity") != std::string::npos)
         return SensorType::LIGHT;
-    if (iio_name.find("proximity") != std::string::npos)
+    if (iio_name.find("proximity") != std::string::npos ||
+        iio_name.find("prox") != std::string::npos)
         return SensorType::PROXIMITY;
     if (iio_name.find("temp") != std::string::npos)
         return SensorType::AMBIENT_TEMPERATURE;
@@ -325,11 +326,47 @@ bool IioBackend::IsVec3Type(SensorType type) {
            type == SensorType::MAGNETIC_FIELD;
 }
 
-std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs_path) {
+std::string IioBackend::GetIioTypePrefix(SensorType type) {
+    switch (type) {
+        case SensorType::ACCELEROMETER:
+            return "accel";
+        case SensorType::GYROSCOPE:
+            return "anglvel";
+        case SensorType::MAGNETIC_FIELD:
+            return "magn";
+        case SensorType::LIGHT:
+            return "illuminance";
+        case SensorType::PROXIMITY:
+            return "proximity";
+        case SensorType::AMBIENT_TEMPERATURE:
+            return "temp";
+        case SensorType::PRESSURE:
+            return "pressure";
+        case SensorType::RELATIVE_HUMIDITY:
+            return "humidityrelative";
+        default:
+            return "";
+    }
+}
+
+std::vector<float> IioBackend::ReadAvailableFrequencies(const std::string& sysfs_path,
+                                                        SensorType type) {
     std::vector<float> frequencies;
 
-    std::string freq_path = sysfs_path + "/sampling_frequency_available";
-    std::string content = ReadSysfsString(freq_path, "");
+    std::vector<std::string> candidates = {
+            sysfs_path + "/sampling_frequency_available",
+    };
+
+    std::string type_prefix = GetIioTypePrefix(type);
+    if (!type_prefix.empty()) {
+        candidates.push_back(sysfs_path + "/in_" + type_prefix + "_sampling_frequency_available");
+    }
+
+    std::string content;
+    for (const auto& path : candidates) {
+        content = ReadSysfsString(path, "");
+        if (!content.empty()) break;
+    }
 
     if (content.empty()) {
         return frequencies;
@@ -420,7 +457,7 @@ void IioBackend::DeriveSensorInfoFromSysfs(IioSensorData* sensor) {
             break;
     }
 
-    auto frequencies = ReadAvailableFrequencies(sensor->sysfs_path);
+    auto frequencies = ReadAvailableFrequencies(sensor->sysfs_path, sensor->type);
     if (!frequencies.empty()) {
         float max_freq = frequencies.back();
         float min_freq = frequencies.front();
@@ -612,10 +649,6 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             std::string fname = scan_entry.path().filename().string();
             if (fname.size() > 3 && fname.substr(fname.size() - 3) == "_en") {
                 has_scan_elements = true;
-                std::string en_content = ReadSysfsString(scan_dir.string() + "/" + fname, "0");
-                if (en_content != "1") {
-                    continue;
-                }
 
                 std::string chan_prefix = fname.substr(0, fname.size() - 3);
 
@@ -638,13 +671,46 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                 }
 
                 std::string scale_path = sysfs_path + "/" + chan_prefix + "_scale";
+                if (!std::filesystem::exists(scale_path, ec)) {
+                    std::string base_prefix = chan_prefix;
+                    if (base_prefix.find("in_") == 0) {
+                        base_prefix = base_prefix.substr(3);
+                    }
+                    auto axis_pos = base_prefix.find_last_of('_');
+                    if (axis_pos != std::string::npos && axis_pos > 0) {
+                        std::string maybe_axis = base_prefix.substr(axis_pos + 1);
+                        if (maybe_axis == "x" || maybe_axis == "y" || maybe_axis == "z") {
+                            std::string shared_scale =
+                                    sysfs_path + "/in_" + base_prefix.substr(0, axis_pos) + "_scale";
+                            if (std::filesystem::exists(shared_scale, ec)) {
+                                scale_path = shared_scale;
+                            }
+                        }
+                    }
+                }
                 channel.scale = ReadSysfsFloat(scale_path, 1.0f);
 
                 std::string offset_path = sysfs_path + "/" + chan_prefix + "_offset";
+                if (!std::filesystem::exists(offset_path, ec)) {
+                    std::string base_prefix = chan_prefix;
+                    if (base_prefix.find("in_") == 0) {
+                        base_prefix = base_prefix.substr(3);
+                    }
+                    auto axis_pos = base_prefix.find_last_of('_');
+                    if (axis_pos != std::string::npos && axis_pos > 0) {
+                        std::string maybe_axis = base_prefix.substr(axis_pos + 1);
+                        if (maybe_axis == "x" || maybe_axis == "y" || maybe_axis == "z") {
+                            std::string shared_offset =
+                                    sysfs_path + "/in_" + base_prefix.substr(0, axis_pos) + "_offset";
+                            if (std::filesystem::exists(shared_offset, ec)) {
+                                offset_path = shared_offset;
+                            }
+                        }
+                    }
+                }
                 channel.offset = ReadSysfsFloat(offset_path, 0.0f);
 
-                int32_t storage_bytes = (channel.storagebits + 7) / 8;
-                channel.location = channel.index * storage_bytes;
+                channel.location = 0;
 
                 sensor->channels.push_back(channel);
             }
@@ -754,6 +820,19 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
               [](const IioChannelInfo& a, const IioChannelInfo& b) {
                   return a.index < b.index;
               });
+
+    if (!sensor->is_poll_mode) {
+        int32_t offset = 0;
+        for (auto& channel : sensor->channels) {
+            int32_t storage_bytes = (channel.storagebits + 7) / 8;
+            int32_t alignment = storage_bytes;
+            if (alignment > 0 && (offset % alignment) != 0) {
+                offset += alignment - (offset % alignment);
+            }
+            channel.location = offset;
+            offset += storage_bytes;
+        }
+    }
 
     sensor->sensor_info.sensorHandle = sensor->handle;
     sensor->sensor_info.name = device_name;
@@ -1034,10 +1113,10 @@ bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
     std::string length_path = sensor->sysfs_path + "/buffer/length";
 
     if (enable) {
-        if (!SetupHrtimerTrigger(sensor)) {
-            LOG(WARNING) << "Trigger setup failed for device " << sensor->dev_num
-                         << ", falling back to sysfs poll mode";
-            return false;
+        bool has_trigger = SetupHrtimerTrigger(sensor);
+        if (!has_trigger) {
+            LOG(INFO) << "hrtimer trigger not available for device " << sensor->dev_num
+                      << ", attempting buffer mode without external trigger";
         }
 
         std::string scan_dir = sensor->sysfs_path + "/scan_elements";
@@ -1053,13 +1132,18 @@ bool IioBackend::EnableRingBuffer(IioSensorData* sensor, bool enable) {
         }
 
         WriteSysfsInt(length_path, kBufferLength);
-        WriteSysfsInt(buffer_path, 1);
+        if (!WriteSysfsInt(buffer_path, 1)) {
+            LOG(WARNING) << "Failed to enable buffer for device " << sensor->dev_num
+                         << ", falling back to sysfs poll mode";
+            if (has_trigger) TeardownHrtimerTrigger(sensor);
+            return false;
+        }
 
         if (!OpenBufferFd(sensor)) {
             LOG(WARNING) << "Failed to open buffer fd for device " << sensor->dev_num
                          << ", falling back to sysfs poll mode";
             WriteSysfsInt(buffer_path, 0);
-            TeardownHrtimerTrigger(sensor);
+            if (has_trigger) TeardownHrtimerTrigger(sensor);
             return false;
         }
 
@@ -1114,12 +1198,14 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
                 raw_value >>= channel.shift;
             }
 
-            uint32_t mask = (1u << channel.realbits) - 1;
-            raw_value &= mask;
+            if (channel.realbits < 32) {
+                uint32_t mask = (1u << channel.realbits) - 1;
+                raw_value &= mask;
 
-            if (channel.sign == 's') {
-                if (raw_value & (1u << (channel.realbits - 1))) {
-                    raw_value |= ~mask;
+                if (channel.sign == 's') {
+                    if (raw_value & (1u << (channel.realbits - 1))) {
+                        raw_value |= ~mask;
+                    }
                 }
             }
 
@@ -1163,12 +1249,14 @@ std::vector<Event> IioBackend::ParseBufferSamples(IioSensorData* sensor,
             raw_value >>= channel.shift;
         }
 
-        uint32_t mask = (1u << channel.realbits) - 1;
-        raw_value &= mask;
+        if (channel.realbits < 32) {
+            uint32_t mask = (1u << channel.realbits) - 1;
+            raw_value &= mask;
 
-        if (channel.sign == 's') {
-            if (raw_value & (1u << (channel.realbits - 1))) {
-                raw_value |= ~mask;
+            if (channel.sign == 's') {
+                if (raw_value & (1u << (channel.realbits - 1))) {
+                    raw_value |= ~mask;
+                }
             }
         }
 
@@ -1312,6 +1400,17 @@ int32_t IioBackend::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
         if (freq < 1) freq = 1;
 
         std::string freq_path = sensor->sysfs_path + "/sampling_frequency";
+        std::error_code ec;
+        if (!std::filesystem::exists(freq_path, ec)) {
+            std::string type_prefix = GetIioTypePrefix(sensor->type);
+            if (!type_prefix.empty()) {
+                std::string chan_freq_path =
+                        sensor->sysfs_path + "/in_" + type_prefix + "_sampling_frequency";
+                if (std::filesystem::exists(chan_freq_path, ec)) {
+                    freq_path = chan_freq_path;
+                }
+            }
+        }
         WriteSysfsInt(freq_path, freq);
 
         if (!sensor->is_poll_mode && !sensor->trigger_name.empty()) {

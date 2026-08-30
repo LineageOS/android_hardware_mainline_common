@@ -108,11 +108,13 @@ class IioBackend : public ISensorBackend {
     std::optional<SensorType> DetectTypeFromSysfsAttributes(const std::string& sysfs_path);
     std::string ParseVendorFromCompatible(const std::string& of_compatible);
     bool IsVec3Type(SensorType type);
+    std::string GetIioTypePrefix(SensorType type);
 
     void DeriveSensorInfoFromSysfs(IioSensorData* sensor);
     void ApplyHwdbProperties(IioSensorData* sensor);
     void ApplySensorInfoOverrides(IioSensorData* sensor);
-    std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path);
+    std::vector<float> ReadAvailableFrequencies(const std::string& sysfs_path,
+                                                SensorType type);
 
     EventPayload::Vec3 BuildVec3Value(const std::vector<float>& values);
 
