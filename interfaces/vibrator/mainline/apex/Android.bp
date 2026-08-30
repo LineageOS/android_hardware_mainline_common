@@ -1,0 +1,22 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+apex {
+    name: "com.android.hardware.vibrator.mainline",
+    manifest: "apex_manifest.json",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: "file_contexts",
+    updatable: false,
+    vendor: true,
+
+    binaries: [
+        "android.hardware.vibrator-service.mainline",
+    ],
+    prebuilts: [
+        "vibrator-mainline.rc",
+        "android.hardware.vibrator.mainline.xml",
+    ],
+}

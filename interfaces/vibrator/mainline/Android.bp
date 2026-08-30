@@ -1,0 +1,55 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library_static {
+    name: "libvibratormainlineimpl",
+    vendor: true,
+    shared_libs: [
+        "android.hardware.vibrator-V4-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "liblog",
+    ],
+    export_include_dirs: ["include"],
+    srcs: [
+        "VibrationSession.cpp",
+        "Vibrator.cpp",
+        "VibratorManager.cpp",
+    ],
+    visibility: [
+        ":__subpackages__",
+    ],
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "vibrator-mainline.rc",
+    src: "vibrator-mainline.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.vibrator.mainline.xml",
+    src: "android.hardware.vibrator.mainline.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+cc_binary {
+    name: "android.hardware.vibrator-service.mainline",
+    relative_install_path: "hw",
+    vendor: true,
+    shared_libs: [
+        "android.hardware.vibrator-V4-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "liblog",
+    ],
+    static_libs: [
+        "libvibratormainlineimpl",
+    ],
+    srcs: ["main.cpp"],
+    installable: false,
+}
