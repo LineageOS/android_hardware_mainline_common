@@ -48,7 +48,86 @@ When running a mainline kernel, neither of these mechanisms is available. `ts_vk
 1. **genvkeys mode** — Region-based layout derived from Qualcomm's `qcom,gen-vkeys` DeviceTree binding.
 2. **Exact mode** — Explicit per-key coordinate mapping.
 
-If genvkeys properties are present and valid, they are used. Otherwise, the program falls back to exact mode.
+### Device-Specific Configuration
+
+Some devices ship with multiple touchscreen options from different vendors. Each touchscreen may have different virtual key layouts. `ts_vkeys` supports device-specific property prefixes to handle this scenario.
+
+When the program starts, it detects the touchscreen device and reads its name from the kernel. The device name is sanitized for use in property keys: alphanumeric characters and `-` are preserved, all other characters (including spaces, `/`, `:`, etc.) are converted to `_`. It then tries configuration properties in the following order:
+
+1. `vendor.ts_vkeys.<device_name>.` — Device-specific configuration (sanitized)
+2. `vendor.ts_vkeys.genvkeys.` — Generic genvkeys configuration
+3. `vendor.ts_vkeys.` — Generic exact mode configuration
+
+This allows you to define different configurations for different touchscreens while providing a fallback for unknown devices.
+
+#### Device Name Sanitization Examples
+
+| Kernel Device Name | Sanitized Property Key |
+|---|---|
+| `focaltech` | `vendor.ts_vkeys.focaltech.` |
+| `ft5x06_ts` | `vendor.ts_vkeys.ft5x06_ts.` |
+| `FocalTech FTS Touch` | `vendor.ts_vkeys.FocalTech_FTS_Touch.` |
+| `novatek-ts` | `vendor.ts_vkeys.novatek-ts.` |
+| `atmel_mxt_ts` | `vendor.ts_vkeys.atmel_mxt_ts.` |
+
+#### Example: Multiple Touchscreens
+
+Suppose a device can ship with either a "focaltech" or "novatek" touchscreen, each requiring different key layouts:
+
+```sh
+# Focaltech touchscreen configuration
+setprop vendor.ts_vkeys.focaltech.names menu,home,back
+setprop vendor.ts_vkeys.focaltech.menu.x 160
+setprop vendor.ts_vkeys.focaltech.menu.y 1344
+setprop vendor.ts_vkeys.focaltech.menu.key_code 139
+setprop vendor.ts_vkeys.focaltech.home.x 360
+setprop vendor.ts_vkeys.focaltech.home.y 1344
+setprop vendor.ts_vkeys.focaltech.home.key_code 172
+setprop vendor.ts_vkeys.focaltech.back.x 570
+setprop vendor.ts_vkeys.focaltech.back.y 1344
+setprop vendor.ts_vkeys.focaltech.back.key_code 158
+
+# Novatek touchscreen configuration (different layout)
+setprop vendor.ts_vkeys.novatek.names menu,home,back
+setprop vendor.ts_vkeys.novatek.menu.x 180
+setprop vendor.ts_vkeys.novatek.menu.y 1400
+setprop vendor.ts_vkeys.novatek.menu.key_code 139
+setprop vendor.ts_vkeys.novatek.home.x 380
+setprop vendor.ts_vkeys.novatek.home.y 1400
+setprop vendor.ts_vkeys.novatek.home.key_code 172
+setprop vendor.ts_vkeys.novatek.back.x 580
+setprop vendor.ts_vkeys.novatek.back.y 1400
+setprop vendor.ts_vkeys.novatek.back.key_code 158
+
+# Fallback configuration for unknown touchscreens
+setprop vendor.ts_vkeys.names menu,home,back
+setprop vendor.ts_vkeys.menu.x 160
+setprop vendor.ts_vkeys.menu.y 1344
+setprop vendor.ts_vkeys.menu.key_code 139
+# ... etc
+```
+
+If the detected touchscreen is named "focaltech", the program will use the focaltech-specific properties. If it's "novatek", it will use the novatek properties. For any other touchscreen, it falls back to the generic `vendor.ts_vkeys.` properties.
+
+#### Device-Specific genvkeys Example
+
+Device-specific prefixes also work with genvkeys mode:
+
+```sh
+# Focaltech touchscreen with genvkeys
+setprop vendor.ts_vkeys.focaltech.disp_maxx 720
+setprop vendor.ts_vkeys.focaltech.disp_maxy 1280
+setprop vendor.ts_vkeys.focaltech.panel_maxx 720
+setprop vendor.ts_vkeys.focaltech.panel_maxy 1458
+setprop vendor.ts_vkeys.focaltech.key_codes 139,172,158
+
+# Generic fallback with genvkeys
+setprop vendor.ts_vkeys.genvkeys.disp_maxx 720
+setprop vendor.ts_vkeys.genvkeys.disp_maxy 1280
+setprop vendor.ts_vkeys.genvkeys.panel_maxx 720
+setprop vendor.ts_vkeys.genvkeys.panel_maxy 1458
+setprop vendor.ts_vkeys.genvkeys.key_codes 139,172,158
+```
 
 ### Mode 1: genvkeys (Region-Based)
 
@@ -63,7 +142,7 @@ The calculation uses the same algorithm as the downstream kernel driver:
 
 #### Properties
 
-All properties use the prefix `vendor.ts_vkeys.genvkeys.`.
+Properties use the prefix `vendor.ts_vkeys.genvkeys.` for generic configuration, or `vendor.ts_vkeys.<device_name>.` for device-specific configuration.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
@@ -101,12 +180,14 @@ This mode maps individual (X, Y) pixel coordinates to key codes. Useful when the
 
 #### Properties
 
+Properties use the prefix `vendor.ts_vkeys.` for generic configuration, or `vendor.ts_vkeys.<device_name>.` for device-specific configuration.
+
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `vendor.ts_vkeys.names` | string | Yes | Comma-separated list of key names |
-| `vendor.ts_vkeys.<name>.x` | uint16 | Yes | X coordinate of the key |
-| `vendor.ts_vkeys.<name>.y` | uint16 | Yes | Y coordinate of the key |
-| `vendor.ts_vkeys.<name>.key_code` | uint16 | Yes | Linux key code for the key |
+| `names` | string | Yes | Comma-separated list of key names |
+| `<name>.x` | uint16 | Yes | X coordinate of the key |
+| `<name>.y` | uint16 | Yes | Y coordinate of the key |
+| `<name>.key_code` | uint16 | Yes | Linux key code for the key |
 
 #### Example
 
