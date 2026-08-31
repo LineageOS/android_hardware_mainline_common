@@ -91,6 +91,7 @@ cc_library_shared {
         "libimapper_stablec",
     ],
     shared_libs: ["libsync"],
+    relative_install_path: "hw",
 }
 
 cc_binary {
@@ -181,26 +182,65 @@ filegroup {
     srcs: ["fb-apex-manifest.json"],
 }
 
-apex_defaults {
-    name: "com.android.hardware.graphics.allocator.fb.defaults",
+soong_config_module_type {
+    name: "fb_apex",
+    module_type: "apex",
+    config_namespace: "fb_graphics",
+    bool_variables: [
+        "RELEASE_SM_OPEN_DECLARED_PASSTHROUGH_HAL",
+    ],
+    properties: [
+        "defaults",
+    ],
+}
+
+fb_apex {
+    name: "com.android.hardware.graphics.allocator.fb",
     key: "com.android.hardware.key",
     certificate: ":com.android.hardware.certificate",
     file_contexts: ":fb_graphics_apex_file_contexts",
     manifest: ":fb_graphics_apex_manifest",
-    vendor: true,
     updatable: false,
-    soc_specific: true,
-    compile_multilib: "both",
+    vendor: true,
+
     binaries: [
         "android.hardware.graphics.allocator-service.fb",
         "android.hardware.graphics.composer3-service.fb",
     ],
+    prebuilts: [
+        "fb_allocator_apex_init_rc",
+        "fb_allocator_apex_vintf",
+        "fb_composer_apex_init_rc",
+        "fb_composer_apex_vintf",
+    ],
+    overrides: [
+        "android.hardware.graphics.allocator-service.fb",
+        "android.hardware.graphics.composer3-service.fb",
+    ],
+
+    soong_config_variables: {
+        RELEASE_SM_OPEN_DECLARED_PASSTHROUGH_HAL: {
+            defaults: [
+                "com.android.hardware.graphics.allocator.fb-mapper-defaults",
+            ],
+            conditions_default: {},
+        },
+    },
+}
+
+apex_defaults {
+    name: "com.android.hardware.graphics.allocator.fb-mapper-defaults",
+
+    // for app_process32 apps
+    compile_multilib: "both",
+
     native_shared_libs: ["mapper.fb"],
     prebuilts: [
-        "fb_allocator_apex_vintf",
         "fb_mapper_apex_vintf",
-        "fb_composer_apex_vintf",
         "fb_allocator_apex_linker_config",
+    ],
+    overrides: [
+        "mapper.fb",
     ],
 }
 
@@ -208,18 +248,4 @@ linker_config {
     name: "fb_allocator_apex_linker_config",
     src: "fb-apex-linkerconfig.json",
     installable: false,
-}
-
-apex {
-    name: "com.android.hardware.graphics.allocator.fb",
-    defaults: ["com.android.hardware.graphics.allocator.fb.defaults"],
-    prebuilts: [
-        "fb_allocator_apex_init_rc",
-        "fb_composer_apex_init_rc",
-    ],
-    overrides: [
-        "android.hardware.graphics.allocator-service.fb",
-        "android.hardware.graphics.composer3-service.fb",
-        "mapper.fb",
-    ],
 }
