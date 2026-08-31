@@ -31,6 +31,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   mappings rather than direct firmware scanout memory.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
+- Virtual-height expansion may change only `yres_virtual`; re-query fixed and
+  variable geometry, validate complete mapping bounds, and restore the original
+  mode when a two-page request cannot be used safely.
 - Update `README.md` when capabilities, formats, ABI, properties, or packaging
   change.
 

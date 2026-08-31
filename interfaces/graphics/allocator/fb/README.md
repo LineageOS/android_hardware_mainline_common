@@ -81,9 +81,12 @@ the callback uses the closest monotonic sample. Empty damage means the full
 frame, while one empty rectangle means no changed pixels. Damage is clipped
 before bounded conversion and flush.
 
-If `yres_virtual` contains multiple complete pages, frames are copied to an
-inactive page and presented with `FBIOPAN_DISPLAY`. Otherwise Composer performs
-a best-effort `FBIO_WAITFORVSYNC` and copies to the visible page. Acquire fences
+When the initial mode has only one page, initialization requests two complete
+pages by changing only `yres_virtual` through `FBIOPUT_VSCREENINFO`. Returned
+mode fields, stride, and mapping bounds are revalidated; unsupported or unsafe
+expansion retains the original single-page mode. If multiple complete pages are
+available, frames are copied to an inactive page and presented with
+`FBIOPAN_DISPLAY`. Otherwise Composer copies to the visible page. Acquire fences
 are waited for up to three seconds. A waited acquire sync-file is duplicated as
 the present fence when available; otherwise no fence is returned under
 `PRESENT_FENCE_IS_NOT_RELIABLE`. Eventfds are never exposed as fences.

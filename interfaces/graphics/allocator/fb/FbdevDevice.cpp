@@ -66,6 +66,24 @@ uint32_t FieldMask(const fb_bitfield& field) {
     return static_cast<uint32_t>(maximum << field.offset);
 }
 
+bool SameModeExceptVirtualHeight(const fb_var_screeninfo& expected,
+                                 const fb_var_screeninfo& actual) {
+    fb_var_screeninfo normalized = actual;
+    normalized.yres_virtual = expected.yres_virtual;
+    normalized.activate = expected.activate;
+    memcpy(normalized.reserved, expected.reserved, sizeof(normalized.reserved));
+    return memcmp(&expected, &normalized, sizeof(expected)) == 0;
+}
+
+bool FramebufferSize(const fb_fix_screeninfo& fixed, const fb_var_screeninfo& info,
+                     uint64_t* size) {
+    const uint64_t virtual_height = std::max(info.yres_virtual, info.yres);
+    return !__builtin_mul_overflow(static_cast<uint64_t>(fixed.line_length), virtual_height,
+                                   size) &&
+           *size != 0 && (fixed.smem_len == 0 || *size <= fixed.smem_len) && *size <= SIZE_MAX &&
+           *size <= static_cast<uint64_t>(std::numeric_limits<off_t>::max());
+}
+
 }  // namespace
 
 ImportedBuffer::~ImportedBuffer() {
@@ -101,6 +119,47 @@ bool FbdevDevice::InitPath(const std::string& path) {
         ioctl(candidate.get(), FBIOGET_VSCREENINFO, &info) != 0) {
         ALOGE("Cannot query %s: %s", path.c_str(), strerror(errno));
         return false;
+    }
+    const fb_fix_screeninfo original_fixed = fixed;
+    const fb_var_screeninfo original_info = info;
+    bool expanded_virtual_height = false;
+    uint32_t double_height;
+    if (info.yres != 0 && !__builtin_mul_overflow(info.yres, 2U, &double_height) &&
+        info.yres_virtual < double_height) {
+        fb_var_screeninfo request = info;
+        request.yres_virtual = double_height;
+        const fb_var_screeninfo requested_mode = request;
+        if (ioctl(candidate.get(), FBIOPUT_VSCREENINFO, &request) == 0) {
+            fb_fix_screeninfo returned_fixed{};
+            fb_var_screeninfo returned_info{};
+            uint64_t returned_size = 0;
+            const bool queried =
+                    ioctl(candidate.get(), FBIOGET_FSCREENINFO, &returned_fixed) == 0 &&
+                    ioctl(candidate.get(), FBIOGET_VSCREENINFO, &returned_info) == 0;
+            if (queried && returned_info.yres_virtual >= double_height &&
+                SameModeExceptVirtualHeight(requested_mode, returned_info) &&
+                FramebufferSize(returned_fixed, returned_info, &returned_size)) {
+                fixed = returned_fixed;
+                info = returned_info;
+                expanded_virtual_height = true;
+                ALOGI("Expanded %s virtual height to %u", path.c_str(), info.yres_virtual);
+            } else {
+                ALOGW("Driver returned unsafe geometry after virtual-height expansion on %s",
+                      path.c_str());
+                fb_var_screeninfo restore = original_info;
+                if (ioctl(candidate.get(), FBIOPUT_VSCREENINFO, &restore) != 0 ||
+                    ioctl(candidate.get(), FBIOGET_FSCREENINFO, &fixed) != 0 ||
+                    ioctl(candidate.get(), FBIOGET_VSCREENINFO, &info) != 0) {
+                    ALOGE("Cannot restore original fbdev mode on %s", path.c_str());
+                    return false;
+                }
+            }
+        } else {
+            fixed = original_fixed;
+            info = original_info;
+            ALOGI("Two-page virtual framebuffer unsupported on %s: %s", path.c_str(),
+                  strerror(errno));
+        }
     }
     if (info.xres_virtual == 0) info.xres_virtual = info.xres;
     if (info.yres_virtual == 0) info.yres_virtual = info.yres;
@@ -149,17 +208,30 @@ bool FbdevDevice::InitPath(const std::string& path) {
             return false;
         }
     }
-    const uint64_t virtual_height = std::max(info.yres_virtual, info.yres);
     uint64_t map_size;
-    if (__builtin_mul_overflow(static_cast<uint64_t>(fixed.line_length), virtual_height,
-                               &map_size) ||
-        map_size == 0 || (fixed.smem_len != 0 && map_size > fixed.smem_len) ||
-        map_size > SIZE_MAX ||
-        map_size > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
+    if (!FramebufferSize(fixed, info, &map_size)) {
         ALOGE("Unsafe framebuffer size on %s", path.c_str());
         return false;
     }
     void* map = mmap(nullptr, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, candidate.get(), 0);
+    if (map == MAP_FAILED && expanded_virtual_height) {
+        ALOGW("Cannot map expanded framebuffer on %s; restoring single-page mode", path.c_str());
+        fb_var_screeninfo restore = original_info;
+        if (ioctl(candidate.get(), FBIOPUT_VSCREENINFO, &restore) == 0 &&
+            ioctl(candidate.get(), FBIOGET_FSCREENINFO, &fixed) == 0 &&
+            ioctl(candidate.get(), FBIOGET_VSCREENINFO, &info) == 0) {
+            if (info.xres_virtual == 0) info.xres_virtual = info.xres;
+            if (info.yres_virtual == 0) info.yres_virtual = info.yres;
+            if (SameModeExceptVirtualHeight(original_info, info) &&
+                fixed.type == original_fixed.type && fixed.visual == original_fixed.visual &&
+                fixed.line_length == original_fixed.line_length &&
+                fixed.line_length >= required_line_bytes &&
+                FramebufferSize(fixed, info, &map_size)) {
+                map = mmap(nullptr, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, candidate.get(),
+                           0);
+            }
+        }
+    }
     if (map == MAP_FAILED) {
         ALOGE("Cannot map %s: %s", path.c_str(), strerror(errno));
         return false;
