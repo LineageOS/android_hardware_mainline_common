@@ -585,6 +585,30 @@ bool FbdevDevice::Flush(uint64_t offset, uint64_t size) {
     return false;
 }
 
+bool FbdevDevice::SaveCurrentFrame() {
+    const uint64_t page_size = static_cast<uint64_t>(info_.yres) * fixed_.line_length;
+    const uint64_t offset = static_cast<uint64_t>(current_page_) * page_size;
+    if (page_size > SIZE_MAX || offset > framebuffer_size_ ||
+        page_size > framebuffer_size_ - offset) {
+        return false;
+    }
+    const auto* frame = static_cast<const uint8_t*>(framebuffer_) + offset;
+    last_frame_.assign(frame, frame + static_cast<size_t>(page_size));
+    return true;
+}
+
+bool FbdevDevice::RestoreCurrentFrame() {
+    if (last_frame_.empty()) return true;
+    const uint64_t page_size = static_cast<uint64_t>(info_.yres) * fixed_.line_length;
+    const uint64_t offset = static_cast<uint64_t>(current_page_) * page_size;
+    if (page_size != last_frame_.size() || offset > framebuffer_size_ ||
+        page_size > framebuffer_size_ - offset) {
+        return false;
+    }
+    memcpy(static_cast<uint8_t*>(framebuffer_) + offset, last_frame_.data(), last_frame_.size());
+    return Flush(offset, page_size);
+}
+
 bool FbdevDevice::Test(const std::shared_ptr<ImportedBuffer>& buffer) const {
     return buffer == nullptr || (buffer->view().layout.width == info_.xres &&
                                  buffer->view().layout.height == info_.yres &&
@@ -788,6 +812,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
     if (buffer == nullptr) {
         memset(framebuffer_, clear_pixel_, framebuffer_size_);
         if (!Flush(0, framebuffer_size_)) return false;
+        if (!SaveCurrentFrame()) return false;
         if (acquire_fence >= 0) present_fence->reset(dup(acquire_fence));
         return true;
     }
@@ -833,6 +858,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
             current_page_ = target_page;
         }
     }
+    if (!SaveCurrentFrame()) return false;
     // A successfully waited acquire sync-file is already signaled and remains a
     // valid sync-file.
     if (acquire_fence >= 0) present_fence->reset(dup(acquire_fence));
@@ -850,6 +876,10 @@ bool FbdevDevice::SetPower(bool on) {
     if (!blank_supported_ && !on) {
         memset(framebuffer_, clear_pixel_, framebuffer_size_);
         if (!Flush(0, framebuffer_size_)) return false;
+    }
+    if (on && !RestoreCurrentFrame()) {
+        ALOGE("Unable to redraw framebuffer after unblank on %s", path_.c_str());
+        return false;
     }
     powered_ = on;
     return true;
@@ -952,9 +982,9 @@ std::string FbdevDevice::Dump() const {
         << " directcolor=" << directcolor_ << " mono=" << monochrome_ << " grayscale=" << grayscale_
         << " fourcc=0x" << std::hex << fourcc_ << std::dec << " period=" << period_ns_
         << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
-        << " rotation=" << info_.rotate << " swap_rb=" << swap_red_blue_
-        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
-        << std::dec << " vblankCount=";
+        << " rotation=" << info_.rotate << " savedFrame=" << !last_frame_.empty()
+        << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
+        << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
     if (have_vblank_count_) {
         out << vblank_count_;
     } else {

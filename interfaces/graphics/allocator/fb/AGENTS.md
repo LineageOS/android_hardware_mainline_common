@@ -45,6 +45,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   so never rotate the copied client target a second time.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
+- Preserve the last presented frame as owned converted scanout bytes, never as
+  a mutable client-buffer reference, and redraw/flush it after unblank.
 - Virtual-height expansion may change only `yres_virtual`; re-query fixed and
   variable geometry, validate complete mapping bounds, and restore the original
   mode when a two-page request cannot be used safely.

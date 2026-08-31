@@ -83,6 +83,8 @@ class FbdevDevice {
     bool ConfigureStaticPalette(int fd, std::vector<uint8_t>* lookup) const;
     void RestoreColorMap();
     bool Flush(uint64_t offset, uint64_t size);
+    bool SaveCurrentFrame();
+    bool RestoreCurrentFrame();
     int64_t QueryVblank(int64_t fallback_timestamp_ns);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
     void WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const;
@@ -129,6 +131,7 @@ class FbdevDevice {
     std::vector<uint16_t> saved_cmap_blue_;
     std::vector<uint16_t> saved_cmap_alpha_;
     std::vector<uint8_t> static_palette_lookup_;
+    std::vector<uint8_t> last_frame_;
     mutable std::mutex mutex_;
 };
 

@@ -99,6 +99,12 @@ the present fence when available; otherwise no fence is returned under
 Switching backing pages still copies the full frame because page contents are
 not assumed to be synchronized.
 
+After each successful present, the device owns a byte copy of the converted
+visible scanout page rather than retaining a mutable client buffer. A successful
+hardware unblank, or re-enabling an emulated blank, redraws and flushes that
+last frame. Other backing pages remain unsynchronized and continue to receive a
+full copy before panning.
+
 Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
 mode changes, runtime hotplug discovery, and refresh-rate switching are
@@ -136,4 +142,5 @@ the HAL uses `pwrite` on the fbdev node to trigger immediate damage propagation,
 with `msync` as a compatibility fallback. It treats `smem_len == 0` as unknown,
 uses the reported line stride, does not depend on physical `smem_start`, and
 caches permanent pan/blank limitations. Use the Composer Binder dump for
-geometry, channel layout, page, power, target, layer, and validation state.
+geometry, channel layout, page, saved-frame, power, target, layer, and
+validation state.
