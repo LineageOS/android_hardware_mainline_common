@@ -116,6 +116,12 @@ ARGB2101010 mode. These formats use their UAPI byte layouts on little-endian
 hosts; big-endian, unknown, YUV, planar, and other nonstandard modes are
 rejected.
 
+Valid `fb_var_screeninfo.rotate` values are reported as the matching Composer
+physical orientation. Configuration and client-target dimensions remain the
+reported fb memory `xres` and `yres`; quarter-turn logical extents are handled
+by the framework orientation, while the fbdev driver performs its declared
+scanout rotation. The HAL therefore does not rotate pixels a second time.
+
 DRM fbdev emulation, including `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`,
 maps a shadow framebuffer rather than the firmware aperture. After conversion,
 the HAL uses `pwrite` on the fbdev node to trigger immediate damage propagation,

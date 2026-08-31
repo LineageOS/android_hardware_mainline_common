@@ -524,7 +524,22 @@ ndk::ScopedAStatus ComposerClient::getDisplayedContentSamplingAttributes(
 ndk::ScopedAStatus ComposerClient::getDisplayPhysicalOrientation(int64_t display,
                                                                  common::Transform* orientation) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
-    *orientation = common::Transform::NONE;
+    switch (device_.rotation()) {
+        case FB_ROTATE_UR:
+            *orientation = common::Transform::NONE;
+            break;
+        case FB_ROTATE_CW:
+            *orientation = common::Transform::ROT_90;
+            break;
+        case FB_ROTATE_UD:
+            *orientation = common::Transform::ROT_180;
+            break;
+        case FB_ROTATE_CCW:
+            *orientation = common::Transform::ROT_270;
+            break;
+        default:
+            return Error(kNoResources);
+    }
     return ndk::ScopedAStatus::ok();
 }
 

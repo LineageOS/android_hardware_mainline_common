@@ -69,6 +69,7 @@ class FbdevDevice {
     int32_t period_ns() const { return period_ns_; }
     float xdpi() const { return xdpi_; }
     float ydpi() const { return ydpi_; }
+    uint32_t rotation() const { return info_.rotate; }
     const std::string& path() const { return path_; }
 
   private:

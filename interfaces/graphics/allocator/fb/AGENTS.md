@@ -37,6 +37,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - FOURCC requires capability, type, visual, format, zero-bitfield, bpp, stride,
   and little-endian agreement. Keep the whitelist packed RGB-only; reject
   unknown, big-endian, YUV, and planar layouts.
+- Report only valid fbdev rotations. Keep config and copy dimensions in fb
+  memory coordinates; Composer physical orientation supplies the logical swap,
+  so never rotate the copied client target a second time.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
 - Virtual-height expansion may change only `yres_virtual`; re-query fixed and

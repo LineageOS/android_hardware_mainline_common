@@ -236,7 +236,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
         info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
         info.xres_virtual < info.xres || info.yres_virtual < info.yres ||
         info.yoffset > info.yres_virtual - info.yres || info.bits_per_pixel == 0 ||
-        info.bits_per_pixel > 32 || fixed.line_length == 0 ||
+        info.bits_per_pixel > 32 || info.rotate > FB_ROTATE_CCW || fixed.line_length == 0 ||
         fixed.line_length < required_line_bytes) {
         ALOGE("Unsupported fbdev geometry or channel layout on %s", path.c_str());
         return false;
@@ -952,8 +952,9 @@ std::string FbdevDevice::Dump() const {
         << " directcolor=" << directcolor_ << " mono=" << monochrome_ << " grayscale=" << grayscale_
         << " fourcc=0x" << std::hex << fourcc_ << std::dec << " period=" << period_ns_
         << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
-        << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
-        << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
+        << " rotation=" << info_.rotate << " swap_rb=" << swap_red_blue_
+        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
+        << std::dec << " vblankCount=";
     if (have_vblank_count_) {
         out << vblank_count_;
     } else {
