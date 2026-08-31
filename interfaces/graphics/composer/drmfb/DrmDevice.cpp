@@ -75,6 +75,34 @@ int ScoreCard(const std::string& path) {
            connected_count;
 }
 
+int32_t GetPanelOrientation(int fd, uint32_t connector_id) {
+    drmModeObjectProperties* properties =
+            drmModeObjectGetProperties(fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
+    if (properties == nullptr) return 0;
+    int32_t orientation = 0;
+    for (uint32_t i = 0; i < properties->count_props; ++i) {
+        drmModePropertyRes* property = drmModeGetProperty(fd, properties->props[i]);
+        if (property == nullptr) continue;
+        if (strcmp(property->name, "panel orientation") == 0) {
+            const uint64_t value = properties->prop_values[i];
+            for (int j = 0; j < property->count_enums; ++j) {
+                if (property->enums[j].value != value) continue;
+                if (strcmp(property->enums[j].name, "Upside Down") == 0) {
+                    orientation = 180;
+                } else if (strcmp(property->enums[j].name, "Left Side Up") == 0) {
+                    orientation = 270;
+                } else if (strcmp(property->enums[j].name, "Right Side Up") == 0) {
+                    orientation = 90;
+                }
+                break;
+            }
+        }
+        drmModeFreeProperty(property);
+    }
+    drmModeFreeObjectProperties(properties);
+    return orientation;
+}
+
 std::string ModeKey(uint32_t connector_id, const drmModeModeInfo& mode) {
     std::ostringstream key;
     key << connector_id << ':' << mode.clock << ':' << mode.hdisplay << ':' << mode.hsync_start
@@ -215,6 +243,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     fd_.reset();
     atomic_kms_ = false;
     modifiers_supported_ = false;
+    syncobj_supported_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
@@ -236,6 +265,8 @@ bool DrmDevice::InitPath(const std::string& path) {
     uint64_t modifiers = 0;
     modifiers_supported_ =
             drmGetCap(fd_.get(), DRM_CAP_ADDFB2_MODIFIERS, &modifiers) == 0 && modifiers != 0;
+    uint64_t syncobj = 0;
+    syncobj_supported_ = drmGetCap(fd_.get(), DRM_CAP_SYNCOBJ, &syncobj) == 0 && syncobj != 0;
     const size_t connected_connectors = CountConnectedConnectors(fd_.get());
     Rescan();
     const size_t discovered_displays =
@@ -475,6 +506,7 @@ uint32_t DrmDevice::GetPropertyId(uint32_t object_id, uint32_t object_type, cons
 bool DrmDevice::DiscoverProperties(DrmDisplay* d) {
     DrmProperties& p = d->props;
     p.connector_edid = GetPropertyId(d->connector_id, DRM_MODE_OBJECT_CONNECTOR, "EDID");
+    d->orientation_degrees = GetPanelOrientation(fd_.get(), d->connector_id);
     uint64_t connector_crtc = 0;
     if (atomic_kms_) {
         p.connector_crtc_id = GetPropertyId(d->connector_id, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID",
@@ -809,12 +841,38 @@ bool DrmDevice::LegacyPresent(DrmDisplay* d, const std::shared_ptr<DrmFramebuffe
     return true;
 }
 
+android::base::unique_fd DrmDevice::CreateSignaledFence() const {
+    if (!syncobj_supported_) return {};
+    uint32_t syncobj = 0;
+    if (drmSyncobjCreate(fd_.get(), DRM_SYNCOBJ_CREATE_SIGNALED, &syncobj) != 0) {
+        ALOGW("Failed to create signaled DRM syncobj: %s", strerror(errno));
+        return {};
+    }
+    int fence = -1;
+    const int export_result = drmSyncobjExportSyncFile(fd_.get(), syncobj, &fence);
+    drmSyncobjDestroy(fd_.get(), syncobj);
+    if (export_result != 0 || fence < 0) {
+        if (fence >= 0) close(fence);
+        ALOGW("Failed to export signaled DRM syncobj: %s", strerror(errno));
+        return {};
+    }
+    return android::base::unique_fd(fence);
+}
+
 bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
                         int acquire_fence, android::base::unique_fd* out_fence) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
     out_fence->reset();
-    if (!atomic_kms_) return LegacyPresent(&it->second, fb, acquire_fence);
+    if (!atomic_kms_) {
+        if (!LegacyPresent(&it->second, fb, acquire_fence)) return false;
+        *out_fence = CreateSignaledFence();
+        if (!out_fence->ok() && acquire_fence >= 0) out_fence->reset(dup(acquire_fence));
+        if (!out_fence->ok()) {
+            ALOGW("Legacy present completed without an exportable sync-file fence");
+        }
+        return true;
+    }
     return AtomicCommit(&it->second, fb, acquire_fence, true, out_fence) &&
            AtomicCommit(&it->second, fb, acquire_fence, false, out_fence);
 }
@@ -897,7 +955,7 @@ bool DrmDevice::SetActiveConfig(int64_t display, int32_t config) {
 std::string DrmDevice::Dump() const {
     std::ostringstream out;
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
-        << " modifiers=" << modifiers_supported_ << '\n';
+        << " modifiers=" << modifiers_supported_ << " syncobj=" << syncobj_supported_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected
             << " internal=" << d.internal << " power=" << d.powered

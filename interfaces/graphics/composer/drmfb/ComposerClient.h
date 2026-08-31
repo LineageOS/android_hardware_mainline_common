@@ -121,6 +121,7 @@ class ComposerClient : public BnComposerClient {
     enum class ValidationState { kDirty, kAwaitingAccept, kValidated };
     struct LayerState {
         Composition composition = Composition::INVALID;
+        int32_t buffer_slot_count = 0;
     };
     struct DisplayState {
         int64_t next_layer = 1;
@@ -131,6 +132,7 @@ class ComposerClient : public BnComposerClient {
         android::base::unique_fd target_fence;
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
+        bool refresh_debug_enabled = false;
     };
 
     static ndk::ScopedAStatus Error(int32_t error);
@@ -145,11 +147,13 @@ class ComposerClient : public BnComposerClient {
     void HotplugLoop();
     void VblankLoop();
     void NotifyHotplug(int64_t display, bool connected);
+    void NotifyRefreshRateChanged(int64_t display);
     static int64_t MonotonicNanos();
 
     const std::string drm_path_;
     mutable std::mutex mutex_;
-    std::mutex callback_mutex_;
+    std::mutex hotplug_callback_mutex_;
+    std::mutex refresh_callback_mutex_;
     std::condition_variable vsync_cv_;
     drmfb::DrmDevice drm_;
     std::map<int64_t, DisplayState> states_;

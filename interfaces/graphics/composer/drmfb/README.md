@@ -43,13 +43,20 @@ FD; nonzero offsets share the preceding FD.
 - Atomic content updates change only primary-plane state and return the
   `OUT_FENCE_PTR` fence. Modeset state is submitted only for power and mode
   changes, avoiding full modesets on ordinary frame updates.
-- Legacy content updates use `drmModePageFlip` and synchronously wait for the
-  following vblank. Acquire fences are waited in userspace.
+- Legacy content updates use `drmModePageFlip` and synchronously wait for its
+  exact completion event. Acquire fences are waited in userspace. Completed
+  presents return a signaled sync-file fence when DRM syncobjs are available,
+  with a waited acquire fence used as a compatibility fallback.
 - A constrained non-seamless mode change waits until its requested monotonic
   time before applying the mode; seamless transitions are not supported.
 - OFF disables the CRTC. ON prepares its mode state; legacy scanout is attached
   by the next present.
 - Vsync uses DRM CRTC sequence events and falls back to monotonic timed waits.
+- Layer creation and destruction can use Composer3 lifecycle batch commands.
+- Fixed-refresh debug callbacks report the active mode period immediately when
+  enabled and after mode changes.
+- Physical orientation follows the standardized DRM `panel orientation`
+  connector property and otherwise defaults to `Transform::NONE`.
 
 ## Intentional Scope
 
@@ -58,9 +65,9 @@ processing, content sampling, boot configuration persistence, HDCP, LUTs,
 seamless mode changes, idle timers, and low-latency modes are unsupported. No
 display capabilities are advertised. The global
 `PRESENT_FENCE_IS_NOT_RELIABLE` capability covers legacy KMS, while atomic KMS
-still returns explicit present fences. `SKIP_VALIDATE` and layer lifecycle
-batching are not advertised. NATIVE color mode with COLORIMETRIC intent is the
-only color behavior.
+still returns explicit present fences. Layer lifecycle batching and fixed-rate
+refresh debug callbacks are advertised; `SKIP_VALIDATE` is not. NATIVE color
+mode with COLORIMETRIC intent is the only color behavior.
 
 Use `dumpsys android.hardware.graphics.composer3.IComposer/default` for the
 selected DRM objects, modes, power state, layer counts, target cache state, and

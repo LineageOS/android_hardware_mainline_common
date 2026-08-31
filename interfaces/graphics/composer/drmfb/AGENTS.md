@@ -12,15 +12,20 @@ paths and explicitly prohibits local builds and tests.
 - Buffer and damage updates do not dirty validation. Other layer state does.
 - Preserve command-level `commandIndex` errors and the validate, accept,
   present state machine.
+- Batched layer CREATE and DESTROY operations are transactional command state,
+  not direct Binder lifecycle calls.
 - Keep display/config IDs stable for the lifetime of the service process.
 - Prefer atomic KMS and retain the legacy CRTC/page-flip fallback. Atomic frame
-  updates must not resubmit modeset state. Legacy presents intentionally omit
-  a present fence after synchronously waiting for page-flip completion.
+  updates must not resubmit modeset state. Legacy presents return a signaled
+  fence when syncobj or a waited acquire fence makes one available.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
-- Do not call Binder callbacks while `mutex_` is held; serialize callbacks with
-  `callback_mutex_`.
+- Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
+  hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable
+  ordering with `refresh_callback_mutex_`.
 - Keep both worker threads stoppable, use CRTC sequence events for vsync, and
   use monotonic timestamps.
+- Keep refresh-rate debug callbacks outside `mutex_` and report the active
+  fixed-refresh mode period for both callback period fields.
 - Do not add a device-specific property assignment. The implementation reads
   `vendor.hwc.drm.device` as an explicit override and otherwise enumerates DRM
   primary nodes with libdrm.

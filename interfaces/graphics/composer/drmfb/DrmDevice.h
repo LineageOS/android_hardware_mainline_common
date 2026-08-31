@@ -60,6 +60,7 @@ struct DrmDisplay {
     bool has_legacy_framebuffer = false;
     uint32_t legacy_format = 0;
     uint64_t legacy_modifier = 0;
+    int32_t orientation_degrees = 0;
     int32_t mm_width = 0;
     int32_t mm_height = 0;
     int32_t active_config = 0;
@@ -148,6 +149,7 @@ class DrmDevice {
                       int acquire_fence, bool test_only, android::base::unique_fd* out_fence);
     bool LegacyPresent(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
                        int acquire_fence);
+    android::base::unique_fd CreateSignaledFence() const;
     uint32_t GetPropertyId(uint32_t object_id, uint32_t object_type, const char* name,
                            uint64_t* value = nullptr) const;
     bool AddProperty(drmModeAtomicReq* request, uint32_t object_id, uint32_t property_id,
@@ -158,6 +160,7 @@ class DrmDevice {
     android::base::unique_fd fd_;
     bool atomic_kms_ = false;
     bool modifiers_supported_ = false;
+    bool syncobj_supported_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;

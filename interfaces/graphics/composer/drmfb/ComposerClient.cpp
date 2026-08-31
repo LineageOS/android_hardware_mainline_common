@@ -31,6 +31,7 @@
 #include <cinttypes>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <sstream>
 
 namespace aidl::android::hardware::graphics::composer3::impl {
@@ -167,7 +168,7 @@ ndk::ScopedAStatus ComposerClient::createLayer(int64_t display, int32_t slot_cou
     DisplayState* state = FindStateLocked(display);
     if (state == nullptr) return Error(kBadDisplay);
     *layer = state->next_layer++;
-    state->layers.emplace(*layer, LayerState{});
+    state->layers.emplace(*layer, LayerState{.buffer_slot_count = slot_count});
     state->validation = ValidationState::kDirty;
     ALOGV("Created display=%" PRId64 " layer=%" PRId64, display, *layer);
     return ndk::ScopedAStatus::ok();
@@ -207,14 +208,55 @@ bool ComposerClient::ApplyLayerLocked(int64_t display, const LayerCommand& comma
         *error = kBadDisplay;
         return false;
     }
-    if (command.layerLifecycleBatchCommandType != LayerLifecycleBatchCommandType::MODIFY) {
-        *error = kUnsupported;
-        return false;
+    switch (command.layerLifecycleBatchCommandType) {
+        case LayerLifecycleBatchCommandType::CREATE: {
+            if (command.newBufferSlotCount < 0 || state->layers.count(command.layer) != 0) {
+                *error = command.newBufferSlotCount < 0 ? kBadParameter : kBadLayer;
+                return false;
+            }
+            state->layers.emplace(command.layer,
+                                  LayerState{.buffer_slot_count = command.newBufferSlotCount});
+            if (command.layer >= state->next_layer &&
+                command.layer != std::numeric_limits<int64_t>::max()) {
+                state->next_layer = command.layer + 1;
+            }
+            state->validation = ValidationState::kDirty;
+            break;
+        }
+        case LayerLifecycleBatchCommandType::DESTROY:
+            if (state->layers.erase(command.layer) == 0) {
+                *error = kBadLayer;
+                return false;
+            }
+            state->validation = ValidationState::kDirty;
+            return true;
+        case LayerLifecycleBatchCommandType::MODIFY:
+            break;
+        default:
+            *error = kBadParameter;
+            return false;
     }
     auto layer = state->layers.find(command.layer);
     if (layer == state->layers.end()) {
         *error = kBadLayer;
         return false;
+    }
+    const Composition requested_composition =
+            command.composition ? command.composition->composition : layer->second.composition;
+    if (command.buffer && requested_composition != Composition::CLIENT &&
+        requested_composition != Composition::SOLID_COLOR &&
+        requested_composition != Composition::SIDEBAND &&
+        (command.buffer->slot < 0 || command.buffer->slot >= layer->second.buffer_slot_count)) {
+        *error = kBadParameter;
+        return false;
+    }
+    if (command.bufferSlotsToClear) {
+        for (int32_t slot : *command.bufferSlotsToClear) {
+            if (slot < 0 || slot >= layer->second.buffer_slot_count) {
+                *error = kBadParameter;
+                return false;
+            }
+        }
     }
     if (command.luts) {
         *error = kUnsupported;
@@ -368,6 +410,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         const auto saved_layers = state->layers;
         const auto saved_slots = state->target_slots;
         const auto saved_target = state->target;
+        const int64_t saved_next_layer = state->next_layer;
         const ValidationState saved_validation = state->validation;
         android::base::unique_fd saved_target_fence(
                 state->target_fence.ok() ? dup(state->target_fence.get()) : -1);
@@ -375,6 +418,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             state->layers = saved_layers;
             state->target_slots = saved_slots;
             state->target = saved_target;
+            state->next_layer = saved_next_layer;
             state->target_fence = std::move(saved_target_fence);
             state->validation = saved_validation;
         };
@@ -572,8 +616,22 @@ ndk::ScopedAStatus ComposerClient::getDisplayedContentSamplingAttributes(
 ndk::ScopedAStatus ComposerClient::getDisplayPhysicalOrientation(int64_t display,
                                                                  common::Transform* orientation) {
     std::lock_guard lock(mutex_);
-    if (FindDisplayLocked(display) == nullptr) return Error(kBadDisplay);
-    *orientation = common::Transform::NONE;
+    const drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+    if (drm_display == nullptr) return Error(kBadDisplay);
+    switch (drm_display->orientation_degrees) {
+        case 90:
+            *orientation = common::Transform::ROT_90;
+            break;
+        case 180:
+            *orientation = common::Transform::ROT_180;
+            break;
+        case 270:
+            *orientation = common::Transform::ROT_270;
+            break;
+        default:
+            *orientation = common::Transform::NONE;
+            break;
+    }
     return ndk::ScopedAStatus::ok();
 }
 
@@ -628,7 +686,7 @@ ndk::ScopedAStatus ComposerClient::getDisplayDecorationSupport(
 ndk::ScopedAStatus ComposerClient::registerCallback(
         const std::shared_ptr<IComposerCallback>& callback) {
     std::vector<int64_t> connected;
-    std::unique_lock callback_lock(callback_mutex_);
+    std::unique_lock callback_lock(hotplug_callback_mutex_);
     {
         std::lock_guard lock(mutex_);
         if (callback_ != nullptr || callback == nullptr) return Error(kBadParameter);
@@ -648,18 +706,24 @@ ndk::ScopedAStatus ComposerClient::registerCallback(
 }
 
 ndk::ScopedAStatus ComposerClient::setActiveConfig(int64_t display, int32_t config) {
-    std::lock_guard lock(mutex_);
-    drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
-    if (drm_display == nullptr) return Error(kBadDisplay);
-    if (FindConfig(*drm_display, config) == nullptr) return Error(kBadConfig);
-    if (drm_display->active_config == config) return ndk::ScopedAStatus::ok();
-    if (!drm_.SetActiveConfig(display, config)) {
-        return Error(IComposerClient::EX_CONFIG_FAILED);
+    bool notify_refresh = false;
+    {
+        std::lock_guard lock(mutex_);
+        drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+        if (drm_display == nullptr) return Error(kBadDisplay);
+        const drmfb::DrmConfig* requested_config = FindConfig(*drm_display, config);
+        if (requested_config == nullptr) return Error(kBadConfig);
+        if (drm_display->active_config == config) return ndk::ScopedAStatus::ok();
+        if (!drm_.SetActiveConfig(display, config)) {
+            return Error(IComposerClient::EX_CONFIG_FAILED);
+        }
+        states_[display].target_slots.assign(states_[display].target_slots.size(), nullptr);
+        states_[display].target.reset();
+        states_[display].scanout.reset();
+        states_[display].validation = ValidationState::kDirty;
+        notify_refresh = states_[display].refresh_debug_enabled;
     }
-    states_[display].target_slots.assign(states_[display].target_slots.size(), nullptr);
-    states_[display].target.reset();
-    states_[display].scanout.reset();
-    states_[display].validation = ValidationState::kDirty;
+    if (notify_refresh) NotifyRefreshRateChanged(display);
     return ndk::ScopedAStatus::ok();
 }
 
@@ -808,8 +872,32 @@ ndk::ScopedAStatus ComposerClient::setHdrConversionStrategy(const common::HdrCon
     return Error(kUnsupported);
 }
 ndk::ScopedAStatus ComposerClient::setRefreshRateChangedCallbackDebugEnabled(int64_t display,
-                                                                             bool) {
-    return UnsupportedDisplay(display);
+                                                                             bool enabled) {
+    std::unique_lock refresh_lock(refresh_callback_mutex_);
+    std::shared_ptr<IComposerCallback> callback;
+    int32_t period = 0;
+    {
+        std::lock_guard lock(mutex_);
+        DisplayState* state = FindStateLocked(display);
+        drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+        if (state == nullptr || drm_display == nullptr) return Error(kBadDisplay);
+        const drmfb::DrmConfig* config = FindConfig(*drm_display, drm_display->active_config);
+        if (config == nullptr) return Error(kBadConfig);
+        state->refresh_debug_enabled = enabled;
+        period = ModePeriod(config->mode);
+        callback = callback_;
+    }
+    if (enabled && callback != nullptr) {
+        RefreshRateChangedDebugData data;
+        data.display = display;
+        data.vsyncPeriodNanos = period;
+        data.refreshPeriodNanos = period;
+        ndk::ScopedAStatus status = callback->onRefreshRateChangedDebug(data);
+        if (!status.isOk()) {
+            ALOGW("Refresh-rate debug callback failed: %s", status.getDescription().c_str());
+        }
+    }
+    return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus ComposerClient::getDisplayConfigurations(
@@ -856,12 +944,38 @@ void ComposerClient::NotifyHotplug(int64_t display, bool connected) {
         callback = callback_;
     }
     if (callback == nullptr) return;
-    std::lock_guard callback_lock(callback_mutex_);
+    std::lock_guard callback_lock(hotplug_callback_mutex_);
     const auto event = connected ? common::DisplayHotplugEvent::CONNECTED
                                  : common::DisplayHotplugEvent::DISCONNECTED;
     ndk::ScopedAStatus status = callback->onHotplugEvent(display, event);
     if (!status.isOk()) {
         ALOGW("Hotplug callback failed: %s", status.getDescription().c_str());
+    }
+}
+
+void ComposerClient::NotifyRefreshRateChanged(int64_t display) {
+    std::unique_lock refresh_lock(refresh_callback_mutex_);
+    std::shared_ptr<IComposerCallback> callback;
+    int32_t period = 0;
+    {
+        std::lock_guard lock(mutex_);
+        auto state = states_.find(display);
+        if (state == states_.end() || !state->second.refresh_debug_enabled) return;
+        drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+        if (drm_display == nullptr) return;
+        const drmfb::DrmConfig* config = FindConfig(*drm_display, drm_display->active_config);
+        if (config == nullptr) return;
+        period = ModePeriod(config->mode);
+        callback = callback_;
+    }
+    if (callback == nullptr) return;
+    RefreshRateChangedDebugData data;
+    data.display = display;
+    data.vsyncPeriodNanos = period;
+    data.refreshPeriodNanos = period;
+    ndk::ScopedAStatus status = callback->onRefreshRateChangedDebug(data);
+    if (!status.isOk()) {
+        ALOGW("Refresh-rate debug callback failed: %s", status.getDescription().c_str());
     }
 }
 
@@ -998,7 +1112,6 @@ void ComposerClient::VblankLoop() {
             callback = callback_;
         }
         if (callback != nullptr && !stopping_) {
-            std::lock_guard callback_lock(callback_mutex_);
             ndk::ScopedAStatus status = callback->onVsync(display_id, timestamp, period);
             if (!status.isOk()) {
                 ALOGW("Vsync callback failed: %s", status.getDescription().c_str());
