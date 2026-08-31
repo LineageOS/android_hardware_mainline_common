@@ -202,10 +202,10 @@ AIMapper_Error Mapper::lock(buffer_handle_t buffer, uint64_t cpu_usage, ARect re
     if (imported == nullptr) return AIMAPPER_ERROR_BAD_BUFFER;
     const uint64_t read_usage = cpu_usage & 0xf;
     const uint64_t write_usage = cpu_usage & 0xf0;
-    const bool valid_read =
-            read_usage == 0 || read_usage == 2 || read_usage == 3 || read_usage == 0xb;
-    const bool valid_write =
-            write_usage == 0 || write_usage == 0x20 || write_usage == 0x30 || write_usage == 0xb0;
+    const uint64_t read_mode = read_usage & 0x3;
+    const uint64_t write_mode = (write_usage >> 4) & 0x3;
+    const bool valid_read = read_usage == 0 || read_mode == 2 || read_mode == 3;
+    const bool valid_write = write_usage == 0 || write_mode == 2 || write_mode == 3;
     if (cpu_usage == 0 || (cpu_usage & ~kCpuUsageMask) != 0 || !valid_read || !valid_write) {
         ALOGW("Rejected CPU lock usage 0x%" PRIx64 " for id=%" PRIu64, cpu_usage,
               imported->view.allocation_id);
