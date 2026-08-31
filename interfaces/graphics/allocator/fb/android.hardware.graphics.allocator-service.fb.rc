@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+
+service vendor.graphics.allocator.fb /vendor/bin/hw/android.hardware.graphics.allocator-service.fb
+    class hal animation
+    interface aidl android.hardware.graphics.allocator.IAllocator/default
+    user system
+    group graphics drmrpc
+    capabilities SYS_NICE
+    onrestart restart surfaceflinger
+    task_profiles ServiceCapacityLow

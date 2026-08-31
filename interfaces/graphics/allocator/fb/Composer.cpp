@@ -1,0 +1,58 @@
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#define LOG_TAG "fb-composer3"
+
+#include "Composer.h"
+
+#include <android-base/properties.h>
+#include <android/binder_ibinder_platform.h>
+#include <log/log.h>
+#include <unistd.h>
+
+#include "ComposerClient.h"
+
+namespace aidl::android::hardware::graphics::composer3::impl {
+
+ndk::ScopedAStatus Composer::createClient(std::shared_ptr<IComposerClient>* out_client) {
+    std::lock_guard lock(mutex_);
+    if (!client_.expired()) {
+        return ndk::ScopedAStatus::fromServiceSpecificError(IComposer::EX_NO_RESOURCES);
+    }
+    const std::string path = ::android::base::GetProperty("vendor.hwc.fbdev.device", "");
+    auto client = ndk::SharedRefBase::make<ComposerClient>(path);
+    if (client == nullptr || !client->Init()) {
+        ALOGE("Unable to initialize fbdev Composer client");
+        return ndk::ScopedAStatus::fromServiceSpecificError(IComposer::EX_NO_RESOURCES);
+    }
+    client_ = client;
+    *out_client = std::move(client);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Composer::getCapabilities(std::vector<Capability>* capabilities) {
+    *capabilities = {Capability::PRESENT_FENCE_IS_NOT_RELIABLE,
+                     Capability::REFRESH_RATE_CHANGED_CALLBACK_DEBUG,
+                     Capability::LAYER_LIFECYCLE_BATCH_COMMAND};
+    return ndk::ScopedAStatus::ok();
+}
+
+binder_status_t Composer::dump(int fd, const char**, uint32_t) {
+    std::shared_ptr<IComposerClient> client;
+    {
+        std::lock_guard lock(mutex_);
+        client = client_.lock();
+    }
+    std::string output = "fbdev Composer3 service (no active client)\n";
+    if (client != nullptr) output = static_cast<ComposerClient*>(client.get())->Dump();
+    return write(fd, output.data(), output.size()) < 0 ? STATUS_BAD_VALUE : STATUS_OK;
+}
+
+ndk::SpAIBinder Composer::createBinder() {
+    auto binder = BnComposer::createBinder();
+    AIBinder_setInheritRt(binder.get(), true);
+    return binder;
+}
+
+}  // namespace aidl::android::hardware::graphics::composer3::impl

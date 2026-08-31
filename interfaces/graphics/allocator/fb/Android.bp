@@ -1,0 +1,225 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+filegroup {
+    name: "fb_graphics_buffer_sources",
+    srcs: ["Buffer.cpp"],
+}
+
+filegroup {
+    name: "fb_graphics_allocator_sources",
+    srcs: [
+        "Allocator.cpp",
+        "AllocatorService.cpp",
+    ],
+}
+
+filegroup {
+    name: "fb_graphics_composer_sources",
+    srcs: [
+        "Composer.cpp",
+        "ComposerClient.cpp",
+        "ComposerService.cpp",
+        "FbdevDevice.cpp",
+    ],
+}
+
+cc_defaults {
+    name: "fb_graphics_defaults",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    cpp_std: "gnu++20",
+    vendor: true,
+}
+
+cc_defaults {
+    name: "fb_graphics_buffer_defaults",
+    defaults: ["fb_graphics_defaults"],
+    srcs: [":fb_graphics_buffer_sources"],
+    shared_libs: [
+        "android.hardware.graphics.allocator-V2-ndk",
+        "android.hardware.graphics.common-V7-ndk",
+        "libbase",
+        "libcutils",
+        "libdrm",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+    ],
+}
+
+cc_binary {
+    name: "android.hardware.graphics.allocator-service.fb",
+    defaults: ["fb_graphics_buffer_defaults"],
+    srcs: [":fb_graphics_allocator_sources"],
+    relative_install_path: "hw",
+    init_rc: select(soong_config_variable("fb_graphics", "include_init_rc"), {
+        false: [],
+        default: ["android.hardware.graphics.allocator-service.fb.rc"],
+    }),
+    vintf_fragments: select(soong_config_variable("fb_graphics", "include_vintf_fragments"), {
+        false: [],
+        default: ["android.hardware.graphics.allocator-service.fb.xml"],
+    }),
+    shared_libs: [
+        "android.hardware.graphics.mapper@4.0",
+        "libbinder_ndk",
+    ],
+    static_libs: ["libaidlcommonsupport"],
+}
+
+cc_library_shared {
+    name: "mapper.fb",
+    defaults: ["fb_graphics_buffer_defaults"],
+    srcs: ["Mapper.cpp"],
+    compile_multilib: "both",
+    vintf_fragments: select(soong_config_variable("fb_graphics", "include_vintf_fragments"), {
+        false: [],
+        default: ["mapper.fb.xml"],
+    }),
+    header_libs: [
+        "libimapper_providerutils",
+        "libimapper_stablec",
+    ],
+    shared_libs: ["libsync"],
+}
+
+cc_binary {
+    name: "android.hardware.graphics.composer3-service.fb",
+    defaults: ["fb_graphics_buffer_defaults"],
+    srcs: [":fb_graphics_composer_sources"],
+    relative_install_path: "hw",
+    init_rc: select(soong_config_variable("fb_graphics", "include_init_rc"), {
+        false: [],
+        default: ["android.hardware.graphics.composer3-service.fb.rc"],
+    }),
+    vintf_fragments: select(soong_config_variable("fb_graphics", "include_vintf_fragments"), {
+        false: [],
+        default: ["android.hardware.graphics.composer3-service.fb.xml"],
+    }),
+    shared_libs: [
+        "android.hardware.common-V2-ndk",
+        "android.hardware.graphics.composer3-V4-ndk",
+        "libbinder_ndk",
+        "libhardware",
+        "libsync",
+    ],
+    static_libs: ["libaidlcommonsupport"],
+}
+
+prebuilt_etc {
+    name: "fb_allocator_apex_vintf",
+    src: "android.hardware.graphics.allocator-service.fb.xml",
+    filename_from_src: true,
+    sub_dir: "vintf",
+    vendor: true,
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "fb_mapper_apex_vintf",
+    src: "mapper.fb.xml",
+    filename_from_src: true,
+    sub_dir: "vintf",
+    vendor: true,
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "fb_composer_apex_vintf",
+    src: "android.hardware.graphics.composer3-service.fb.xml",
+    filename_from_src: true,
+    sub_dir: "vintf",
+    vendor: true,
+    installable: false,
+}
+
+genrule {
+    name: "gen_fb_allocator_apex_init_rc",
+    srcs: ["android.hardware.graphics.allocator-service.fb.rc"],
+    out: ["android.hardware.graphics.allocator-service.fb.apex.rc"],
+    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.fb/bin/%' $(in) > $(out)",
+}
+
+genrule {
+    name: "gen_fb_composer_apex_init_rc",
+    srcs: ["android.hardware.graphics.composer3-service.fb.rc"],
+    out: ["android.hardware.graphics.composer3-service.fb.apex.rc"],
+    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.fb/bin/%' $(in) > $(out)",
+}
+
+prebuilt_etc {
+    name: "fb_allocator_apex_init_rc",
+    src: ":gen_fb_allocator_apex_init_rc",
+    filename_from_src: true,
+    vendor: true,
+}
+
+prebuilt_etc {
+    name: "fb_composer_apex_init_rc",
+    src: ":gen_fb_composer_apex_init_rc",
+    filename_from_src: true,
+    vendor: true,
+}
+
+filegroup {
+    name: "fb_graphics_apex_file_contexts",
+    srcs: ["fb-apex-file-contexts"],
+}
+
+filegroup {
+    name: "fb_graphics_apex_manifest",
+    srcs: ["fb-apex-manifest.json"],
+}
+
+apex_defaults {
+    name: "com.android.hardware.graphics.fb.defaults",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: ":fb_graphics_apex_file_contexts",
+    manifest: ":fb_graphics_apex_manifest",
+    vendor: true,
+    updatable: false,
+    soc_specific: true,
+    compile_multilib: "both",
+    binaries: [
+        "android.hardware.graphics.allocator-service.fb",
+        "android.hardware.graphics.composer3-service.fb",
+    ],
+    native_shared_libs: ["mapper.fb"],
+    prebuilts: [
+        "fb_allocator_apex_vintf",
+        "fb_mapper_apex_vintf",
+        "fb_composer_apex_vintf",
+        "fb_graphics_apex_linker_config",
+    ],
+}
+
+linker_config {
+    name: "fb_graphics_apex_linker_config",
+    src: "fb-apex-linkerconfig.json",
+    installable: false,
+}
+
+apex {
+    name: "com.android.hardware.graphics.fb",
+    defaults: ["com.android.hardware.graphics.fb.defaults"],
+    prebuilts: [
+        "fb_allocator_apex_init_rc",
+        "fb_composer_apex_init_rc",
+    ],
+    overrides: [
+        "android.hardware.graphics.allocator-service.fb",
+        "android.hardware.graphics.composer3-service.fb",
+        "mapper.fb",
+    ],
+}
