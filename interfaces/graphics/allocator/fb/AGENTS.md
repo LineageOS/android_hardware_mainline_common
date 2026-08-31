@@ -18,7 +18,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   and damage semantics, and the validate/accept/present state machine. Empty
   damage is full-frame; one empty rectangle means no changed pixels.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
-- Keep synthetic vsync stoppable and invoke Binder callbacks without `mutex_`.
+- Keep hardware vsync waits interruptible, cache permanent ioctl limitations,
+  keep fallback vsync stoppable, and invoke Binder callbacks without `mutex_`.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
 - Keep fbdev output generic across validated packed true-color bitfields up to
   32 bits; do not silently accept unprogrammable palettes, grayscale, planar,

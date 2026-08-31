@@ -46,6 +46,7 @@ ComposerClient::ComposerClient(std::string path) : path_(std::move(path)) {}
 
 ComposerClient::~ComposerClient() {
     stopping_ = true;
+    device_.InterruptVsyncWait();
     vsync_cv_.notify_all();
     if (vsync_thread_.joinable()) vsync_thread_.join();
     std::lock_guard lock(mutex_);
@@ -684,6 +685,7 @@ ndk::ScopedAStatus ComposerClient::setPowerMode(int64_t display, PowerMode mode)
     if (!device_.SetPower(on)) return Error(kNoResources);
     if (!on) state_.vsync_enabled = false;
     vsync_cv_.notify_all();
+    device_.InterruptVsyncWait();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -701,6 +703,7 @@ ndk::ScopedAStatus ComposerClient::setVsyncEnabled(int64_t display, bool enabled
         state_.vsync_enabled = enabled;
     }
     vsync_cv_.notify_all();
+    device_.InterruptVsyncWait();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -789,11 +792,18 @@ void ComposerClient::VsyncLoop() {
     int64_t next = MonotonicNanos();
     while (!stopping_) {
         std::shared_ptr<IComposerCallback> callback;
-        int32_t period = device_.period_ns();
+        const int32_t period = device_.period_ns();
         {
             std::unique_lock lock(mutex_);
             vsync_cv_.wait(lock, [this] { return stopping_ || state_.vsync_enabled; });
             if (stopping_) break;
+            callback = callback_;
+        }
+        int64_t timestamp = 0;
+        const fb::FbdevDevice::VsyncWaitResult wait = device_.WaitForVsync(&timestamp);
+        if (wait == fb::FbdevDevice::VsyncWaitResult::kInterrupted) continue;
+        if (wait == fb::FbdevDevice::VsyncWaitResult::kFallback) {
+            std::unique_lock lock(mutex_);
             next = std::max(next + period, MonotonicNanos());
             const auto deadline =
                     std::chrono::steady_clock::time_point(std::chrono::nanoseconds(next));
@@ -801,7 +811,10 @@ void ComposerClient::VsyncLoop() {
                                      [this] { return stopping_ || !state_.vsync_enabled; })) {
                 continue;
             }
+            timestamp = MonotonicNanos();
             callback = callback_;
+        } else {
+            next = timestamp;
         }
         if (callback != nullptr) {
             std::lock_guard callback_lock(vsync_callback_mutex_);
@@ -809,11 +822,11 @@ void ComposerClient::VsyncLoop() {
                 std::lock_guard lock(mutex_);
                 if (!state_.vsync_enabled) continue;
             }
-            const auto status = callback->onVsync(kDisplay, MonotonicNanos(), period);
+            const auto status = callback->onVsync(kDisplay, timestamp, period);
             if (!status.isOk()) ALOGW("Vsync callback failed: %s", status.getDescription().c_str());
         }
     }
-    ALOGI("Synthetic vsync worker stopped");
+    ALOGI("Vsync worker stopped");
 }
 
 std::string ComposerClient::Dump() {

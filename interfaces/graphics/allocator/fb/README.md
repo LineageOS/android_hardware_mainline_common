@@ -72,9 +72,11 @@ The composer exposes one internal physical display and one fixed configuration
 from fbdev. Every layer is validated as `Composition.CLIENT`; only the client
 target is presented. It supports transactional lifecycle batch commands,
 target slots, expected-present timestamps, fixed-refresh debug callbacks,
-NATIVE/COLORIMETRIC behavior, client-target damage, and stoppable synthetic
-monotonic vsync. Empty damage means the full frame, while one empty rectangle
-means no changed pixels. Damage is clipped before bounded conversion and flush.
+NATIVE/COLORIMETRIC behavior, client-target damage, and hardware vsync through
+`FBIO_WAITFORVSYNC`. Unsupported wait ioctls are cached and use a stoppable
+synthetic monotonic fallback. Empty damage means the full frame, while one empty
+rectangle means no changed pixels. Damage is clipped before bounded conversion
+and flush.
 
 If `yres_virtual` contains multiple complete pages, frames are copied to an
 inactive page and presented with `FBIOPAN_DISPLAY`. Otherwise Composer performs
@@ -88,8 +90,8 @@ not assumed to be synchronized.
 Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
 mode changes, hotplug discovery, and refresh-rate switching are unsupported.
-Fbdev has no reliable completion fence, and synthetic vsync is not hardware
-phase locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
+Fbdev has no reliable completion fence, and fallback vsync is not hardware phase
+locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
 RGB and optional alpha bitfields within 1-32 bits per pixel, including RGB565
 and XRGB2101010. Native mutable C8 pseudocolor requires successful RGB332
 colormap programming; static or unprogrammable palettes are rejected rather

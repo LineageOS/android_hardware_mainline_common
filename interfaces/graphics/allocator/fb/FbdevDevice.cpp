@@ -14,6 +14,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <signal.h>
+#include <time.h>
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -27,6 +29,15 @@ namespace fb {
 namespace {
 
 constexpr int kAcquireFenceTimeoutMs = 3000;
+constexpr int kVsyncInterruptSignal = SIGUSR1;
+
+void VsyncInterruptHandler(int) {}
+
+int64_t MonotonicNanos() {
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
+}
 
 bool IsScanoutFormat(PixelFormat format) {
     switch (format) {
@@ -171,6 +182,22 @@ bool FbdevDevice::InitPath(const std::string& path) {
         munmap(map, map_size);
         return false;
     }
+    struct sigaction previous{};
+    bool vsync_signal_installed = sigaction(kVsyncInterruptSignal, nullptr, &previous) == 0;
+    if (vsync_signal_installed && previous.sa_handler != SIG_DFL &&
+        previous.sa_handler != SIG_IGN && previous.sa_handler != VsyncInterruptHandler) {
+        vsync_signal_installed = false;
+        ALOGW("SIGUSR1 already has an owner; disabling hardware fbdev vsync waits");
+    }
+    if (vsync_signal_installed && previous.sa_handler != VsyncInterruptHandler) {
+        struct sigaction action{};
+        action.sa_handler = VsyncInterruptHandler;
+        sigemptyset(&action.sa_mask);
+        vsync_signal_installed = sigaction(kVsyncInterruptSignal, &action, nullptr) == 0;
+    }
+    if (!vsync_signal_installed) {
+        ALOGW("Hardware fbdev vsync waits cannot be interrupted; using timed fallback");
+    }
     if (framebuffer_ != MAP_FAILED) munmap(framebuffer_, framebuffer_size_);
     fd_ = std::move(candidate);
     path_ = path;
@@ -182,6 +209,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
     current_page_ = std::min(page_count_ - 1, info_.yoffset / info_.yres);
     swap_red_blue_ = android::base::GetBoolProperty("vendor.hwc.fbdev.swap_rb", false);
     blank_supported_ = blank_supported;
+    vsync_signal_installed_ = vsync_signal_installed;
     pseudocolor_ = pseudocolor;
     const std::string id(fixed_.id, strnlen(fixed_.id, sizeof(fixed_.id)));
     requires_write_flush_ = id == "efidrmdrmfb" || id == "ofdrmdrmfb" || id == "simpledrmdrmfb" ||
@@ -433,17 +461,6 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
     const uint64_t offset = static_cast<uint64_t>(target_page) * info_.yres * fixed_.line_length;
     const uint64_t page_size = static_cast<uint64_t>(info_.yres) * fixed_.line_length;
     if (offset + page_size > framebuffer_size_) return false;
-    if (page_count_ == 1) {
-        uint32_t argument = 0;
-#ifdef FBIO_WAITFORVSYNC
-        if (ioctl(fd_.get(), FBIO_WAITFORVSYNC, &argument) != 0 && errno != ENOTTY &&
-            errno != EINVAL) {
-            ALOGW("FBIO_WAITFORVSYNC failed: %s", strerror(errno));
-        }
-#else
-        (void)argument;
-#endif
-    }
     const std::vector<DamageRect> full_frame = {{0, 0, info_.xres, info_.yres}};
     const std::vector<DamageRect>& copy_damage = target_page == current_page_ ? damage : full_frame;
     if (!Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + offset, copy_damage)) {
@@ -469,13 +486,6 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
             if (errno == ENOTTY || errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP) {
                 pan_supported_ = false;
             }
-#ifdef FBIO_WAITFORVSYNC
-            uint32_t argument = 0;
-            if (ioctl(fd_.get(), FBIO_WAITFORVSYNC, &argument) != 0 && errno != ENOTTY &&
-                errno != EINVAL) {
-                ALOGW("FBIO_WAITFORVSYNC fallback failed: %s", strerror(errno));
-            }
-#endif
             const uint64_t visible_offset =
                     static_cast<uint64_t>(current_page_) * info_.yres * fixed_.line_length;
             if (visible_offset + page_size > framebuffer_size_ ||
@@ -508,6 +518,54 @@ bool FbdevDevice::SetPower(bool on) {
     }
     powered_ = on;
     return true;
+}
+
+FbdevDevice::VsyncWaitResult FbdevDevice::WaitForVsync(int64_t* timestamp_ns) {
+    if (timestamp_ns == nullptr || !wait_for_vsync_supported_ || !vsync_signal_installed_) {
+        return VsyncWaitResult::kFallback;
+    }
+#ifdef FBIO_WAITFORVSYNC
+    sigset_t signals;
+    sigemptyset(&signals);
+    sigaddset(&signals, kVsyncInterruptSignal);
+    pthread_sigmask(SIG_UNBLOCK, &signals, nullptr);
+    {
+        std::lock_guard lock(vsync_waiter_mutex_);
+        if (vsync_interrupt_requested_) {
+            vsync_interrupt_requested_ = false;
+            return VsyncWaitResult::kInterrupted;
+        }
+        vsync_waiter_ = pthread_self();
+        has_vsync_waiter_ = true;
+    }
+    uint32_t argument = 0;
+    const int result = ioctl(fd_.get(), FBIO_WAITFORVSYNC, &argument);
+    const int saved_errno = errno;
+    {
+        std::lock_guard lock(vsync_waiter_mutex_);
+        has_vsync_waiter_ = false;
+        vsync_interrupt_requested_ = false;
+    }
+    if (result == 0) {
+        *timestamp_ns = MonotonicNanos();
+        return VsyncWaitResult::kHardware;
+    }
+    if (saved_errno == EINTR) return VsyncWaitResult::kInterrupted;
+    if (saved_errno == ENOTTY || saved_errno == EINVAL || saved_errno == ENOSYS ||
+        saved_errno == EOPNOTSUPP) {
+        wait_for_vsync_supported_ = false;
+        ALOGI("FBIO_WAITFORVSYNC unsupported on %s", path_.c_str());
+    } else {
+        ALOGW("FBIO_WAITFORVSYNC failed on %s: %s", path_.c_str(), strerror(saved_errno));
+    }
+#endif
+    return VsyncWaitResult::kFallback;
+}
+
+void FbdevDevice::InterruptVsyncWait() {
+    std::lock_guard lock(vsync_waiter_mutex_);
+    vsync_interrupt_requested_ = true;
+    if (has_vsync_waiter_) pthread_kill(vsync_waiter_, kVsyncInterruptSignal);
 }
 
 std::string FbdevDevice::Dump() const {

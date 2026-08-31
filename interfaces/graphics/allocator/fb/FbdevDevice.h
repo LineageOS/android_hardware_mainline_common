@@ -6,6 +6,7 @@
 
 #include <android-base/unique_fd.h>
 #include <linux/fb.h>
+#include <pthread.h>
 #include <sys/mman.h>
 
 #include <cstddef>
@@ -45,6 +46,8 @@ class ImportedBuffer {
 
 class FbdevDevice {
   public:
+    enum class VsyncWaitResult { kHardware, kFallback, kInterrupted };
+
     FbdevDevice() = default;
     ~FbdevDevice();
     FbdevDevice(const FbdevDevice&) = delete;
@@ -57,6 +60,8 @@ class FbdevDevice {
                  const std::vector<DamageRect>& damage, int acquire_fence,
                  android::base::unique_fd* present_fence);
     bool SetPower(bool on);
+    VsyncWaitResult WaitForVsync(int64_t* timestamp_ns);
+    void InterruptVsyncWait();
     std::string Dump() const;
 
     uint32_t width() const { return info_.xres; }
@@ -92,6 +97,12 @@ class FbdevDevice {
     bool requires_write_flush_ = false;
     bool blank_supported_ = false;
     bool powered_ = false;
+    bool wait_for_vsync_supported_ = true;
+    bool vsync_signal_installed_ = false;
+    pthread_t vsync_waiter_{};
+    bool has_vsync_waiter_ = false;
+    bool vsync_interrupt_requested_ = false;
+    std::mutex vsync_waiter_mutex_;
     mutable std::mutex mutex_;
 };
 
