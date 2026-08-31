@@ -44,6 +44,7 @@ constexpr int32_t kBadParameter = IComposerClient::EX_BAD_PARAMETER;
 constexpr int32_t kNoResources = IComposerClient::EX_NO_RESOURCES;
 constexpr int32_t kNotValidated = IComposerClient::EX_NOT_VALIDATED;
 constexpr int32_t kUnsupported = IComposerClient::EX_UNSUPPORTED;
+constexpr int32_t kMaxBufferSlots = 4096;
 
 const drmfb::DrmConfig* FindConfig(const drmfb::DrmDisplay& display, int32_t id) {
     auto it = std::find_if(display.configs.begin(), display.configs.end(),
@@ -164,6 +165,7 @@ ComposerClient::DisplayState* ComposerClient::FindStateLocked(int64_t display) {
 ndk::ScopedAStatus ComposerClient::createLayer(int64_t display, int32_t slot_count,
                                                int64_t* layer) {
     if (slot_count < 0) return Error(kBadParameter);
+    if (slot_count > kMaxBufferSlots) return Error(kNoResources);
     std::lock_guard lock(mutex_);
     DisplayState* state = FindStateLocked(display);
     if (state == nullptr) return Error(kBadDisplay);
@@ -210,7 +212,12 @@ bool ComposerClient::ApplyLayerLocked(int64_t display, const LayerCommand& comma
     }
     switch (command.layerLifecycleBatchCommandType) {
         case LayerLifecycleBatchCommandType::CREATE: {
-            if (command.newBufferSlotCount < 0 || state->layers.count(command.layer) != 0) {
+            if (command.newBufferSlotCount < 0 || command.newBufferSlotCount > kMaxBufferSlots ||
+                state->layers.count(command.layer) != 0) {
+                if (command.newBufferSlotCount > kMaxBufferSlots) {
+                    *error = kNoResources;
+                    return false;
+                }
                 *error = command.newBufferSlotCount < 0 ? kBadParameter : kBadLayer;
                 return false;
             }
@@ -325,7 +332,7 @@ bool ComposerClient::SetClientTargetLocked(int64_t display, const ClientTarget& 
             *error = kBadParameter;
             return false;
         }
-        auto imported = drm_.ImportBuffer(raw);
+        auto imported = drm_.ImportBuffer(display, raw);
         native_handle_delete(raw);
         if (imported == nullptr) {
             *error = kBadParameter;
@@ -339,7 +346,16 @@ bool ComposerClient::SetClientTargetLocked(int64_t display, const ClientTarget& 
         *error = kBadParameter;
         return false;
     }
-    state->target_fence.reset(buffer.fence.get() >= 0 ? dup(buffer.fence.get()) : -1);
+    if (buffer.fence.get() >= 0) {
+        const int fence = dup(buffer.fence.get());
+        if (fence < 0) {
+            *error = kNoResources;
+            return false;
+        }
+        state->target_fence.reset(fence);
+    } else {
+        state->target_fence.reset();
+    }
     return true;
 }
 
@@ -413,6 +429,10 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         const ValidationState saved_validation = state->validation;
         ::android::base::unique_fd saved_target_fence(
                 state->target_fence.ok() ? dup(state->target_fence.get()) : -1);
+        if (state->target_fence.ok() && !saved_target_fence.ok()) {
+            AddError(i, kNoResources, results);
+            continue;
+        }
         auto restore_state = [&] {
             state->layers = saved_layers;
             state->target_slots = saved_slots;
@@ -774,6 +794,7 @@ ndk::ScopedAStatus ComposerClient::setAutoLowLatencyMode(int64_t display, bool) 
 
 ndk::ScopedAStatus ComposerClient::setClientTargetSlotCount(int64_t display, int32_t count) {
     if (count < 0) return Error(kBadParameter);
+    if (count > kMaxBufferSlots) return Error(kNoResources);
     std::lock_guard lock(mutex_);
     DisplayState* state = FindStateLocked(display);
     if (state == nullptr) return Error(kBadDisplay);

@@ -33,6 +33,15 @@ modifier, dimensions, and plane layouts. Plane dma-buf FDs are inferred using
 the established convention that a zero offset after plane zero starts a new
 FD; nonzero offsets share the preceding FD.
 
+Systems whose CPU renderer produces red/blue-swapped client targets can set the
+read-only `vendor.hwc.drmfb.swap_rb=true` property. The HAL first reinterprets
+single-plane 32-bit RGB buffers with the paired DRM FourCC. If the selected
+primary plane cannot scan out that format, it swaps the channels into a mapped
+DRM dumb buffer and scans out the original format. The CPU fallback requires
+`DRM_CAP_DUMB_BUFFER` and a CPU-readable client target; it intentionally rejects
+multiplane, YUV, 10-bit, protected, or otherwise unmappable targets. Leave the
+property disabled for correctly rendered GPU output.
+
 ## Behavior
 
 - Physical connectors are ordered internal-first and then by connector ID.

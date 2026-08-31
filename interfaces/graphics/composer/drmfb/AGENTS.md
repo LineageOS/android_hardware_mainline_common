@@ -29,6 +29,9 @@ paths and explicitly prohibits local builds and tests.
 - Do not add a device-specific property assignment. The implementation reads
   `vendor.hwc.drm.device` as an explicit override and otherwise enumerates DRM
   primary nodes with libdrm.
+- `vendor.hwc.drmfb.swap_rb` is an opt-in compatibility workaround. Prefer a
+  paired FourCC and retain the narrow 32-bit RGB dumb-buffer fallback; do not
+  silently apply it to YUV, protected, multiplane, or 10-bit buffers.
 
 ## Layout
 

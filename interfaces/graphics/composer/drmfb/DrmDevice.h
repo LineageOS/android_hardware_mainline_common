@@ -105,7 +105,18 @@ class DrmFramebuffer {
     uint32_t width_ = 0;
     uint32_t height_ = 0;
     uint32_t format_ = 0;
+    uint32_t source_format_ = 0;
     uint64_t modifier_ = 0;
+    uint32_t source_stride_ = 0;
+    uint64_t source_size_ = 0;
+    size_t dumb_index_ = 0;
+    size_t prepared_dumb_index_ = 0;
+    bool cpu_swap_red_blue_ = false;
+    std::array<uint32_t, 2> dumb_handles_{};
+    std::array<uint32_t, 2> dumb_pitches_{};
+    std::array<uint32_t, 2> dumb_framebuffers_{};
+    std::array<uint64_t, 2> dumb_sizes_{};
+    std::array<void*, 2> dumb_maps_{};
     std::array<uint32_t, 4> gem_handles_{};
 };
 
@@ -129,7 +140,7 @@ class DrmDevice {
     bool uses_atomic_kms() const { return atomic_kms_; }
     std::mutex& event_mutex() { return event_mutex_; }
 
-    std::shared_ptr<DrmFramebuffer> ImportBuffer(buffer_handle_t handle);
+    std::shared_ptr<DrmFramebuffer> ImportBuffer(int64_t display, buffer_handle_t handle);
     bool Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence);
     bool TestConfiguration(int64_t display);
     bool Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,
@@ -149,6 +160,10 @@ class DrmDevice {
                       int acquire_fence, bool test_only, android::base::unique_fd* out_fence);
     bool LegacyPresent(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
                        int acquire_fence);
+    bool PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,
+                            int* scanout_fence);
+    bool CreateCpuSwapFramebuffer(DrmFramebuffer* fb, uint32_t format);
+    bool PlaneSupportsFormat(const DrmDisplay& display, uint32_t format, uint64_t modifier) const;
     android::base::unique_fd CreateSignaledFence() const;
     uint32_t GetPropertyId(uint32_t object_id, uint32_t object_type, const char* name,
                            uint64_t* value = nullptr) const;
@@ -161,6 +176,7 @@ class DrmDevice {
     bool atomic_kms_ = false;
     bool modifiers_supported_ = false;
     bool syncobj_supported_ = false;
+    bool swap_red_blue_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;
