@@ -1,0 +1,42 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+cc_binary {
+    name: "android.hardware.graphics.composer3-service.drmfb",
+    vendor: true,
+    relative_install_path: "hw",
+    init_rc: ["android.hardware.graphics.composer3-service.drmfb.rc"],
+    vintf_fragments: ["android.hardware.graphics.composer3-service.drmfb.xml"],
+    srcs: [
+        "Composer.cpp",
+        "ComposerClient.cpp",
+        "DrmDevice.cpp",
+        "service.cpp",
+    ],
+    shared_libs: [
+        "android.hardware.common-V2-ndk",
+        "android.hardware.graphics.common-V7-ndk",
+        "android.hardware.graphics.composer3-V4-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libdrm",
+        "libhardware",
+        "liblog",
+        "libsync",
+        "libui",
+    ],
+    static_libs: ["libaidlcommonsupport"],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    cpp_std: "gnu++20",
+}
