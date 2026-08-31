@@ -637,6 +637,7 @@ bool DrmDevice::DiscoverProperties(DrmDisplay* d) {
     p.plane_crtc_w = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_W");
     p.plane_crtc_h = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_H");
     p.plane_in_fence_fd = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "IN_FENCE_FD");
+    p.plane_damage_clips = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "FB_DAMAGE_CLIPS");
     return p.connector_crtc_id && p.crtc_active && p.crtc_mode_id && p.crtc_out_fence_ptr &&
            p.plane_fb_id && p.plane_crtc_id && p.plane_src_x && p.plane_src_y && p.plane_src_w &&
            p.plane_src_h && p.plane_crtc_x && p.plane_crtc_y && p.plane_crtc_w && p.plane_crtc_h;
@@ -985,6 +986,7 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
         drmModeCreatePropertyBlob(fd_.get(), &config->mode, sizeof(config->mode), &mode_blob) != 0)
         return false;
     drmModeAtomicReq* request = drmModeAtomicAlloc();
+    uint32_t damage_blob = 0;
     int fence = -1;
     const uint32_t width = config->mode.hdisplay;
     const uint32_t height = config->mode.vdisplay;
@@ -1008,6 +1010,14 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
              AddProperty(request, d->plane_id, d->props.plane_crtc_y, 0) &&
              AddProperty(request, d->plane_id, d->props.plane_crtc_w, width) &&
              AddProperty(request, d->plane_id, d->props.plane_crtc_h, height);
+        if (ok && d->props.plane_damage_clips != 0) {
+            drm_mode_rect damage{.x1 = 0,
+                                 .y1 = 0,
+                                 .x2 = static_cast<int32_t>(fb->width()),
+                                 .y2 = static_cast<int32_t>(fb->height())};
+            ok = drmModeCreatePropertyBlob(fd_.get(), &damage, sizeof(damage), &damage_blob) == 0 &&
+                 AddProperty(request, d->plane_id, d->props.plane_damage_clips, damage_blob);
+        }
     } else if (ok) {
         ok = AddProperty(request, d->plane_id, d->props.plane_fb_id, 0) &&
              AddProperty(request, d->plane_id, d->props.plane_crtc_id, 0);
@@ -1026,6 +1036,7 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
         ok = false;
     }
     if (request != nullptr) drmModeAtomicFree(request);
+    if (damage_blob != 0) drmModeDestroyPropertyBlob(fd_.get(), damage_blob);
     if (mode_blob != 0) drmModeDestroyPropertyBlob(fd_.get(), mode_blob);
     if (test_only) {
         if (fence >= 0) close(fence);

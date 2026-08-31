@@ -45,6 +45,17 @@ compatibility format exposed by `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`
 without requiring those drivers to scan out `ABGR8888`. Multiplane, YUV, 10-bit,
 protected, or otherwise unmappable client targets are not staged.
 
+The `udl` DisplayLink driver supports generic GEM-shmem PRIME imports and
+linear `RGB565`/`XRGB8888` scanout. Android client targets use the same
+XRGB8888 staging fallback when necessary. Since `udl` transfers only damaged
+regions over USB, drmfb submits a full-frame `FB_DAMAGE_CLIPS` blob on every
+atomic present when that standard plane property is available. This also keeps
+same-buffer content updates visible on other damage-driven DRM drivers. With
+CPU conversion disabled, the allocator must provide a directly importable
+linear RGB565 or XRGB8888 target. On multi-card systems, set
+`vendor.hwc.drm.device` to the UDL primary node when it should be the composer
+device; this single-card HAL does not combine displays from multiple DRM cards.
+
 Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;

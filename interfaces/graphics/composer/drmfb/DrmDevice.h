@@ -37,6 +37,7 @@ struct DrmProperties {
     uint32_t plane_crtc_w = 0;
     uint32_t plane_crtc_h = 0;
     uint32_t plane_in_fence_fd = 0;
+    uint32_t plane_damage_clips = 0;
 };
 
 struct DrmConfig {
