@@ -177,6 +177,7 @@ class DrmDevice {
     bool modifiers_supported_ = false;
     bool syncobj_supported_ = false;
     bool swap_red_blue_ = false;
+    bool cpu_conversion_enabled_ = true;
     bool firmware_kms_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;

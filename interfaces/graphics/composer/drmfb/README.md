@@ -45,6 +45,12 @@ compatibility format exposed by `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`
 without requiring those drivers to scan out `ABGR8888`. Multiplane, YUV, 10-bit,
 protected, or otherwise unmappable client targets are not staged.
 
+Direct scanout is always preferred over CPU conversion, including compatible
+alpha-to-opaque FourCC reinterpretation. Products can set the read-only
+`vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;
+unsupported client-target formats will then fail instead of consuming CPU time.
+The default is true to retain firmware-KMS compatibility.
+
 ## Behavior
 
 - Physical connectors are ordered internal-first and then by connector ID.

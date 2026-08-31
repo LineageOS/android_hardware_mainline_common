@@ -303,6 +303,8 @@ bool DrmDevice::InitPath(const std::string& path) {
     modifiers_supported_ = false;
     syncobj_supported_ = false;
     swap_red_blue_ = ::android::base::GetBoolProperty("vendor.hwc.drmfb.swap_rb", false);
+    cpu_conversion_enabled_ =
+            ::android::base::GetBoolProperty("vendor.hwc.drmfb.cpu_conversion", true);
     firmware_kms_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
@@ -347,9 +349,10 @@ bool DrmDevice::InitPath(const std::string& path) {
         ALOGE("No usable pipeline found on %s", path.c_str());
         return false;
     }
-    ALOGI("Opened %s with %zu connector records; backend=%s firmware=%d modifiers=%d swap_rb=%d",
+    ALOGI("Opened %s with %zu connector records; backend=%s firmware=%d modifiers=%d swap_rb=%d "
+          "cpu_conversion=%d",
           path.c_str(), displays_.size(), atomic_kms_ ? "atomic" : "legacy", firmware_kms_,
-          modifiers_supported_, swap_red_blue_);
+          modifiers_supported_, swap_red_blue_, cpu_conversion_enabled_);
     return true;
 }
 
@@ -788,6 +791,10 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         }
     }
     if (staging_format != 0) {
+        if (!cpu_conversion_enabled_) {
+            ALOGE("CPU conversion disabled for unsupported client target %08x", format);
+            return nullptr;
+        }
         if (!cpu_compatible || !CreateCpuConversionFramebuffer(fb.get(), staging_format)) {
             ALOGE("Client target %08x cannot be converted to scanout format %08x", format,
                   staging_format);
@@ -822,7 +829,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
     int error;
     if (has_modifier) {
         if (!modifiers_supported_) {
-            if (cpu_compatible && atomic_kms_ &&
+            if (cpu_conversion_enabled_ && cpu_compatible && atomic_kms_ &&
                 PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888,
                                     DRM_FORMAT_MOD_LINEAR) &&
                 CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
@@ -839,7 +846,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
                               pitches.data(), offsets.data(), &fb->id_, 0);
     }
     if (error != 0) {
-        if (cpu_compatible && atomic_kms_ &&
+        if (cpu_conversion_enabled_ && cpu_compatible && atomic_kms_ &&
             PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR) &&
             CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
             return fb;
@@ -1274,7 +1281,7 @@ std::string DrmDevice::Dump() const {
     std::ostringstream out;
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
         << " modifiers=" << modifiers_supported_ << " syncobj=" << syncobj_supported_
-        << " swapRb=" << swap_red_blue_ << '\n';
+        << " swapRb=" << swap_red_blue_ << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected
             << " internal=" << d.internal << " power=" << d.powered

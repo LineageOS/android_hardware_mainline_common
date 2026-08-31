@@ -20,6 +20,8 @@ paths and explicitly prohibits local builds and tests.
   fence when syncobj or a waited acquire fence makes one available.
 - Firmware KMS drivers require CRTC activation and a primary framebuffer in one
   commit. Preserve deferred power-on and the linear XRGB8888 CPU staging path.
+- Direct scanout must remain preferred. `vendor.hwc.drmfb.cpu_conversion` is a
+  read-only opt-out for staging and defaults true for firmware-KMS compatibility.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable
