@@ -8,6 +8,7 @@
 
 #include <android-base/properties.h>
 #include <fcntl.h>
+#include <linux/videodev2.h>
 #include <log/log.h>
 #include <sync/sync.h>
 #include <sys/ioctl.h>
@@ -87,6 +88,27 @@ bool FramebufferSize(const fb_fix_screeninfo& fixed, const fb_var_screeninfo& in
 bool SameBitfield(const fb_bitfield& first, const fb_bitfield& second) {
     return first.offset == second.offset && first.length == second.length &&
            first.msb_right == second.msb_right;
+}
+
+uint32_t FourccBitsPerPixel(uint32_t format) {
+    switch (format) {
+        case V4L2_PIX_FMT_RGB565:
+            return 16;
+        case V4L2_PIX_FMT_RGB24:
+            return 24;
+        case V4L2_PIX_FMT_XRGB32:
+        case V4L2_PIX_FMT_ARGB32:
+        case V4L2_PIX_FMT_XBGR32:
+        case V4L2_PIX_FMT_ABGR32:
+        case V4L2_PIX_FMT_ARGB2101010:
+            return 32;
+        default:
+            return 0;
+    }
+}
+
+bool EmptyBitfield(const fb_bitfield& field) {
+    return field.offset == 0 && field.length == 0 && field.msb_right == 0;
 }
 
 }  // namespace
@@ -178,6 +200,18 @@ bool FbdevDevice::InitPath(const std::string& path) {
         return false;
     }
     required_line_bytes /= 8;
+    const uint32_t fourcc_bits = FourccBitsPerPixel(info.grayscale);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    const bool little_endian = true;
+#else
+    const bool little_endian = false;
+#endif
+    const bool fourcc = little_endian && (fixed.capabilities & FB_CAP_FOURCC) != 0 &&
+                        fixed.type == FB_TYPE_FOURCC && fixed.visual == FB_VISUAL_FOURCC &&
+                        fixed.type_aux == 0 && fourcc_bits != 0 &&
+                        info.bits_per_pixel == fourcc_bits && EmptyBitfield(info.red) &&
+                        EmptyBitfield(info.green) && EmptyBitfield(info.blue) &&
+                        EmptyBitfield(info.transp);
     const bool monochrome =
             (fixed.visual == FB_VISUAL_MONO01 || fixed.visual == FB_VISUAL_MONO10) &&
             info.bits_per_pixel == 1 && info.grayscale <= 1;
@@ -195,10 +229,10 @@ bool FbdevDevice::InitPath(const std::string& path) {
                                     info.bits_per_pixel == 8 && info.grayscale == 0;
     const bool valid_nonstd =
             info.nonstd == 0 || (monochrome && info.nonstd == FB_NONSTD_REV_PIX_IN_B);
-    if (fixed.type != FB_TYPE_PACKED_PIXELS ||
+    if ((!fourcc && fixed.type != FB_TYPE_PACKED_PIXELS) ||
         (!monochrome && !grayscale && !truecolor && !directcolor && !pseudocolor &&
-         !static_pseudocolor) ||
-        !valid_nonstd || info.grayscale > 1 || info.xoffset != 0 ||
+         !static_pseudocolor && !fourcc) ||
+        !valid_nonstd || (!fourcc && info.grayscale > 1) || info.xoffset != 0 ||
         info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
         info.xres_virtual < info.xres || info.yres_virtual < info.yres ||
         info.yoffset > info.yres_virtual - info.yres || info.bits_per_pixel == 0 ||
@@ -337,6 +371,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
     monochrome_ = monochrome;
     grayscale_ = grayscale;
     reverse_pixels_in_byte_ = (info.nonstd & FB_NONSTD_REV_PIX_IN_B) != 0;
+    fourcc_ = fourcc ? info.grayscale : 0;
     clear_pixel_ = clear_pixel;
     saved_cmap_red_ = std::move(saved_red);
     saved_cmap_green_ = std::move(saved_green);
@@ -557,6 +592,33 @@ bool FbdevDevice::Test(const std::shared_ptr<ImportedBuffer>& buffer) const {
 }
 
 uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const {
+    switch (fourcc_) {
+        case V4L2_PIX_FMT_RGB565:
+            return ((static_cast<uint32_t>(red) * 31 + 127) / 255 << 11) |
+                   ((static_cast<uint32_t>(green) * 63 + 127) / 255 << 5) |
+                   ((static_cast<uint32_t>(blue) * 31 + 127) / 255);
+        case V4L2_PIX_FMT_RGB24:
+            return red | (static_cast<uint32_t>(green) << 8) | (static_cast<uint32_t>(blue) << 16);
+        case V4L2_PIX_FMT_XRGB32:
+            return UINT8_MAX | (static_cast<uint32_t>(red) << 8) |
+                   (static_cast<uint32_t>(green) << 16) | (static_cast<uint32_t>(blue) << 24);
+        case V4L2_PIX_FMT_ARGB32:
+            return alpha | (static_cast<uint32_t>(red) << 8) |
+                   (static_cast<uint32_t>(green) << 16) | (static_cast<uint32_t>(blue) << 24);
+        case V4L2_PIX_FMT_XBGR32:
+            return blue | (static_cast<uint32_t>(green) << 8) | (static_cast<uint32_t>(red) << 16) |
+                   (UINT32_C(0xff) << 24);
+        case V4L2_PIX_FMT_ABGR32:
+            return blue | (static_cast<uint32_t>(green) << 8) | (static_cast<uint32_t>(red) << 16) |
+                   (static_cast<uint32_t>(alpha) << 24);
+        case V4L2_PIX_FMT_ARGB2101010:
+            return ((static_cast<uint32_t>(alpha) * 3 + 127) / 255 << 30) |
+                   ((static_cast<uint32_t>(red) * 1023 + 127) / 255 << 20) |
+                   ((static_cast<uint32_t>(green) * 1023 + 127) / 255 << 10) |
+                   ((static_cast<uint32_t>(blue) * 1023 + 127) / 255);
+        default:
+            break;
+    }
     if (pseudocolor_) {
         return (static_cast<uint32_t>(red) & 0xe0) | ((static_cast<uint32_t>(green) >> 3) & 0x1c) |
                (static_cast<uint32_t>(blue) >> 6);
@@ -888,7 +950,8 @@ std::string FbdevDevice::Dump() const {
         << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
         << " c8=" << pseudocolor_ << " staticPalette=" << static_pseudocolor_
         << " directcolor=" << directcolor_ << " mono=" << monochrome_ << " grayscale=" << grayscale_
-        << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
+        << " fourcc=0x" << std::hex << fourcc_ << std::dec << " period=" << period_ns_
+        << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
         << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
         << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
     if (have_vblank_count_) {

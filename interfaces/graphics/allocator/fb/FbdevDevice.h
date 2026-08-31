@@ -104,6 +104,7 @@ class FbdevDevice {
     bool monochrome_ = false;
     bool grayscale_ = false;
     bool reverse_pixels_in_byte_ = false;
+    uint32_t fourcc_ = 0;
     uint8_t clear_pixel_ = 0;
     bool pan_supported_ = false;
     bool requires_write_flush_ = false;

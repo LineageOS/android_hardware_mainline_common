@@ -34,6 +34,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Monochrome output requires explicit MONO01/MONO10 polarity and packed-bit
   ordering. Grayscale is limited to validated packed whole-pixel fields and
   uses luminance conversion; `swap_rb` remains before every output conversion.
+- FOURCC requires capability, type, visual, format, zero-bitfield, bpp, stride,
+  and little-endian agreement. Keep the whitelist packed RGB-only; reject
+  unknown, big-endian, YUV, and planar layouts.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
 - Virtual-height expansion may change only `yres_virtual`; re-query fixed and

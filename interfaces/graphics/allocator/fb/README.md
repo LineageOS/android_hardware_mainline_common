@@ -109,8 +109,12 @@ Unqueryable palettes are rejected rather than displaying incorrect colors.
 MONO01 and MONO10 use luminance thresholding with their declared polarity and
 explicit packed-bit ordering. Grayscale output is limited to packed 2, 4, 8, or
 16-bit modes whose coincident RGB fields span the complete pixel; conversion
-uses integer luminance and honors `msb_right`. Planar, FOURCC, and other
-nonstandard fbdev modes remain unsupported.
+uses integer luminance and honors `msb_right`. FOURCC is accepted only when the
+capability, type, visual, zero bitfields, bpp, and stride consistently describe
+a single packed V4L2 RGB565, RGB24, XRGB32, ARGB32, XBGR32, ABGR32, or
+ARGB2101010 mode. These formats use their UAPI byte layouts on little-endian
+hosts; big-endian, unknown, YUV, planar, and other nonstandard modes are
+rejected.
 
 DRM fbdev emulation, including `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`,
 maps a shadow framebuffer rather than the firmware aperture. After conversion,
