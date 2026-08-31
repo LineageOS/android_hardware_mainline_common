@@ -1,0 +1,14 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+apex {
+    name: "com.android.hardware.graphics.composer.empty",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    manifest: "apex_manifest.json",
+    vendor: true,
+    updatable: false,
+    soc_specific: true,
+}
