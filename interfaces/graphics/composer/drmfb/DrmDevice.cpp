@@ -828,6 +828,14 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         }
         return fb;
     }
+    auto try_cpu_staging = [&]() {
+        if (!cpu_conversion_enabled_ || !cpu_compatible) return false;
+        if (atomic_kms_ &&
+            !PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR)) {
+            return false;
+        }
+        return CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888);
+    };
     int fd_index = 0;
     std::set<uint32_t> acquired_handles;
     for (size_t i = 0; i < layouts.size(); ++i) {
@@ -842,6 +850,10 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         if (fd_index >= imported->numFds || imported->data[fd_index] < 0 ||
             drmPrimeFDToHandle(fd_.get(), imported->data[fd_index], &fb->gem_handles_[i]) != 0) {
             ALOGE("Cannot infer/import dma-buf for plane %zu", i);
+            if (try_cpu_staging()) {
+                ALOGI("Using CPU staging after PRIME import failure");
+                return fb;
+            }
             return nullptr;
         }
         if (acquired_handles.insert(fb->gem_handles_[i]).second) {
@@ -855,12 +867,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
     int error;
     if (has_modifier) {
         if (!modifiers_supported_) {
-            if (cpu_conversion_enabled_ && cpu_compatible && atomic_kms_ &&
-                PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888,
-                                    DRM_FORMAT_MOD_LINEAR) &&
-                CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
-                return fb;
-            }
+            if (try_cpu_staging()) return fb;
             ALOGE("Buffer requires modifier support (modifier=%" PRIu64 ")", modifier);
             return nullptr;
         }
@@ -872,11 +879,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
                               pitches.data(), offsets.data(), &fb->id_, 0);
     }
     if (error != 0) {
-        if (cpu_conversion_enabled_ && cpu_compatible && atomic_kms_ &&
-            PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR) &&
-            CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
-            return fb;
-        }
+        if (try_cpu_staging()) return fb;
         ALOGE("drmModeAddFB2 failed: %s", strerror(errno));
         return nullptr;
     }
