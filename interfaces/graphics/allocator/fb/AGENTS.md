@@ -20,6 +20,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
 - Keep hardware vsync waits interruptible, cache permanent ioctl limitations,
   keep fallback vsync stoppable, and invoke Binder callbacks without `mutex_`.
+- Trust `FBIOGET_VBLANK` fields only when their capability bits are set. The
+  generic UAPI has no timestamp field; never interpret its reserved words.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
 - Keep fbdev output generic across validated packed true-color bitfields up to
   32 bits; do not silently accept unprogrammable palettes, grayscale, planar,

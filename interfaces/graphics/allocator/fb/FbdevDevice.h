@@ -77,6 +77,7 @@ class FbdevDevice {
               const std::vector<DamageRect>& damage);
     bool ConfigurePalette(int fd) const;
     bool Flush(uint64_t offset, uint64_t size);
+    int64_t QueryVblank(int64_t fallback_timestamp_ns);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
     void WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const;
 
@@ -103,6 +104,13 @@ class FbdevDevice {
     bool has_vsync_waiter_ = false;
     bool vsync_interrupt_requested_ = false;
     std::mutex vsync_waiter_mutex_;
+    bool get_vblank_supported_ = true;
+    bool have_vblank_sample_ = false;
+    bool have_vblank_count_ = false;
+    uint32_t vblank_flags_ = 0;
+    uint32_t vblank_count_ = 0;
+    uint64_t missed_vblanks_ = 0;
+    int64_t vblank_sample_ns_ = 0;
     mutable std::mutex mutex_;
 };
 

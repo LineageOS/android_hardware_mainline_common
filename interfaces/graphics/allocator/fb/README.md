@@ -74,9 +74,12 @@ target is presented. It supports transactional lifecycle batch commands,
 target slots, expected-present timestamps, fixed-refresh debug callbacks,
 NATIVE/COLORIMETRIC behavior, client-target damage, and hardware vsync through
 `FBIO_WAITFORVSYNC`. Unsupported wait ioctls are cached and use a stoppable
-synthetic monotonic fallback. Empty damage means the full frame, while one empty
-rectangle means no changed pixels. Damage is clipped before bounded conversion
-and flush.
+synthetic monotonic fallback. After a hardware wait, `FBIOGET_VBLANK` capability
+flags and valid retrace counts improve timestamp sampling and diagnostics. The
+generic UAPI has no vblank timestamp field, so reserved fields are ignored and
+the callback uses the closest monotonic sample. Empty damage means the full
+frame, while one empty rectangle means no changed pixels. Damage is clipped
+before bounded conversion and flush.
 
 If `yres_virtual` contains multiple complete pages, frames are copied to an
 inactive page and presented with `FBIOPAN_DISPLAY`. Otherwise Composer performs

@@ -547,7 +547,7 @@ FbdevDevice::VsyncWaitResult FbdevDevice::WaitForVsync(int64_t* timestamp_ns) {
         vsync_interrupt_requested_ = false;
     }
     if (result == 0) {
-        *timestamp_ns = MonotonicNanos();
+        *timestamp_ns = QueryVblank(MonotonicNanos());
         return VsyncWaitResult::kHardware;
     }
     if (saved_errno == EINTR) return VsyncWaitResult::kInterrupted;
@@ -560,6 +560,41 @@ FbdevDevice::VsyncWaitResult FbdevDevice::WaitForVsync(int64_t* timestamp_ns) {
     }
 #endif
     return VsyncWaitResult::kFallback;
+}
+
+int64_t FbdevDevice::QueryVblank(int64_t fallback_timestamp_ns) {
+#ifdef FBIOGET_VBLANK
+    {
+        std::lock_guard lock(mutex_);
+        if (!get_vblank_supported_) return fallback_timestamp_ns;
+    }
+    fb_vblank vblank{};
+    if (ioctl(fd_.get(), FBIOGET_VBLANK, &vblank) == 0) {
+        const int64_t sample_ns = MonotonicNanos();
+        std::lock_guard lock(mutex_);
+        const bool have_count = (vblank.flags & FB_VBLANK_HAVE_COUNT) != 0;
+        if (have_count && have_vblank_count_) {
+            const uint32_t elapsed = vblank.count - vblank_count_;
+            if (elapsed > 1 && elapsed < UINT32_MAX / 2) missed_vblanks_ += elapsed - 1;
+        }
+        have_vblank_sample_ = true;
+        have_vblank_count_ = have_count;
+        vblank_flags_ = vblank.flags;
+        if (have_count) vblank_count_ = vblank.count;
+        vblank_sample_ns_ = sample_ns;
+        return sample_ns;
+    }
+    const int saved_errno = errno;
+    if (saved_errno == ENOTTY || saved_errno == EINVAL || saved_errno == ENOSYS ||
+        saved_errno == EOPNOTSUPP) {
+        std::lock_guard lock(mutex_);
+        get_vblank_supported_ = false;
+        ALOGI("FBIOGET_VBLANK unsupported on %s", path_.c_str());
+    } else {
+        ALOGW("FBIOGET_VBLANK failed on %s: %s", path_.c_str(), strerror(saved_errno));
+    }
+#endif
+    return fallback_timestamp_ns;
 }
 
 void FbdevDevice::InterruptVsyncWait() {
@@ -579,7 +614,15 @@ std::string FbdevDevice::Dump() const {
         << ':' << info_.green.length << ',' << info_.blue.offset << ':' << info_.blue.length
         << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
         << " c8=" << pseudocolor_ << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x' << ydpi_
-        << " powered=" << powered_ << " swap_rb=" << swap_red_blue_ << '\n';
+        << " powered=" << powered_ << " swap_rb=" << swap_red_blue_
+        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
+        << std::dec << " vblankCount=";
+    if (have_vblank_count_) {
+        out << vblank_count_;
+    } else {
+        out << "n/a";
+    }
+    out << " vblankSampleNs=" << vblank_sample_ns_ << " missedVblanks=" << missed_vblanks_ << '\n';
     return out.str();
 }
 
