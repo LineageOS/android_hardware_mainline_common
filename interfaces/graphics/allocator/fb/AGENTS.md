@@ -19,6 +19,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
 - Keep synthetic vsync stoppable and invoke Binder callbacks without `mutex_`.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
+- Keep fbdev output generic across validated packed true-color bitfields up to
+  32 bits; do not silently accept palette, grayscale, planar, or nonstandard
+  memory organizations.
 - Update `README.md` when capabilities, formats, ABI, properties, or packaging
   change.
 

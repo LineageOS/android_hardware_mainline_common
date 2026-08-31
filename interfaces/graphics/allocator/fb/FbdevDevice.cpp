@@ -48,7 +48,9 @@ uint8_t Expand6(uint32_t value) {
 }
 
 uint32_t FieldMask(const fb_bitfield& field) {
-    return field.length == 0 ? 0 : ((1U << field.length) - 1) << field.offset;
+    if (field.length == 0) return 0;
+    const uint64_t maximum = field.length == 32 ? UINT32_MAX : (1ULL << field.length) - 1;
+    return static_cast<uint32_t>(maximum << field.offset);
 }
 
 }  // namespace
@@ -87,21 +89,26 @@ bool FbdevDevice::InitPath(const std::string& path) {
         ALOGE("Cannot query %s: %s", path.c_str(), strerror(errno));
         return false;
     }
+    uint64_t required_line_bits;
+    uint64_t required_line_bytes;
+    if (__builtin_mul_overflow(static_cast<uint64_t>(info.xres),
+                               static_cast<uint64_t>(info.bits_per_pixel), &required_line_bits) ||
+        __builtin_add_overflow(required_line_bits, 7ULL, &required_line_bytes)) {
+        ALOGE("Overflowing fbdev line geometry on %s", path.c_str());
+        return false;
+    }
+    required_line_bytes /= 8;
     if (fixed.type != FB_TYPE_PACKED_PIXELS || fixed.visual != FB_VISUAL_TRUECOLOR ||
-        info.xoffset != 0 || info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 ||
-        info.yres == 0 || info.bits_per_pixel == 0 || info.bits_per_pixel > 32 ||
-        (info.bits_per_pixel & 7) != 0 || fixed.line_length == 0 ||
-        fixed.line_length < static_cast<uint64_t>(info.xres) * (info.bits_per_pixel / 8) ||
-        info.red.length == 0 || info.green.length == 0 || info.blue.length == 0 ||
-        info.red.length > 8 || info.green.length > 8 || info.blue.length > 8 ||
-        info.red.offset >= info.bits_per_pixel ||
+        info.nonstd != 0 || info.grayscale != 0 || info.xoffset != 0 ||
+        info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
+        info.bits_per_pixel == 0 || info.bits_per_pixel > 32 || fixed.line_length == 0 ||
+        fixed.line_length < required_line_bytes || info.red.length == 0 || info.green.length == 0 ||
+        info.blue.length == 0 || info.red.offset >= info.bits_per_pixel ||
         info.red.length > info.bits_per_pixel - info.red.offset ||
         info.green.offset >= info.bits_per_pixel ||
         info.green.length > info.bits_per_pixel - info.green.offset ||
         info.blue.offset >= info.bits_per_pixel ||
-        info.blue.length > info.bits_per_pixel - info.blue.offset || info.red.msb_right != 0 ||
-        info.green.msb_right != 0 || info.blue.msb_right != 0 || info.transp.msb_right != 0 ||
-        info.transp.length > 8 ||
+        info.blue.length > info.bits_per_pixel - info.blue.offset ||
         (info.transp.length != 0 &&
          (info.transp.offset >= info.bits_per_pixel ||
           info.transp.length > info.bits_per_pixel - info.transp.offset))) {
@@ -209,11 +216,39 @@ bool FbdevDevice::Test(const std::shared_ptr<ImportedBuffer>& buffer) const {
 uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const {
     auto channel = [](uint8_t value, const fb_bitfield& field) -> uint32_t {
         if (field.length == 0) return 0;
-        const uint32_t maximum = (1U << field.length) - 1;
-        return ((static_cast<uint32_t>(value) * maximum + 127) / 255) << field.offset;
+        const uint64_t maximum = field.length == 32 ? UINT32_MAX : (1ULL << field.length) - 1;
+        uint32_t quantized =
+                static_cast<uint32_t>((static_cast<uint64_t>(value) * maximum + 127) / 255);
+        if (field.msb_right != 0) {
+            uint32_t reversed = 0;
+            for (uint32_t bit = 0; bit < field.length; ++bit) {
+                reversed |= ((quantized >> bit) & 1U) << (field.length - bit - 1);
+            }
+            quantized = reversed;
+        }
+        return static_cast<uint32_t>(static_cast<uint64_t>(quantized) << field.offset);
     };
     return channel(red, info_.red) | channel(green, info_.green) | channel(blue, info_.blue) |
            channel(alpha, info_.transp);
+}
+
+void FbdevDevice::WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const {
+    const uint32_t bits_per_pixel = info_.bits_per_pixel;
+    const uint64_t first_bit = static_cast<uint64_t>(x) * bits_per_pixel;
+    if ((bits_per_pixel & 7U) == 0) {
+        memcpy(row + first_bit / 8, &pixel, bits_per_pixel / 8);
+        return;
+    }
+    for (uint32_t bit = 0; bit < bits_per_pixel; ++bit) {
+        const uint64_t destination_bit = first_bit + bit;
+        uint8_t& byte = row[destination_bit / 8];
+        const uint8_t mask = static_cast<uint8_t>(1U << (destination_bit & 7U));
+        if (((pixel >> bit) & 1U) != 0) {
+            byte |= mask;
+        } else {
+            byte &= static_cast<uint8_t>(~mask);
+        }
+    }
 }
 
 bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
@@ -244,7 +279,6 @@ bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
     }
     const uint8_t* pixels = source.pixels() + plane.offset;
     const uint32_t source_stride = layout.planes[0].stride;
-    const uint32_t destination_bytes = info_.bits_per_pixel / 8;
     for (uint32_t y = 0; y < info_.yres; ++y) {
         const uint8_t* source_row = pixels + static_cast<uint64_t>(y) * source_stride;
         uint8_t* destination_row = destination + static_cast<uint64_t>(y) * fixed_.line_length;
@@ -289,8 +323,7 @@ bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
             }
             if (swap_red_blue_) std::swap(red, blue);
             const uint32_t output = Pack(red, green, blue, alpha);
-            memcpy(destination_row + static_cast<uint64_t>(x) * destination_bytes, &output,
-                   destination_bytes);
+            WritePixel(destination_row, x, output);
         }
     }
     return true;

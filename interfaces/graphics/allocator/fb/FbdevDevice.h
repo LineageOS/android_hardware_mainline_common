@@ -61,6 +61,7 @@ class FbdevDevice {
     bool InitPath(const std::string& path);
     bool Copy(const ImportedBuffer& source, uint8_t* destination);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
+    void WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const;
 
     android::base::unique_fd fd_;
     std::string path_;

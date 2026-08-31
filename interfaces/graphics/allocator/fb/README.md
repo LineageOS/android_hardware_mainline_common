@@ -85,6 +85,8 @@ Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
 mode changes, hotplug discovery, and refresh-rate switching are unsupported.
 Fbdev has no reliable completion fence, and synthetic vsync is not hardware
-phase locked. Output bitfields are limited to 8 bits per RGB channel and 32
-bits per pixel. Use the Composer Binder dump for geometry, channel layout,
+phase locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
+RGB and optional alpha bitfields within 1-32 bits per pixel, including RGB565
+and XRGB2101010. Palette, grayscale, planar, FOURCC, and nonstandard fbdev modes
+remain unsupported. Use the Composer Binder dump for geometry, channel layout,
 page, power, target, layer, and validation state.
