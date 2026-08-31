@@ -12,9 +12,11 @@
 #include <aidl/android/hardware/graphics/composer3/PresentFence.h>
 #include <aidl/android/hardware/graphics/composer3/PresentOrValidate.h>
 #include <aidlcommonsupport/NativeHandle.h>
+#include <android-base/strings.h>
 #include <android/binder_ibinder_platform.h>
 #include <cutils/native_handle.h>
 #include <log/log.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -24,12 +26,12 @@
 #include <cinttypes>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <sstream>
 
 namespace aidl::android::hardware::graphics::composer3::impl {
 namespace {
 
-constexpr int64_t kDisplay = 0;
 constexpr int32_t kConfig = 0;
 constexpr int32_t kBadConfig = IComposerClient::EX_BAD_CONFIG;
 constexpr int32_t kBadDisplay = IComposerClient::EX_BAD_DISPLAY;
@@ -39,6 +41,7 @@ constexpr int32_t kNoResources = IComposerClient::EX_NO_RESOURCES;
 constexpr int32_t kNotValidated = IComposerClient::EX_NOT_VALIDATED;
 constexpr int32_t kUnsupported = IComposerClient::EX_UNSUPPORTED;
 constexpr int32_t kMaxBufferSlots = 4096;
+constexpr int32_t kMaxFramebufferDevices = 32;
 
 }  // namespace
 
@@ -46,20 +49,56 @@ ComposerClient::ComposerClient(std::string path) : path_(std::move(path)) {}
 
 ComposerClient::~ComposerClient() {
     stopping_ = true;
-    device_.InterruptVsyncWait();
+    for (const auto& display : displays_) display->device->InterruptVsyncWait();
     vsync_cv_.notify_all();
-    if (vsync_thread_.joinable()) vsync_thread_.join();
+    for (const auto& display : displays_) {
+        if (display->vsync_thread.joinable()) display->vsync_thread.join();
+    }
     std::lock_guard lock(mutex_);
     callback_.reset();
-    state_.target.reset();
-    state_.target_damage.clear();
-    state_.target_slots.clear();
+    for (const auto& display : displays_) {
+        display->state.target.reset();
+        display->state.target_damage.clear();
+        display->state.target_slots.clear();
+    }
     ALOGI("Composer client stopped");
 }
 
 bool ComposerClient::Init() {
-    if (!device_.Init(path_)) return false;
-    vsync_thread_ = std::thread(&ComposerClient::VsyncLoop, this);
+    std::vector<std::string> candidates;
+    if (!path_.empty()) {
+        for (const std::string& path : ::android::base::Split(path_, ",")) {
+            const std::string trimmed = ::android::base::Trim(path);
+            if (!trimmed.empty()) candidates.push_back(trimmed);
+        }
+    } else {
+        for (int32_t index = 0; index < kMaxFramebufferDevices; ++index) {
+            candidates.push_back("/dev/graphics/fb" + std::to_string(index));
+            candidates.push_back("/dev/fb" + std::to_string(index));
+        }
+    }
+    std::set<dev_t> devices;
+    for (const std::string& path : candidates) {
+        struct stat status{};
+        if (stat(path.c_str(), &status) != 0 || !S_ISCHR(status.st_mode) ||
+            devices.count(status.st_rdev) != 0) {
+            continue;
+        }
+        auto context = std::make_unique<DisplayContext>();
+        context->device = std::make_unique<fb::FbdevDevice>();
+        if (context->device->Init(path)) {
+            devices.insert(status.st_rdev);
+            displays_.push_back(std::move(context));
+        }
+    }
+    if (displays_.empty()) {
+        ALOGE("No usable fbdev displays found");
+        return false;
+    }
+    for (size_t display = 0; display < displays_.size(); ++display) {
+        displays_[display]->vsync_thread =
+                std::thread(&ComposerClient::VsyncLoop, this, static_cast<int64_t>(display));
+    }
     return true;
 }
 
@@ -68,7 +107,15 @@ ndk::ScopedAStatus ComposerClient::Error(int32_t error) {
 }
 
 bool ComposerClient::IsDisplay(int64_t display) const {
-    return display == kDisplay;
+    return display >= 0 && static_cast<size_t>(display) < displays_.size();
+}
+
+ComposerClient::DisplayContext* ComposerClient::GetDisplay(int64_t display) {
+    return IsDisplay(display) ? displays_[display].get() : nullptr;
+}
+
+const ComposerClient::DisplayContext* ComposerClient::GetDisplay(int64_t display) const {
+    return IsDisplay(display) ? displays_[display].get() : nullptr;
 }
 
 ndk::ScopedAStatus ComposerClient::UnsupportedDisplay(int64_t display) {
@@ -80,11 +127,12 @@ ndk::ScopedAStatus ComposerClient::createLayer(int64_t display, int32_t slots, i
     if (slots < 0) return Error(kBadParameter);
     if (slots > kMaxBufferSlots) return Error(kNoResources);
     std::lock_guard lock(mutex_);
-    if (state_.next_layer == std::numeric_limits<int64_t>::max()) return Error(kNoResources);
-    *layer = state_.next_layer;
-    ++state_.next_layer;
-    state_.layers.emplace(*layer, LayerState{.slots = slots});
-    state_.validation = ValidationState::kDirty;
+    DisplayState& state = GetDisplay(display)->state;
+    if (state.next_layer == std::numeric_limits<int64_t>::max()) return Error(kNoResources);
+    *layer = state.next_layer;
+    ++state.next_layer;
+    state.layers.emplace(*layer, LayerState{.slots = slots});
+    state.validation = ValidationState::kDirty;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -96,12 +144,13 @@ ndk::ScopedAStatus ComposerClient::createVirtualDisplay(int32_t, int32_t, common
 ndk::ScopedAStatus ComposerClient::destroyLayer(int64_t display, int64_t layer) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
     std::lock_guard lock(mutex_);
-    if (state_.layers.erase(layer) == 0) return Error(kBadLayer);
-    if (state_.layers.empty()) {
-        state_.target.reset();
-        state_.target_fence.reset();
+    DisplayState& state = GetDisplay(display)->state;
+    if (state.layers.erase(layer) == 0) return Error(kBadLayer);
+    if (state.layers.empty()) {
+        state.target.reset();
+        state.target_fence.reset();
     }
-    state_.validation = ValidationState::kDirty;
+    state.validation = ValidationState::kDirty;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -225,8 +274,10 @@ bool ComposerClient::ApplyLayerLocked(DisplayState* state, const LayerCommand& c
     return true;
 }
 
-bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarget& target,
+bool ComposerClient::SetClientTargetLocked(DisplayContext* display, const ClientTarget& target,
                                            int32_t* error) {
+    DisplayState* state = &display->state;
+    fb::FbdevDevice* device = display->device.get();
     const Buffer& buffer = target.buffer;
     if (buffer.slot < 0 || static_cast<size_t>(buffer.slot) >= state->target_slots.size()) {
         *error = kBadParameter;
@@ -238,7 +289,7 @@ bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarg
             *error = kBadParameter;
             return false;
         }
-        auto imported = device_.ImportBuffer(raw);
+        auto imported = device->ImportBuffer(raw);
         native_handle_delete(raw);
         if (imported == nullptr) {
             *error = kBadParameter;
@@ -253,7 +304,7 @@ bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarg
     }
     state->target_damage.clear();
     if (target.damage.empty()) {
-        state->target_damage.push_back({0, 0, device_.width(), device_.height()});
+        state->target_damage.push_back({0, 0, device->width(), device->height()});
     } else if (!(target.damage.size() == 1 && target.damage[0].left == target.damage[0].right &&
                  target.damage[0].top == target.damage[0].bottom)) {
         for (const common::Rect& rect : target.damage) {
@@ -261,11 +312,11 @@ bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarg
                 *error = kBadParameter;
                 return false;
             }
-            const int32_t left = std::clamp(rect.left, 0, static_cast<int32_t>(device_.width()));
-            const int32_t top = std::clamp(rect.top, 0, static_cast<int32_t>(device_.height()));
-            const int32_t right = std::clamp(rect.right, 0, static_cast<int32_t>(device_.width()));
+            const int32_t left = std::clamp(rect.left, 0, static_cast<int32_t>(device->width()));
+            const int32_t top = std::clamp(rect.top, 0, static_cast<int32_t>(device->height()));
+            const int32_t right = std::clamp(rect.right, 0, static_cast<int32_t>(device->width()));
             const int32_t bottom =
-                    std::clamp(rect.bottom, 0, static_cast<int32_t>(device_.height()));
+                    std::clamp(rect.bottom, 0, static_cast<int32_t>(device->height()));
             if (left < right && top < bottom) {
                 state->target_damage.push_back(
                         {static_cast<uint32_t>(left), static_cast<uint32_t>(top),
@@ -285,10 +336,10 @@ bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarg
     return true;
 }
 
-void ComposerClient::ValidateLocked(DisplayState* state,
+void ComposerClient::ValidateLocked(int64_t display, DisplayState* state,
                                     std::vector<CommandResultPayload>* results) {
     ChangedCompositionTypes changes;
-    changes.display = kDisplay;
+    changes.display = display;
     for (const auto& [id, layer] : state->layers) {
         if (layer.composition != Composition::CLIENT) {
             changes.layers.push_back({.layer = id, .composition = Composition::CLIENT});
@@ -299,8 +350,9 @@ void ComposerClient::ValidateLocked(DisplayState* state,
     if (!changes.layers.empty()) results->emplace_back(std::move(changes));
 }
 
-bool ComposerClient::PresentLocked(DisplayState* state, std::vector<CommandResultPayload>* results,
-                                   int32_t* error) {
+bool ComposerClient::PresentLocked(int64_t display, DisplayContext* context,
+                                   std::vector<CommandResultPayload>* results, int32_t* error) {
+    DisplayState* state = &context->state;
     if (state->validation != ValidationState::kValidated) {
         *error = kNotValidated;
         return false;
@@ -310,8 +362,8 @@ bool ComposerClient::PresentLocked(DisplayState* state, std::vector<CommandResul
         return false;
     }
     ::android::base::unique_fd fence;
-    const bool presented =
-            device_.Present(state->target, state->target_damage, state->target_fence.get(), &fence);
+    const bool presented = context->device->Present(state->target, state->target_damage,
+                                                    state->target_fence.get(), &fence);
     state->target_fence.reset();
     if (!presented) {
         *error = kNoResources;
@@ -319,7 +371,7 @@ bool ComposerClient::PresentLocked(DisplayState* state, std::vector<CommandResul
     }
     if (fence.ok()) {
         PresentFence present;
-        present.display = kDisplay;
+        present.display = display;
         present.fence = ndk::ScopedFileDescriptor(fence.release());
         results->emplace_back(std::move(present));
     }
@@ -341,26 +393,28 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             AddError(i, kUnsupported, results);
             continue;
         }
-        const auto saved_layers = state_.layers;
-        const auto saved_slots = state_.target_slots;
-        const auto saved_target = state_.target;
-        const auto saved_damage = state_.target_damage;
-        const int64_t saved_next_layer = state_.next_layer;
-        const ValidationState saved_validation = state_.validation;
+        DisplayContext* context = GetDisplay(command.display);
+        DisplayState& state = context->state;
+        const auto saved_layers = state.layers;
+        const auto saved_slots = state.target_slots;
+        const auto saved_target = state.target;
+        const auto saved_damage = state.target_damage;
+        const int64_t saved_next_layer = state.next_layer;
+        const ValidationState saved_validation = state.validation;
         ::android::base::unique_fd saved_fence(
-                state_.target_fence.ok() ? dup(state_.target_fence.get()) : -1);
-        if (state_.target_fence.ok() && !saved_fence.ok()) {
+                state.target_fence.ok() ? dup(state.target_fence.get()) : -1);
+        if (state.target_fence.ok() && !saved_fence.ok()) {
             AddError(i, kNoResources, results);
             continue;
         }
         auto restore = [&] {
-            state_.layers = saved_layers;
-            state_.target_slots = saved_slots;
-            state_.target = saved_target;
-            state_.target_damage = saved_damage;
-            state_.next_layer = saved_next_layer;
-            state_.validation = saved_validation;
-            state_.target_fence = std::move(saved_fence);
+            state.layers = saved_layers;
+            state.target_slots = saved_slots;
+            state.target = saved_target;
+            state.target_damage = saved_damage;
+            state.next_layer = saved_next_layer;
+            state.validation = saved_validation;
+            state.target_fence = std::move(saved_fence);
         };
         int32_t error = 0;
         bool valid = true;
@@ -368,15 +422,15 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             AddError(i, kBadParameter, results);
             continue;
         }
-        if (command.colorTransformMatrix) state_.validation = ValidationState::kDirty;
+        if (command.colorTransformMatrix) state.validation = ValidationState::kDirty;
         for (const LayerCommand& layer : command.layers) {
-            if (!ApplyLayerLocked(&state_, layer, &error)) {
+            if (!ApplyLayerLocked(&state, layer, &error)) {
                 valid = false;
                 break;
             }
         }
         if (valid && command.clientTarget) {
-            valid = SetClientTargetLocked(&state_, *command.clientTarget, &error);
+            valid = SetClientTargetLocked(context, *command.clientTarget, &error);
         }
         if (!valid) {
             restore();
@@ -384,8 +438,8 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             continue;
         }
         if (command.validateDisplay || command.presentOrValidateDisplay) {
-            ValidateLocked(&state_, results);
-            if (!device_.Test(state_.target)) {
+            ValidateLocked(command.display, &state, results);
+            if (!context->device->Test(state.target)) {
                 results->resize(result_start);
                 restore();
                 AddError(i, kNoResources, results);
@@ -393,18 +447,18 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             }
         }
         if (command.acceptDisplayChanges) {
-            if (state_.validation == ValidationState::kDirty) {
+            if (state.validation == ValidationState::kDirty) {
                 results->resize(result_start);
                 restore();
                 AddError(i, kNotValidated, results);
                 continue;
             }
-            for (auto& item : state_.layers) item.second.composition = Composition::CLIENT;
-            state_.validation = ValidationState::kValidated;
+            for (auto& item : state.layers) item.second.composition = Composition::CLIENT;
+            state.validation = ValidationState::kValidated;
         }
         if (command.presentOrValidateDisplay) {
             results->emplace_back(PresentOrValidate{
-                    .display = kDisplay, .result = PresentOrValidate::Result::Validated});
+                    .display = command.display, .result = PresentOrValidate::Result::Validated});
         }
         if (command.presentDisplay) {
             if (command.expectedPresentTime && command.expectedPresentTime->timestampNanos > 0) {
@@ -415,7 +469,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
                        EINTR) {
                 }
             }
-            if (!PresentLocked(&state_, results, &error)) {
+            if (!PresentLocked(command.display, context, results, &error)) {
                 results->resize(result_start);
                 restore();
                 AddError(i, error, results);
@@ -448,21 +502,22 @@ ndk::ScopedAStatus ComposerClient::getDisplayAttribute(int64_t display, int32_t 
                                                        DisplayAttribute attribute, int32_t* value) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
     if (config != kConfig) return Error(kBadConfig);
+    const fb::FbdevDevice* device = GetDisplay(display)->device.get();
     switch (attribute) {
         case DisplayAttribute::WIDTH:
-            *value = device_.width();
+            *value = device->width();
             break;
         case DisplayAttribute::HEIGHT:
-            *value = device_.height();
+            *value = device->height();
             break;
         case DisplayAttribute::VSYNC_PERIOD:
-            *value = device_.period_ns();
+            *value = device->period_ns();
             break;
         case DisplayAttribute::DPI_X:
-            *value = static_cast<int32_t>(device_.xdpi() * 1000);
+            *value = static_cast<int32_t>(device->xdpi() * 1000);
             break;
         case DisplayAttribute::DPI_Y:
-            *value = static_cast<int32_t>(device_.ydpi() * 1000);
+            *value = static_cast<int32_t>(device->ydpi() * 1000);
             break;
         case DisplayAttribute::CONFIG_GROUP:
             *value = 0;
@@ -501,13 +556,13 @@ ndk::ScopedAStatus ComposerClient::getDisplayIdentificationData(int64_t display,
 
 ndk::ScopedAStatus ComposerClient::getDisplayName(int64_t display, std::string* name) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
-    *name = "fbdev-0";
+    *name = "fbdev-" + std::to_string(display) + " (" + GetDisplay(display)->device->path() + ")";
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus ComposerClient::getDisplayVsyncPeriod(int64_t display, int32_t* period) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
-    *period = device_.period_ns();
+    *period = GetDisplay(display)->device->period_ns();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -524,7 +579,7 @@ ndk::ScopedAStatus ComposerClient::getDisplayedContentSamplingAttributes(
 ndk::ScopedAStatus ComposerClient::getDisplayPhysicalOrientation(int64_t display,
                                                                  common::Transform* orientation) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
-    switch (device_.rotation()) {
+    switch (GetDisplay(display)->device->rotation()) {
         case FB_ROTATE_UR:
             *orientation = common::Transform::NONE;
             break;
@@ -599,10 +654,14 @@ ndk::ScopedAStatus ComposerClient::registerCallback(
         if (callback_ != nullptr) return Error(kBadParameter);
         callback_ = callback;
     }
-    const ndk::ScopedAStatus status =
-            callback->onHotplugEvent(kDisplay, common::DisplayHotplugEvent::CONNECTED);
-    if (!status.isOk())
-        ALOGW("Initial hotplug callback failed: %s", status.getDescription().c_str());
+    for (size_t display = 0; display < displays_.size(); ++display) {
+        const ndk::ScopedAStatus status = callback->onHotplugEvent(
+                static_cast<int64_t>(display), common::DisplayHotplugEvent::CONNECTED);
+        if (!status.isOk()) {
+            ALOGW("Initial hotplug callback failed for display %zu: %s", display,
+                  status.getDescription().c_str());
+        }
+    }
     return ndk::ScopedAStatus::ok();
 }
 
@@ -650,10 +709,11 @@ ndk::ScopedAStatus ComposerClient::setClientTargetSlotCount(int64_t display, int
     if (count < 0) return Error(kBadParameter);
     if (count > kMaxBufferSlots) return Error(kNoResources);
     std::lock_guard lock(mutex_);
-    state_.target.reset();
-    state_.target_damage.clear();
-    state_.target_slots.assign(count, nullptr);
-    state_.target_fence.reset();
+    DisplayState& state = GetDisplay(display)->state;
+    state.target.reset();
+    state.target_damage.clear();
+    state.target_slots.assign(count, nullptr);
+    state.target_fence.reset();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -697,10 +757,11 @@ ndk::ScopedAStatus ComposerClient::setPowerMode(int64_t display, PowerMode mode)
     }
     std::lock_guard callback_lock(vsync_callback_mutex_);
     std::lock_guard lock(mutex_);
-    if (!device_.SetPower(on)) return Error(kNoResources);
-    if (!on) state_.vsync_enabled = false;
+    DisplayContext* context = GetDisplay(display);
+    if (!context->device->SetPower(on)) return Error(kNoResources);
+    if (!on) context->state.vsync_enabled = false;
     vsync_cv_.notify_all();
-    device_.InterruptVsyncWait();
+    context->device->InterruptVsyncWait();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -715,10 +776,10 @@ ndk::ScopedAStatus ComposerClient::setVsyncEnabled(int64_t display, bool enabled
     {
         std::lock_guard callback_lock(vsync_callback_mutex_);
         std::lock_guard lock(mutex_);
-        state_.vsync_enabled = enabled;
+        GetDisplay(display)->state.vsync_enabled = enabled;
     }
     vsync_cv_.notify_all();
-    device_.InterruptVsyncWait();
+    GetDisplay(display)->device->InterruptVsyncWait();
     return ndk::ScopedAStatus::ok();
 }
 
@@ -746,15 +807,16 @@ ndk::ScopedAStatus ComposerClient::setRefreshRateChangedCallbackDebugEnabled(int
     if (!IsDisplay(display)) return Error(kBadDisplay);
     std::unique_lock refresh_lock(refresh_callback_mutex_);
     std::shared_ptr<IComposerCallback> callback;
+    const fb::FbdevDevice* device = GetDisplay(display)->device.get();
     {
         std::lock_guard lock(mutex_);
-        state_.refresh_debug_enabled = enabled;
+        GetDisplay(display)->state.refresh_debug_enabled = enabled;
         callback = callback_;
     }
     if (enabled && callback != nullptr) {
-        RefreshRateChangedDebugData data{.display = kDisplay,
-                                         .vsyncPeriodNanos = device_.period_ns(),
-                                         .refreshPeriodNanos = device_.period_ns()};
+        RefreshRateChangedDebugData data{.display = display,
+                                         .vsyncPeriodNanos = device->period_ns(),
+                                         .refreshPeriodNanos = device->period_ns()};
         const auto status = callback->onRefreshRateChangedDebug(data);
         if (!status.isOk())
             ALOGW("Refresh debug callback failed: %s", status.getDescription().c_str());
@@ -765,14 +827,15 @@ ndk::ScopedAStatus ComposerClient::setRefreshRateChangedCallbackDebugEnabled(int
 ndk::ScopedAStatus ComposerClient::getDisplayConfigurations(
         int64_t display, int32_t, std::vector<DisplayConfiguration>* configurations) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
+    const fb::FbdevDevice* device = GetDisplay(display)->device.get();
     DisplayConfiguration config;
     config.configId = kConfig;
-    config.width = device_.width();
-    config.height = device_.height();
+    config.width = device->width();
+    config.height = device->height();
     config.configGroup = 0;
-    config.vsyncPeriod = device_.period_ns();
+    config.vsyncPeriod = device->period_ns();
     config.hdrOutputType = OutputType::SDR;
-    config.dpi = DisplayConfiguration::Dpi{.x = device_.xdpi(), .y = device_.ydpi()};
+    config.dpi = DisplayConfiguration::Dpi{.x = device->xdpi(), .y = device->ydpi()};
     *configurations = {config};
     return ndk::ScopedAStatus::ok();
 }
@@ -803,27 +866,30 @@ int64_t ComposerClient::MonotonicNanos() {
     return static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
 }
 
-void ComposerClient::VsyncLoop() {
+void ComposerClient::VsyncLoop(int64_t display) {
+    DisplayContext* context = GetDisplay(display);
     int64_t next = MonotonicNanos();
     while (!stopping_) {
         std::shared_ptr<IComposerCallback> callback;
-        const int32_t period = device_.period_ns();
+        const int32_t period = context->device->period_ns();
         {
             std::unique_lock lock(mutex_);
-            vsync_cv_.wait(lock, [this] { return stopping_ || state_.vsync_enabled; });
+            vsync_cv_.wait(lock,
+                           [this, context] { return stopping_ || context->state.vsync_enabled; });
             if (stopping_) break;
             callback = callback_;
         }
         int64_t timestamp = 0;
-        const fb::FbdevDevice::VsyncWaitResult wait = device_.WaitForVsync(&timestamp);
+        const fb::FbdevDevice::VsyncWaitResult wait = context->device->WaitForVsync(&timestamp);
         if (wait == fb::FbdevDevice::VsyncWaitResult::kInterrupted) continue;
         if (wait == fb::FbdevDevice::VsyncWaitResult::kFallback) {
             std::unique_lock lock(mutex_);
             next = std::max(next + period, MonotonicNanos());
             const auto deadline =
                     std::chrono::steady_clock::time_point(std::chrono::nanoseconds(next));
-            if (vsync_cv_.wait_until(lock, deadline,
-                                     [this] { return stopping_ || !state_.vsync_enabled; })) {
+            if (vsync_cv_.wait_until(lock, deadline, [this, context] {
+                    return stopping_ || !context->state.vsync_enabled;
+                })) {
                 continue;
             }
             timestamp = MonotonicNanos();
@@ -835,10 +901,13 @@ void ComposerClient::VsyncLoop() {
             std::lock_guard callback_lock(vsync_callback_mutex_);
             {
                 std::lock_guard lock(mutex_);
-                if (!state_.vsync_enabled) continue;
+                if (!context->state.vsync_enabled) continue;
             }
-            const auto status = callback->onVsync(kDisplay, timestamp, period);
-            if (!status.isOk()) ALOGW("Vsync callback failed: %s", status.getDescription().c_str());
+            const auto status = callback->onVsync(display, timestamp, period);
+            if (!status.isOk()) {
+                ALOGW("Vsync callback failed for display %" PRId64 ": %s", display,
+                      status.getDescription().c_str());
+            }
         }
     }
     ALOGI("Vsync worker stopped");
@@ -847,13 +916,17 @@ void ComposerClient::VsyncLoop() {
 std::string ComposerClient::Dump() {
     std::lock_guard lock(mutex_);
     std::ostringstream out;
-    out << "fbdev Composer3 V4\n"
-        << device_.Dump() << " display=0 config=0 layers=" << state_.layers.size()
-        << " targetSlots=" << state_.target_slots.size()
-        << " target=" << (state_.target ? state_.target->view().allocation_id : 0)
-        << " validation=" << static_cast<int>(state_.validation)
-        << " vsync=" << state_.vsync_enabled << " refreshDebug=" << state_.refresh_debug_enabled
-        << '\n';
+    out << "fbdev Composer3 V4 displays=" << displays_.size() << '\n';
+    for (size_t id = 0; id < displays_.size(); ++id) {
+        const DisplayContext& display = *displays_[id];
+        out << display.device->Dump() << " display=" << id
+            << " config=0 layers=" << display.state.layers.size()
+            << " targetSlots=" << display.state.target_slots.size()
+            << " target=" << (display.state.target ? display.state.target->view().allocation_id : 0)
+            << " validation=" << static_cast<int>(display.state.validation)
+            << " vsync=" << display.state.vsync_enabled
+            << " refreshDebug=" << display.state.refresh_debug_enabled << '\n';
+    }
     return out.str();
 }
 

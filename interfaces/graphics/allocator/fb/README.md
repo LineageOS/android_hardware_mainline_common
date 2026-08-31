@@ -33,8 +33,10 @@ provided here. The product sepolicy must also map `mapper/fb` to
 
 ## Properties
 
-- `vendor.hwc.fbdev.device` is a read-only explicit fbdev path. Without it the
-  composer tries `/dev/graphics/fb0` and then `/dev/fb0`.
+- `vendor.hwc.fbdev.device` is a read-only comma-separated list of explicit
+  fbdev paths. Without it the composer scans indices 0 through 31, trying
+  `/dev/graphics/fbN` before `/dev/fbN` for each index without stopping at gaps.
+  Aliases for the same character device are deduplicated.
 - `vendor.hwc.fbdev.swap_rb` is a read-only boolean, default false. It swaps
   source red and blue only in the bounded RGB conversion path.
 
@@ -68,14 +70,18 @@ fence.
 
 ## Composer Scope
 
-The composer exposes one internal physical display and one fixed configuration
-from fbdev. Every layer is validated as `Composition.CLIENT`; only the client
-target is presented. It supports transactional lifecycle batch commands,
-target slots, expected-present timestamps, fixed-refresh debug callbacks,
-NATIVE/COLORIMETRIC behavior, client-target damage, and hardware vsync through
-`FBIO_WAITFORVSYNC`. Unsupported wait ioctls are cached and use a stoppable
-synthetic monotonic fallback. After a hardware wait, `FBIOGET_VBLANK` capability
-flags and valid retrace counts improve timestamp sampling and diagnostics. The
+The composer exposes each enumerated fbdev node as an internal physical display
+with one fixed configuration. Explicit paths retain property order; automatic
+enumeration makes the preferred fb0 node display 0. Every layer is validated as
+`Composition.CLIENT`; only that display's client target is presented. Devices
+have independent layer/target state, power, configuration, damage, and
+interruptible vsync workers. The composer supports transactional lifecycle
+batch commands, target slots, expected-present timestamps, fixed-refresh debug
+callbacks, NATIVE/COLORIMETRIC behavior, client-target damage, and hardware
+vsync through `FBIO_WAITFORVSYNC`. Unsupported wait ioctls are cached and use a
+stoppable synthetic monotonic fallback. After a hardware wait,
+`FBIOGET_VBLANK` capability flags and valid retrace counts improve timestamp
+sampling and diagnostics. The
 generic UAPI has no vblank timestamp field, so reserved fields are ignored and
 the callback uses the closest monotonic sample. Empty damage means the full
 frame, while one empty rectangle means no changed pixels. Damage is clipped
@@ -95,7 +101,9 @@ not assumed to be synchronized.
 
 Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
-mode changes, hotplug discovery, and refresh-rate switching are unsupported.
+mode changes, runtime hotplug discovery, and refresh-rate switching are
+unsupported.
+
 Fbdev has no reliable completion fence, and fallback vsync is not hardware phase
 locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
 RGB and optional alpha bitfields within 1-32 bits per pixel, including RGB565

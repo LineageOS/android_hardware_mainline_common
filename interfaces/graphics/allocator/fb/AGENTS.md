@@ -17,6 +17,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Preserve command-index errors, transactional lifecycle batches, target slot
   and damage semantics, and the validate/accept/present state machine. Empty
   damage is full-frame; one empty rectangle means no changed pixels.
+- Keep per-display layers, targets, slots, power, callbacks, configuration, and
+  vsync state isolated. Enumeration is bounded, gap-tolerant, deterministic,
+  and deduplicated by device identity; display 0 keeps fb0 preference.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
 - Keep hardware vsync waits interruptible, cache permanent ioctl limitations,
   keep fallback vsync stoppable, and invoke Binder callbacks without `mutex_`.

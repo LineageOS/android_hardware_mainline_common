@@ -133,18 +133,26 @@ class ComposerClient : public BnComposerClient {
         bool vsync_enabled = false;
         bool refresh_debug_enabled = false;
     };
+    struct DisplayContext {
+        std::unique_ptr<fb::FbdevDevice> device;
+        DisplayState state;
+        std::thread vsync_thread;
+    };
 
     static ndk::ScopedAStatus Error(int32_t error);
     static int64_t MonotonicNanos();
     bool IsDisplay(int64_t display) const;
+    DisplayContext* GetDisplay(int64_t display);
+    const DisplayContext* GetDisplay(int64_t display) const;
     ndk::ScopedAStatus UnsupportedDisplay(int64_t display);
     bool ApplyLayerLocked(DisplayState* state, const LayerCommand& command, int32_t* error);
-    bool SetClientTargetLocked(DisplayState* state, const ClientTarget& target, int32_t* error);
+    bool SetClientTargetLocked(DisplayContext* display, const ClientTarget& target, int32_t* error);
     void AddError(size_t index, int32_t error, std::vector<CommandResultPayload>* results);
-    void ValidateLocked(DisplayState* state, std::vector<CommandResultPayload>* results);
-    bool PresentLocked(DisplayState* state, std::vector<CommandResultPayload>* results,
-                       int32_t* error);
-    void VsyncLoop();
+    void ValidateLocked(int64_t display, DisplayState* state,
+                        std::vector<CommandResultPayload>* results);
+    bool PresentLocked(int64_t display, DisplayContext* context,
+                       std::vector<CommandResultPayload>* results, int32_t* error);
+    void VsyncLoop(int64_t display);
 
     const std::string path_;
     mutable std::mutex mutex_;
@@ -152,11 +160,9 @@ class ComposerClient : public BnComposerClient {
     std::mutex refresh_callback_mutex_;
     std::mutex vsync_callback_mutex_;
     std::condition_variable vsync_cv_;
-    fb::FbdevDevice device_;
-    DisplayState state_;
+    std::vector<std::unique_ptr<DisplayContext>> displays_;
     std::shared_ptr<IComposerCallback> callback_;
     std::atomic<bool> stopping_{false};
-    std::thread vsync_thread_;
 };
 
 }  // namespace aidl::android::hardware::graphics::composer3::impl
