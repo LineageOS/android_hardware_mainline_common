@@ -176,12 +176,14 @@ bool FbdevDevice::InitPath(const std::string& path) {
     const bool truecolor = fixed.visual == FB_VISUAL_TRUECOLOR;
     const bool directcolor = fixed.visual == FB_VISUAL_DIRECTCOLOR;
     const bool pseudocolor = fixed.visual == FB_VISUAL_PSEUDOCOLOR && info.bits_per_pixel == 8;
-    if (fixed.type != FB_TYPE_PACKED_PIXELS || (!truecolor && !directcolor && !pseudocolor) ||
-        info.nonstd != 0 || info.grayscale > 1 || info.xoffset != 0 ||
-        info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
-        info.xres_virtual < info.xres || info.yres_virtual < info.yres ||
-        info.yoffset > info.yres_virtual - info.yres || info.bits_per_pixel == 0 ||
-        info.bits_per_pixel > 32 || fixed.line_length == 0 ||
+    const bool static_pseudocolor =
+            fixed.visual == FB_VISUAL_STATIC_PSEUDOCOLOR && info.bits_per_pixel == 8;
+    if (fixed.type != FB_TYPE_PACKED_PIXELS ||
+        (!truecolor && !directcolor && !pseudocolor && !static_pseudocolor) || info.nonstd != 0 ||
+        info.grayscale > 1 || info.xoffset != 0 || info.yoffset % std::max(info.yres, 1U) != 0 ||
+        info.xres == 0 || info.yres == 0 || info.xres_virtual < info.xres ||
+        info.yres_virtual < info.yres || info.yoffset > info.yres_virtual - info.yres ||
+        info.bits_per_pixel == 0 || info.bits_per_pixel > 32 || fixed.line_length == 0 ||
         fixed.line_length < required_line_bytes) {
         ALOGE("Unsupported fbdev geometry or channel layout on %s", path.c_str());
         return false;
@@ -267,6 +269,19 @@ bool FbdevDevice::InitPath(const std::string& path) {
         munmap(map, map_size);
         return false;
     }
+    std::vector<uint8_t> static_lookup;
+    if (static_pseudocolor && !ConfigureStaticPalette(candidate.get(), &static_lookup)) {
+        ALOGE("Unable to read static palette on %s", path.c_str());
+        munmap(map, map_size);
+        return false;
+    }
+    const uint8_t clear_pixel = static_lookup.empty() ? 0 : static_lookup[0];
+    if (!blank_supported && clear_pixel != 0) {
+        memset(map, clear_pixel, map_size);
+        if (msync(map, map_size, MS_SYNC) != 0) {
+            ALOGW("Static-palette framebuffer clear failed: %s", strerror(errno));
+        }
+    }
     struct sigaction previous{};
     bool vsync_signal_installed = sigaction(kVsyncInterruptSignal, nullptr, &previous) == 0;
     if (vsync_signal_installed && previous.sa_handler != SIG_DFL &&
@@ -298,10 +313,13 @@ bool FbdevDevice::InitPath(const std::string& path) {
     vsync_signal_installed_ = vsync_signal_installed;
     pseudocolor_ = pseudocolor;
     directcolor_ = directcolor;
+    static_pseudocolor_ = static_pseudocolor;
+    clear_pixel_ = clear_pixel;
     saved_cmap_red_ = std::move(saved_red);
     saved_cmap_green_ = std::move(saved_green);
     saved_cmap_blue_ = std::move(saved_blue);
     saved_cmap_alpha_ = std::move(saved_alpha);
+    static_palette_lookup_ = std::move(static_lookup);
     const std::string id(fixed_.id, strnlen(fixed_.id, sizeof(fixed_.id)));
     requires_write_flush_ = id == "efidrmdrmfb" || id == "ofdrmdrmfb" || id == "simpledrmdrmfb" ||
                             id == "vesadrmdrmfb";
@@ -437,6 +455,46 @@ void FbdevDevice::RestoreColorMap() {
     saved_cmap_alpha_.clear();
 }
 
+bool FbdevDevice::ConfigureStaticPalette(int fd, std::vector<uint8_t>* lookup) const {
+    constexpr uint32_t kEntries = 256;
+    constexpr uint32_t kCubeLevels = 16;
+    std::array<uint16_t, kEntries> red{};
+    std::array<uint16_t, kEntries> green{};
+    std::array<uint16_t, kEntries> blue{};
+    fb_cmap map{.start = 0,
+                .len = kEntries,
+                .red = red.data(),
+                .green = green.data(),
+                .blue = blue.data(),
+                .transp = nullptr};
+    if (ioctl(fd, FBIOGETCMAP, &map) != 0) return false;
+    lookup->resize(kCubeLevels * kCubeLevels * kCubeLevels);
+    for (uint32_t r = 0; r < kCubeLevels; ++r) {
+        for (uint32_t g = 0; g < kCubeLevels; ++g) {
+            for (uint32_t b = 0; b < kCubeLevels; ++b) {
+                const int32_t target_red = r * 255 / (kCubeLevels - 1);
+                const int32_t target_green = g * 255 / (kCubeLevels - 1);
+                const int32_t target_blue = b * 255 / (kCubeLevels - 1);
+                uint32_t best_distance = UINT32_MAX;
+                uint8_t best_index = 0;
+                for (uint32_t i = 0; i < kEntries; ++i) {
+                    const int32_t delta_red = target_red - (red[i] + 128) / 257;
+                    const int32_t delta_green = target_green - (green[i] + 128) / 257;
+                    const int32_t delta_blue = target_blue - (blue[i] + 128) / 257;
+                    const uint32_t distance = delta_red * delta_red + delta_green * delta_green +
+                                              delta_blue * delta_blue;
+                    if (distance < best_distance) {
+                        best_distance = distance;
+                        best_index = static_cast<uint8_t>(i);
+                    }
+                }
+                (*lookup)[(r << 8) | (g << 4) | b] = best_index;
+            }
+        }
+    }
+    return true;
+}
+
 bool FbdevDevice::Flush(uint64_t offset, uint64_t size) {
     const auto* source = static_cast<const uint8_t*>(framebuffer_) + offset;
     uint64_t written = 0;
@@ -479,6 +537,12 @@ uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alp
     if (pseudocolor_) {
         return (static_cast<uint32_t>(red) & 0xe0) | ((static_cast<uint32_t>(green) >> 3) & 0x1c) |
                (static_cast<uint32_t>(blue) >> 6);
+    }
+    if (static_pseudocolor_) {
+        const uint32_t r = (static_cast<uint32_t>(red) * 15 + 127) / 255;
+        const uint32_t g = (static_cast<uint32_t>(green) * 15 + 127) / 255;
+        const uint32_t b = (static_cast<uint32_t>(blue) * 15 + 127) / 255;
+        return static_palette_lookup_[(r << 8) | (g << 4) | b];
     }
     auto channel = [](uint8_t value, const fb_bitfield& field) -> uint32_t {
         if (field.length == 0) return 0;
@@ -610,7 +674,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
     std::lock_guard lock(mutex_);
     if (!powered_) return false;
     if (buffer == nullptr) {
-        memset(framebuffer_, 0, framebuffer_size_);
+        memset(framebuffer_, clear_pixel_, framebuffer_size_);
         if (!Flush(0, framebuffer_size_)) return false;
         if (acquire_fence >= 0) present_fence->reset(dup(acquire_fence));
         return true;
@@ -672,7 +736,7 @@ bool FbdevDevice::SetPower(bool on) {
         return false;
     }
     if (!blank_supported_ && !on) {
-        memset(framebuffer_, 0, framebuffer_size_);
+        memset(framebuffer_, clear_pixel_, framebuffer_size_);
         if (!Flush(0, framebuffer_size_)) return false;
     }
     powered_ = on;
@@ -772,10 +836,11 @@ std::string FbdevDevice::Dump() const {
         << " rgba=" << info_.red.offset << ':' << info_.red.length << ',' << info_.green.offset
         << ':' << info_.green.length << ',' << info_.blue.offset << ':' << info_.blue.length
         << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
-        << " c8=" << pseudocolor_ << " directcolor=" << directcolor_ << " period=" << period_ns_
-        << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
-        << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
-        << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
+        << " c8=" << pseudocolor_ << " staticPalette=" << static_pseudocolor_
+        << " directcolor=" << directcolor_ << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x'
+        << ydpi_ << " powered=" << powered_ << " swap_rb=" << swap_red_blue_
+        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
+        << std::dec << " vblankCount=";
     if (have_vblank_count_) {
         out << vblank_count_;
     } else {

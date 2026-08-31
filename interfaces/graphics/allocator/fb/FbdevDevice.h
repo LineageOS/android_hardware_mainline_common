@@ -79,6 +79,7 @@ class FbdevDevice {
     bool ConfigureDirectColor(int fd, const fb_var_screeninfo& info, std::vector<uint16_t>* red,
                               std::vector<uint16_t>* green, std::vector<uint16_t>* blue,
                               std::vector<uint16_t>* alpha) const;
+    bool ConfigureStaticPalette(int fd, std::vector<uint8_t>* lookup) const;
     void RestoreColorMap();
     bool Flush(uint64_t offset, uint64_t size);
     int64_t QueryVblank(int64_t fallback_timestamp_ns);
@@ -99,6 +100,8 @@ class FbdevDevice {
     bool swap_red_blue_ = false;
     bool pseudocolor_ = false;
     bool directcolor_ = false;
+    bool static_pseudocolor_ = false;
+    uint8_t clear_pixel_ = 0;
     bool pan_supported_ = false;
     bool requires_write_flush_ = false;
     bool blank_supported_ = false;
@@ -120,6 +123,7 @@ class FbdevDevice {
     std::vector<uint16_t> saved_cmap_green_;
     std::vector<uint16_t> saved_cmap_blue_;
     std::vector<uint16_t> saved_cmap_alpha_;
+    std::vector<uint8_t> static_palette_lookup_;
     mutable std::mutex mutex_;
 };
 

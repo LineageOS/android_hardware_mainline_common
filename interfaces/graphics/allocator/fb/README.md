@@ -103,9 +103,10 @@ and XRGB2101010. Direct-color modes are accepted only when their channel lookup
 tables have at most 16-bit indices and the existing colormap can be saved before
 linear ramps are installed; the saved map is restored when the device closes.
 Native mutable C8 pseudocolor requires successful RGB332 colormap programming;
-static or unprogrammable palettes are rejected rather than displaying incorrect
-colors. Grayscale, planar, FOURCC, and nonstandard fbdev modes remain
-unsupported.
+read-only 8-bit `STATIC_PSEUDOCOLOR` queries its 256 entries without modifying
+them and uses a precomputed quantized nearest-color lookup for conversion.
+Unqueryable palettes are rejected rather than displaying incorrect colors.
+Grayscale, planar, FOURCC, and nonstandard fbdev modes remain unsupported.
 
 DRM fbdev emulation, including `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`,
 maps a shadow framebuffer rather than the firmware aperture. After conversion,

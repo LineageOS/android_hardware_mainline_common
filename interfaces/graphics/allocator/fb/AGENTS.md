@@ -27,9 +27,10 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   32 bits; do not silently accept unprogrammable palettes, grayscale, planar,
   or nonstandard memory organizations. DIRECTCOLOR requires saved, bounded
   linear ramps and colormap restoration on device release.
-- C8 is the sole palette exception and uses RGB332. Preserve the fbdev `pwrite`
-  damage-notification path because DRM sysfb drivers expose deferred shadow
-  mappings rather than direct firmware scanout memory.
+- Mutable C8 uses RGB332. Read-only 8-bit STATIC_PSEUDOCOLOR must query but never
+  change its palette and use the precomputed bounded nearest-color lookup.
+  Preserve the fbdev `pwrite` damage-notification path because DRM sysfb drivers
+  expose deferred shadow mappings rather than direct firmware scanout memory.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
 - Virtual-height expansion may change only `yres_virtual`; re-query fixed and
