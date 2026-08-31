@@ -51,6 +51,7 @@ ComposerClient::~ComposerClient() {
     std::lock_guard lock(mutex_);
     callback_.reset();
     state_.target.reset();
+    state_.target_damage.clear();
     state_.target_slots.clear();
     ALOGI("Composer client stopped");
 }
@@ -249,6 +250,28 @@ bool ComposerClient::SetClientTargetLocked(DisplayState* state, const ClientTarg
         *error = kBadParameter;
         return false;
     }
+    state->target_damage.clear();
+    if (target.damage.empty()) {
+        state->target_damage.push_back({0, 0, device_.width(), device_.height()});
+    } else if (!(target.damage.size() == 1 && target.damage[0].left == target.damage[0].right &&
+                 target.damage[0].top == target.damage[0].bottom)) {
+        for (const common::Rect& rect : target.damage) {
+            if (rect.left > rect.right || rect.top > rect.bottom) {
+                *error = kBadParameter;
+                return false;
+            }
+            const int32_t left = std::clamp(rect.left, 0, static_cast<int32_t>(device_.width()));
+            const int32_t top = std::clamp(rect.top, 0, static_cast<int32_t>(device_.height()));
+            const int32_t right = std::clamp(rect.right, 0, static_cast<int32_t>(device_.width()));
+            const int32_t bottom =
+                    std::clamp(rect.bottom, 0, static_cast<int32_t>(device_.height()));
+            if (left < right && top < bottom) {
+                state->target_damage.push_back(
+                        {static_cast<uint32_t>(left), static_cast<uint32_t>(top),
+                         static_cast<uint32_t>(right), static_cast<uint32_t>(bottom)});
+            }
+        }
+    }
     if (buffer.fence.get() >= 0) {
         state->target_fence.reset(dup(buffer.fence.get()));
         if (!state->target_fence.ok()) {
@@ -286,7 +309,8 @@ bool ComposerClient::PresentLocked(DisplayState* state, std::vector<CommandResul
         return false;
     }
     ::android::base::unique_fd fence;
-    const bool presented = device_.Present(state->target, state->target_fence.get(), &fence);
+    const bool presented =
+            device_.Present(state->target, state->target_damage, state->target_fence.get(), &fence);
     state->target_fence.reset();
     if (!presented) {
         *error = kNoResources;
@@ -319,6 +343,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         const auto saved_layers = state_.layers;
         const auto saved_slots = state_.target_slots;
         const auto saved_target = state_.target;
+        const auto saved_damage = state_.target_damage;
         const int64_t saved_next_layer = state_.next_layer;
         const ValidationState saved_validation = state_.validation;
         ::android::base::unique_fd saved_fence(
@@ -331,6 +356,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             state_.layers = saved_layers;
             state_.target_slots = saved_slots;
             state_.target = saved_target;
+            state_.target_damage = saved_damage;
             state_.next_layer = saved_next_layer;
             state_.validation = saved_validation;
             state_.target_fence = std::move(saved_fence);
@@ -609,6 +635,7 @@ ndk::ScopedAStatus ComposerClient::setClientTargetSlotCount(int64_t display, int
     if (count > kMaxBufferSlots) return Error(kNoResources);
     std::lock_guard lock(mutex_);
     state_.target.reset();
+    state_.target_damage.clear();
     state_.target_slots.assign(count, nullptr);
     state_.target_fence.reset();
     return ndk::ScopedAStatus::ok();

@@ -13,10 +13,18 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "Buffer.h"
 
 namespace fb {
+
+struct DamageRect {
+    uint32_t left;
+    uint32_t top;
+    uint32_t right;
+    uint32_t bottom;
+};
 
 class ImportedBuffer {
   public:
@@ -45,7 +53,8 @@ class FbdevDevice {
     bool Init(const std::string& explicit_path);
     std::shared_ptr<ImportedBuffer> ImportBuffer(const native_handle_t* handle);
     bool Test(const std::shared_ptr<ImportedBuffer>& buffer) const;
-    bool Present(const std::shared_ptr<ImportedBuffer>& buffer, int acquire_fence,
+    bool Present(const std::shared_ptr<ImportedBuffer>& buffer,
+                 const std::vector<DamageRect>& damage, int acquire_fence,
                  android::base::unique_fd* present_fence);
     bool SetPower(bool on);
     std::string Dump() const;
@@ -59,7 +68,8 @@ class FbdevDevice {
 
   private:
     bool InitPath(const std::string& path);
-    bool Copy(const ImportedBuffer& source, uint8_t* destination);
+    bool Copy(const ImportedBuffer& source, uint8_t* destination,
+              const std::vector<DamageRect>& damage);
     bool ConfigurePalette(int fd) const;
     bool Flush(uint64_t offset, uint64_t size);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;

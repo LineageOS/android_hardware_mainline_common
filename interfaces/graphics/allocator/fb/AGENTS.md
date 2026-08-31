@@ -15,7 +15,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Use platform standard metadata encoders and decoders.
 - Every Composer layer becomes CLIENT. YUV buffers never reach fbdev scanout.
 - Preserve command-index errors, transactional lifecycle batches, target slot
-  semantics, and the validate/accept/present state machine.
+  and damage semantics, and the validate/accept/present state machine. Empty
+  damage is full-frame; one empty rectangle means no changed pixels.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
 - Keep synthetic vsync stoppable and invoke Binder callbacks without `mutex_`.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
@@ -25,6 +26,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - C8 is the sole palette exception and uses RGB332. Preserve the fbdev `pwrite`
   damage-notification path because DRM sysfb drivers expose deferred shadow
   mappings rather than direct firmware scanout memory.
+- Keep partial conversion and flush bounded to clipped damage, but copy a full
+  frame before panning to a backing page whose contents are not synchronized.
 - Update `README.md` when capabilities, formats, ABI, properties, or packaging
   change.
 

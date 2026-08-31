@@ -72,7 +72,9 @@ The composer exposes one internal physical display and one fixed configuration
 from fbdev. Every layer is validated as `Composition.CLIENT`; only the client
 target is presented. It supports transactional lifecycle batch commands,
 target slots, expected-present timestamps, fixed-refresh debug callbacks,
-NATIVE/COLORIMETRIC behavior, and stoppable synthetic monotonic vsync.
+NATIVE/COLORIMETRIC behavior, client-target damage, and stoppable synthetic
+monotonic vsync. Empty damage means the full frame, while one empty rectangle
+means no changed pixels. Damage is clipped before bounded conversion and flush.
 
 If `yres_virtual` contains multiple complete pages, frames are copied to an
 inactive page and presented with `FBIOPAN_DISPLAY`. Otherwise Composer performs
@@ -80,6 +82,8 @@ a best-effort `FBIO_WAITFORVSYNC` and copies to the visible page. Acquire fences
 are waited for up to three seconds. A waited acquire sync-file is duplicated as
 the present fence when available; otherwise no fence is returned under
 `PRESENT_FENCE_IS_NOT_RELIABLE`. Eventfds are never exposed as fences.
+Switching backing pages still copies the full frame because page contents are
+not assumed to be synchronized.
 
 Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless

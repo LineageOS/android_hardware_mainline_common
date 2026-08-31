@@ -265,7 +265,19 @@ bool FbdevDevice::Flush(uint64_t offset, uint64_t size) {
         ALOGE("Incomplete fbdev damage write: %" PRIu64 " of %" PRIu64 " bytes", written, size);
         return false;
     }
-    if (msync(framebuffer_, framebuffer_size_, MS_SYNC) == 0) return true;
+    const long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size > 0) {
+        const uint64_t aligned_offset = offset - offset % static_cast<uint64_t>(page_size);
+        uint64_t end;
+        if (!__builtin_add_overflow(offset, size, &end)) {
+            const uint64_t sync_size = end - aligned_offset;
+            if (sync_size <= framebuffer_size_ - aligned_offset &&
+                msync(static_cast<uint8_t*>(framebuffer_) + aligned_offset, sync_size, MS_SYNC) ==
+                        0) {
+                return true;
+            }
+        }
+    }
     ALOGW("Unable to flush fbdev mapping: %s", strerror(errno));
     return false;
 }
@@ -318,7 +330,8 @@ void FbdevDevice::WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const {
     }
 }
 
-bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
+bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination,
+                       const std::vector<DamageRect>& damage) {
     const BufferLayout& layout = source.view().layout;
     if (layout.planes.size() != 1) return false;
     uint64_t source_row_bytes;
@@ -346,57 +359,60 @@ bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
     }
     const uint8_t* pixels = source.pixels() + plane.offset;
     const uint32_t source_stride = layout.planes[0].stride;
-    for (uint32_t y = 0; y < info_.yres; ++y) {
-        const uint8_t* source_row = pixels + static_cast<uint64_t>(y) * source_stride;
-        uint8_t* destination_row = destination + static_cast<uint64_t>(y) * fixed_.line_length;
-        for (uint32_t x = 0; x < info_.xres; ++x) {
-            uint8_t red = 0;
-            uint8_t green = 0;
-            uint8_t blue = 0;
-            uint8_t alpha = 255;
-            switch (layout.format) {
-                case PixelFormat::RGBA_8888:
-                    red = source_row[x * 4];
-                    green = source_row[x * 4 + 1];
-                    blue = source_row[x * 4 + 2];
-                    alpha = source_row[x * 4 + 3];
-                    break;
-                case PixelFormat::RGBX_8888:
-                    red = source_row[x * 4];
-                    green = source_row[x * 4 + 1];
-                    blue = source_row[x * 4 + 2];
-                    break;
-                case PixelFormat::BGRA_8888:
-                    blue = source_row[x * 4];
-                    green = source_row[x * 4 + 1];
-                    red = source_row[x * 4 + 2];
-                    alpha = source_row[x * 4 + 3];
-                    break;
-                case PixelFormat::RGB_888:
-                    red = source_row[x * 3];
-                    green = source_row[x * 3 + 1];
-                    blue = source_row[x * 3 + 2];
-                    break;
-                case PixelFormat::RGB_565: {
-                    uint16_t value;
-                    memcpy(&value, source_row + x * 2, sizeof(value));
-                    red = Expand5((value >> 11) & 0x1f);
-                    green = Expand6((value >> 5) & 0x3f);
-                    blue = Expand5(value & 0x1f);
-                    break;
+    for (const DamageRect& rect : damage) {
+        for (uint32_t y = rect.top; y < rect.bottom; ++y) {
+            const uint8_t* source_row = pixels + static_cast<uint64_t>(y) * source_stride;
+            uint8_t* destination_row = destination + static_cast<uint64_t>(y) * fixed_.line_length;
+            for (uint32_t x = rect.left; x < rect.right; ++x) {
+                uint8_t red = 0;
+                uint8_t green = 0;
+                uint8_t blue = 0;
+                uint8_t alpha = 255;
+                switch (layout.format) {
+                    case PixelFormat::RGBA_8888:
+                        red = source_row[x * 4];
+                        green = source_row[x * 4 + 1];
+                        blue = source_row[x * 4 + 2];
+                        alpha = source_row[x * 4 + 3];
+                        break;
+                    case PixelFormat::RGBX_8888:
+                        red = source_row[x * 4];
+                        green = source_row[x * 4 + 1];
+                        blue = source_row[x * 4 + 2];
+                        break;
+                    case PixelFormat::BGRA_8888:
+                        blue = source_row[x * 4];
+                        green = source_row[x * 4 + 1];
+                        red = source_row[x * 4 + 2];
+                        alpha = source_row[x * 4 + 3];
+                        break;
+                    case PixelFormat::RGB_888:
+                        red = source_row[x * 3];
+                        green = source_row[x * 3 + 1];
+                        blue = source_row[x * 3 + 2];
+                        break;
+                    case PixelFormat::RGB_565: {
+                        uint16_t value;
+                        memcpy(&value, source_row + x * 2, sizeof(value));
+                        red = Expand5((value >> 11) & 0x1f);
+                        green = Expand6((value >> 5) & 0x3f);
+                        blue = Expand5(value & 0x1f);
+                        break;
+                    }
+                    default:
+                        return false;
                 }
-                default:
-                    return false;
+                if (swap_red_blue_) std::swap(red, blue);
+                const uint32_t output = Pack(red, green, blue, alpha);
+                WritePixel(destination_row, x, output);
             }
-            if (swap_red_blue_) std::swap(red, blue);
-            const uint32_t output = Pack(red, green, blue, alpha);
-            WritePixel(destination_row, x, output);
         }
     }
     return true;
 }
 
-bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acquire_fence,
+bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
+                          const std::vector<DamageRect>& damage, int acquire_fence,
                           android::base::unique_fd* present_fence) {
     if (present_fence == nullptr || !Test(buffer)) return false;
     present_fence->reset();
@@ -413,7 +429,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
         return true;
     }
     uint32_t target_page = current_page_;
-    if (pan_supported_) target_page = (current_page_ + 1) % page_count_;
+    if (pan_supported_ && !damage.empty()) target_page = (current_page_ + 1) % page_count_;
     const uint64_t offset = static_cast<uint64_t>(target_page) * info_.yres * fixed_.line_length;
     const uint64_t page_size = static_cast<uint64_t>(info_.yres) * fixed_.line_length;
     if (offset + page_size > framebuffer_size_) return false;
@@ -428,11 +444,21 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
         (void)argument;
 #endif
     }
-    if (!Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + offset)) {
+    const std::vector<DamageRect> full_frame = {{0, 0, info_.xres, info_.yres}};
+    const std::vector<DamageRect>& copy_damage = target_page == current_page_ ? damage : full_frame;
+    if (!Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + offset, copy_damage)) {
         ALOGE("Client target conversion failed");
         return false;
     }
-    if (!Flush(offset, page_size)) return false;
+    for (const DamageRect& rect : copy_damage) {
+        const uint64_t first_byte = static_cast<uint64_t>(rect.left) * info_.bits_per_pixel / 8;
+        const uint64_t last_byte =
+                (static_cast<uint64_t>(rect.right) * info_.bits_per_pixel + 7) / 8;
+        for (uint32_t y = rect.top; y < rect.bottom; ++y) {
+            const uint64_t row_offset = offset + static_cast<uint64_t>(y) * fixed_.line_length;
+            if (!Flush(row_offset + first_byte, last_byte - first_byte)) return false;
+        }
+    }
     if (pan_supported_) {
         fb_var_screeninfo pan = info_;
         pan.xoffset = 0;
@@ -453,7 +479,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
             const uint64_t visible_offset =
                     static_cast<uint64_t>(current_page_) * info_.yres * fixed_.line_length;
             if (visible_offset + page_size > framebuffer_size_ ||
-                !Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + visible_offset)) {
+                !Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + visible_offset, full_frame)) {
                 return false;
             }
             if (!Flush(visible_offset, page_size)) return false;

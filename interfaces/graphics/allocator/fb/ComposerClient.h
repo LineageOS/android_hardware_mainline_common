@@ -127,6 +127,7 @@ class ComposerClient : public BnComposerClient {
         std::map<int64_t, LayerState> layers;
         std::vector<std::shared_ptr<fb::ImportedBuffer>> target_slots;
         std::shared_ptr<fb::ImportedBuffer> target;
+        std::vector<fb::DamageRect> target_damage;
         ::android::base::unique_fd target_fence;
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
