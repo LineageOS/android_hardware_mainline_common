@@ -147,14 +147,14 @@ genrule {
     name: "gen_fb_allocator_apex_init_rc",
     srcs: ["android.hardware.graphics.allocator-service.fb.rc"],
     out: ["android.hardware.graphics.allocator-service.fb.apex.rc"],
-    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.fb/bin/%' $(in) > $(out)",
+    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.allocator/bin/%' $(in) > $(out)",
 }
 
 genrule {
     name: "gen_fb_composer_apex_init_rc",
     srcs: ["android.hardware.graphics.composer3-service.fb.rc"],
     out: ["android.hardware.graphics.composer3-service.fb.apex.rc"],
-    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.fb/bin/%' $(in) > $(out)",
+    cmd: "sed -e 's%/vendor/bin/%/apex/com.android.hardware.graphics.allocator/bin/%' $(in) > $(out)",
 }
 
 prebuilt_etc {
@@ -182,7 +182,7 @@ filegroup {
 }
 
 apex_defaults {
-    name: "com.android.hardware.graphics.fb.defaults",
+    name: "com.android.hardware.graphics.allocator.fb.defaults",
     key: "com.android.hardware.key",
     certificate: ":com.android.hardware.certificate",
     file_contexts: ":fb_graphics_apex_file_contexts",
@@ -200,19 +200,19 @@ apex_defaults {
         "fb_allocator_apex_vintf",
         "fb_mapper_apex_vintf",
         "fb_composer_apex_vintf",
-        "fb_graphics_apex_linker_config",
+        "fb_allocator_apex_linker_config",
     ],
 }
 
 linker_config {
-    name: "fb_graphics_apex_linker_config",
+    name: "fb_allocator_apex_linker_config",
     src: "fb-apex-linkerconfig.json",
     installable: false,
 }
 
 apex {
-    name: "com.android.hardware.graphics.fb",
-    defaults: ["com.android.hardware.graphics.fb.defaults"],
+    name: "com.android.hardware.graphics.allocator.fb",
+    defaults: ["com.android.hardware.graphics.allocator.fb.defaults"],
     prebuilts: [
         "fb_allocator_apex_init_rc",
         "fb_composer_apex_init_rc",

@@ -1,5 +1,5 @@
 {
-    "name": "com.android.hardware.graphics.fb",
+    "name": "com.android.hardware.graphics.allocator",
     "version": 1,
     "vendorBootstrap": true
 }
