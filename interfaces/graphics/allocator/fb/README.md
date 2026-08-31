@@ -56,7 +56,9 @@ compression, or GPU-private memory.
 GPU texture/render usage flags are accepted only to interoperate with software
 EGL/Vulkan implementations that consume mapper-locked shared memory. These
 allocations do not satisfy a hardware GPU driver's dma-buf or private-memory
-requirements. Front-buffer allocations are intentionally unsupported.
+requirements. Mapper CPU locks are therefore permitted on these software GPU
+buffers even when the original descriptor did not contain CPU usage bits.
+Front-buffer allocations are intentionally unsupported.
 
 Mutable dataspace, blend mode, SMPTE2086, and CTA861_3 values are in the shared
 metadata memfd and serialized across processes with advisory file locks.

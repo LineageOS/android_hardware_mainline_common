@@ -202,12 +202,13 @@ AIMapper_Error Mapper::lock(buffer_handle_t buffer, uint64_t cpu_usage, ARect re
     if (imported == nullptr) return AIMAPPER_ERROR_BAD_BUFFER;
     const uint64_t read_usage = cpu_usage & 0xf;
     const uint64_t write_usage = cpu_usage & 0xf0;
-    const bool valid_read = read_usage == 0 || read_usage == 2 || read_usage == 3;
-    const bool valid_write = write_usage == 0 || write_usage == 0x20 || write_usage == 0x30;
-    const uint64_t allocation_read = imported->view.layout.usage & 0xf;
-    const uint64_t allocation_write = imported->view.layout.usage & 0xf0;
-    if (cpu_usage == 0 || (cpu_usage & ~kCpuUsageMask) != 0 || !valid_read || !valid_write ||
-        (read_usage != 0 && allocation_read == 0) || (write_usage != 0 && allocation_write == 0)) {
+    const bool valid_read =
+            read_usage == 0 || read_usage == 2 || read_usage == 3 || read_usage == 0xb;
+    const bool valid_write =
+            write_usage == 0 || write_usage == 0x20 || write_usage == 0x30 || write_usage == 0xb0;
+    if (cpu_usage == 0 || (cpu_usage & ~kCpuUsageMask) != 0 || !valid_read || !valid_write) {
+        ALOGW("Rejected CPU lock usage 0x%" PRIx64 " for id=%" PRIu64, cpu_usage,
+              imported->view.allocation_id);
         return AIMAPPER_ERROR_BAD_VALUE;
     }
     const bool whole =
