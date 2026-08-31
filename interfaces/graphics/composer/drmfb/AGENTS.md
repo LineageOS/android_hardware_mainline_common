@@ -26,6 +26,8 @@ paths and explicitly prohibits local builds and tests.
   staging; do not allow the general conversion opt-out to bypass it.
 - Damage-driven drivers such as `udl` need `FB_DAMAGE_CLIPS` even when the
   framebuffer ID is unchanged. Preserve full-frame damage on atomic presents.
+- `gud` uses the same generic shmem, XRGB staging, full-damage, and synthetic
+  vsync paths; avoid a driver-specific branch unless its kernel ABI changes.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable

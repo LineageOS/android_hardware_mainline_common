@@ -56,6 +56,14 @@ linear RGB565 or XRGB8888 target. On multi-card systems, set
 `vendor.hwc.drm.device` to the UDL primary node when it should be the composer
 device; this single-card HAL does not combine displays from multiple DRM cards.
 
+The `gud` Generic USB Display driver has the same compatible GEM-shmem and
+damage-driven model. It exposes linear XRGB8888 either natively or through its
+kernel conversion path, so drmfb uses direct import when possible and the
+existing XRGB8888 staging fallback otherwise. Full-frame damage ensures every
+present is transferred over USB, and synthetic vsync covers the absence of a
+hardware vblank source. As with UDL, select its primary node explicitly on a
+multi-card system when the USB display should own the composer service.
+
 Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;
