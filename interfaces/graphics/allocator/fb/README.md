@@ -14,7 +14,7 @@ Install these standalone modules together:
 - `android.hardware.graphics.composer3-service.fb`
 
 Alternatively install the non-updatable, SoC-specific vendor-bootstrap APEX
-`com.android.hardware.graphics.fb`. For APEX products, set
+`com.android.hardware.graphics.allocator.fb`. For APEX products, set
 `fb_graphics.include_init_rc=false` and
 `fb_graphics.include_vintf_fragments=false` to avoid duplicate standalone init
 and VINTF installation. The APEX uses the platform hardware key and certificate
