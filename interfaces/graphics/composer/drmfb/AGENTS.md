@@ -31,6 +31,8 @@ paths and explicitly prohibits local builds and tests.
 - `ComposerClient.*`: AIDL methods, command/state handling, callbacks/workers.
 - `DrmDevice.*`: resource/property discovery, FB import, atomic and legacy KMS.
 - `service.cpp`, RC, XML, and `Android.bp`: vendor service integration.
+- `drmfb-apex-*`: vendor APEX manifest and SELinux file labels. The APEX init
+  module rewrites the standalone `/vendor/bin/` path at build time.
 
 Keep changes minimal and Google C++ style. Do not use exceptions or catch
 blocks. Update `README.md` when changing supported behavior.

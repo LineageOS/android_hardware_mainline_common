@@ -7,18 +7,19 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
-cc_binary {
-    name: "android.hardware.graphics.composer3-service.drmfb",
-    vendor: true,
-    relative_install_path: "hw",
-    init_rc: ["android.hardware.graphics.composer3-service.drmfb.rc"],
-    vintf_fragments: ["android.hardware.graphics.composer3-service.drmfb.xml"],
+filegroup {
+    name: "drmfb_composer3_service_sources",
     srcs: [
         "Composer.cpp",
         "ComposerClient.cpp",
         "DrmDevice.cpp",
         "service.cpp",
     ],
+}
+
+cc_defaults {
+    name: "android.hardware.graphics.composer3-service.drmfb.defaults",
+    srcs: [":drmfb_composer3_service_sources"],
     shared_libs: [
         "android.hardware.common-V2-ndk",
         "android.hardware.graphics.common-V7-ndk",
@@ -39,4 +40,74 @@ cc_binary {
         "-Werror",
     ],
     cpp_std: "gnu++20",
+    relative_install_path: "hw",
+    vendor: true,
+}
+
+cc_binary {
+    name: "android.hardware.graphics.composer3-service.drmfb",
+    defaults: ["android.hardware.graphics.composer3-service.drmfb.defaults"],
+    init_rc: select(soong_config_variable("drmfb_composer", "include_init_rc"), {
+        false: [],
+        default: ["android.hardware.graphics.composer3-service.drmfb.rc"],
+    }),
+    vintf_fragments: select(soong_config_variable("drmfb_composer", "include_vintf_fragments"), {
+        false: [],
+        default: ["android.hardware.graphics.composer3-service.drmfb.xml"],
+    }),
+}
+
+prebuilt_etc {
+    name: "drmfb_composer3_apex_vintf",
+    src: "android.hardware.graphics.composer3-service.drmfb.xml",
+    filename_from_src: true,
+    sub_dir: "vintf",
+    vendor: true,
+    installable: false,
+}
+
+genrule {
+    name: "gen_drmfb_composer3_apex_init_rc",
+    srcs: ["android.hardware.graphics.composer3-service.drmfb.rc"],
+    out: ["android.hardware.graphics.composer3-service.drmfb.apex.rc"],
+    cmd: "sed " +
+        "-e 's%/vendor/bin/%/apex/com.android.hardware.graphics.composer/bin/%' " +
+        "$(in) > $(out)",
+}
+
+prebuilt_etc {
+    name: "drmfb_composer3_apex_init_rc",
+    src: ":gen_drmfb_composer3_apex_init_rc",
+    filename_from_src: true,
+    vendor: true,
+}
+
+filegroup {
+    name: "drmfb_composer3_apex_file_contexts",
+    srcs: ["drmfb-apex-file-contexts"],
+}
+
+filegroup {
+    name: "drmfb_composer3_apex_manifest",
+    srcs: ["drmfb-apex-manifest.json"],
+}
+
+apex_defaults {
+    name: "com.android.hardware.graphics.composer.drmfb.defaults",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: ":drmfb_composer3_apex_file_contexts",
+    manifest: ":drmfb_composer3_apex_manifest",
+    vendor: true,
+    updatable: false,
+    soc_specific: true,
+    binaries: ["android.hardware.graphics.composer3-service.drmfb"],
+    prebuilts: ["drmfb_composer3_apex_vintf"],
+}
+
+apex {
+    name: "com.android.hardware.graphics.composer.drmfb",
+    defaults: ["com.android.hardware.graphics.composer.drmfb.defaults"],
+    manifest: ":drmfb_composer3_apex_manifest",
+    prebuilts: ["drmfb_composer3_apex_init_rc"],
 }

@@ -17,6 +17,17 @@ primary-node path and disables automatic selection. The HAL requires DRM master
 access and prefers atomic modesetting with a primary plane. Drivers without
 atomic KMS use a legacy CRTC/page-flip backend.
 
+The service can be installed directly with
+`android.hardware.graphics.composer3-service.drmfb`, or packaged in the vendor
+APEX module `com.android.hardware.graphics.composer.drmfb`. APEX products should
+set `drmfb_composer.include_init_rc=false` and
+`drmfb_composer.include_vintf_fragments=false` so the standalone service does
+not install duplicate init or VINTF declarations. The APEX uses the platform
+hardware key and certificate, is non-updatable and SoC-specific, and exposes
+the canonical runtime APEX name `com.android.hardware.graphics.composer`.
+Install only one composer APEX implementation and only one provider of the
+`IComposer/default` service in a product.
+
 The paired allocator must expose mapper 4+ standard metadata for DRM fourcc,
 modifier, dimensions, and plane layouts. Plane dma-buf FDs are inferred using
 the established convention that a zero offset after plane zero starts a new
