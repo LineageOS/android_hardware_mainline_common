@@ -129,7 +129,7 @@ class ComposerClient : public BnComposerClient {
         std::vector<std::shared_ptr<drmfb::DrmFramebuffer>> target_slots;
         std::shared_ptr<drmfb::DrmFramebuffer> target;
         std::shared_ptr<drmfb::DrmFramebuffer> scanout;
-        android::base::unique_fd target_fence;
+        ::android::base::unique_fd target_fence;
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
         bool refresh_debug_enabled = false;
@@ -159,8 +159,8 @@ class ComposerClient : public BnComposerClient {
     std::map<int64_t, DisplayState> states_;
     std::shared_ptr<IComposerCallback> callback_;
     std::atomic<bool> stopping_{false};
-    android::base::unique_fd hotplug_socket_;
-    android::base::unique_fd wake_fd_;
+    ::android::base::unique_fd hotplug_socket_;
+    ::android::base::unique_fd wake_fd_;
     std::thread hotplug_thread_;
     std::thread vblank_thread_;
 };

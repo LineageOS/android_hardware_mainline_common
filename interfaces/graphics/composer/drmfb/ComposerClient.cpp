@@ -320,7 +320,7 @@ bool ComposerClient::SetClientTargetLocked(int64_t display, const ClientTarget& 
         return false;
     }
     if (buffer.handle) {
-        native_handle_t* raw = android::makeFromAidl(*buffer.handle);
+        native_handle_t* raw = ::android::makeFromAidl(*buffer.handle);
         if (raw == nullptr) {
             *error = kBadParameter;
             return false;
@@ -339,8 +339,7 @@ bool ComposerClient::SetClientTargetLocked(int64_t display, const ClientTarget& 
         *error = kBadParameter;
         return false;
     }
-    state->target_fence.reset(buffer.fence && buffer.fence->get() >= 0 ? dup(buffer.fence->get())
-                                                                       : -1);
+    state->target_fence.reset(buffer.fence.get() >= 0 ? dup(buffer.fence.get()) : -1);
     return true;
 }
 
@@ -372,7 +371,7 @@ bool ComposerClient::PresentLocked(int64_t display, std::vector<CommandResultPay
         *error = kNotValidated;
         return false;
     }
-    android::base::unique_fd fence;
+    ::android::base::unique_fd fence;
     const bool presented = drm_.Present(display, state->target, state->target_fence.get(), &fence);
     state->target_fence.reset();
     if (!presented) {
@@ -412,7 +411,7 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         const auto saved_target = state->target;
         const int64_t saved_next_layer = state->next_layer;
         const ValidationState saved_validation = state->validation;
-        android::base::unique_fd saved_target_fence(
+        ::android::base::unique_fd saved_target_fence(
                 state->target_fence.ok() ? dup(state->target_fence.get()) : -1);
         auto restore_state = [&] {
             state->layers = saved_layers;

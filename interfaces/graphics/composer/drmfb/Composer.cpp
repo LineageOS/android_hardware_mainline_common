@@ -20,7 +20,7 @@ ndk::ScopedAStatus Composer::createClient(std::shared_ptr<IComposerClient>* out_
     if (!client_.expired()) {
         return ndk::ScopedAStatus::fromServiceSpecificError(IComposer::EX_NO_RESOURCES);
     }
-    const std::string path = android::base::GetProperty("vendor.hwc.drm.device", "");
+    const std::string path = ::android::base::GetProperty("vendor.hwc.drm.device", "");
     auto client = ndk::SharedRefBase::make<ComposerClient>(path);
     if (client == nullptr || !client->Init()) {
         ALOGE("Unable to initialize Composer client for %s",
