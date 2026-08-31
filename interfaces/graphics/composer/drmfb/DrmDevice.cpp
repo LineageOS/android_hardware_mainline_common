@@ -64,14 +64,19 @@ bool IsCpuConversionFormat(uint32_t format) {
            format == DRM_FORMAT_ABGR8888 || format == DRM_FORMAT_XBGR8888;
 }
 
-bool IsFirmwareKmsDriver(int fd) {
+std::string GetDriverName(int fd) {
     drmVersion* version = drmGetVersion(fd);
     if (version == nullptr || version->name == nullptr) {
         if (version != nullptr) drmFreeVersion(version);
-        return false;
+        return {};
     }
     const std::string name(version->name, version->name_len);
     drmFreeVersion(version);
+    return name;
+}
+
+bool IsFirmwareKmsDriver(int fd) {
+    const std::string name = GetDriverName(fd);
     return name == "efidrm" || name == "ofdrm" || name == "simpledrm" || name == "vesadrm";
 }
 
@@ -306,6 +311,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     cpu_conversion_enabled_ =
             ::android::base::GetBoolProperty("vendor.hwc.drmfb.cpu_conversion", true);
     firmware_kms_ = false;
+    vboxvideo_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
@@ -314,7 +320,10 @@ bool DrmDevice::InitPath(const std::string& path) {
         return false;
     }
     gem_registry_ = std::make_shared<GemHandleRegistry>(fd_.get());
-    firmware_kms_ = IsFirmwareKmsDriver(fd_.get());
+    const std::string driver_name = GetDriverName(fd_.get());
+    firmware_kms_ = driver_name == "efidrm" || driver_name == "ofdrm" ||
+                    driver_name == "simpledrm" || driver_name == "vesadrm";
+    vboxvideo_ = driver_name == "vboxvideo";
     const bool universal_planes =
             drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) == 0;
     atomic_kms_ = universal_planes && drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_ATOMIC, 1) == 0;
@@ -349,10 +358,10 @@ bool DrmDevice::InitPath(const std::string& path) {
         ALOGE("No usable pipeline found on %s", path.c_str());
         return false;
     }
-    ALOGI("Opened %s with %zu connector records; backend=%s firmware=%d modifiers=%d swap_rb=%d "
-          "cpu_conversion=%d",
-          path.c_str(), displays_.size(), atomic_kms_ ? "atomic" : "legacy", firmware_kms_,
-          modifiers_supported_, swap_red_blue_, cpu_conversion_enabled_);
+    ALOGI("Opened %s with %zu connector records; driver=%s backend=%s firmware=%d vbox=%d "
+          "modifiers=%d swap_rb=%d cpu_conversion=%d",
+          path.c_str(), displays_.size(), driver_name.c_str(), atomic_kms_ ? "atomic" : "legacy",
+          firmware_kms_, vboxvideo_, modifiers_supported_, swap_red_blue_, cpu_conversion_enabled_);
     return true;
 }
 
@@ -761,8 +770,8 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
     fb->source_stride_ = layouts[0].strideInBytes;
     fb->source_size_ = layouts[0].totalSizeInBytes;
     uint32_t scanout_format = format;
-    uint32_t staging_format = 0;
-    if (swap_red_blue_) {
+    uint32_t staging_format = vboxvideo_ ? DRM_FORMAT_XRGB8888 : 0;
+    if (!vboxvideo_ && swap_red_blue_) {
         const uint32_t swapped_format = SwapRedBlueFormat(format);
         const uint32_t swapped_opaque = RemoveAlphaFormat(swapped_format);
         if (swapped_format == 0) {
@@ -779,7 +788,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
                                        DRM_FORMAT_MOD_LINEAR)) {
             staging_format = DRM_FORMAT_XRGB8888;
         }
-    } else if (atomic_kms_) {
+    } else if (!vboxvideo_ && atomic_kms_) {
         const uint32_t opaque_format = RemoveAlphaFormat(format);
         if (PlaneSupportsFormat(display_it->second, format, modifier)) {
             scanout_format = format;
@@ -791,7 +800,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         }
     }
     if (staging_format != 0) {
-        if (!cpu_conversion_enabled_) {
+        if (!cpu_conversion_enabled_ && !vboxvideo_) {
             ALOGE("CPU conversion disabled for unsupported client target %08x", format);
             return nullptr;
         }
@@ -1281,7 +1290,8 @@ std::string DrmDevice::Dump() const {
     std::ostringstream out;
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
         << " modifiers=" << modifiers_supported_ << " syncobj=" << syncobj_supported_
-        << " swapRb=" << swap_red_blue_ << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
+        << " firmware=" << firmware_kms_ << " vbox=" << vboxvideo_ << " swapRb=" << swap_red_blue_
+        << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected
             << " internal=" << d.internal << " power=" << d.powered

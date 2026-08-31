@@ -22,6 +22,8 @@ paths and explicitly prohibits local builds and tests.
   commit. Preserve deferred power-on and the linear XRGB8888 CPU staging path.
 - Direct scanout must remain preferred. `vendor.hwc.drmfb.cpu_conversion` is a
   read-only opt-out for staging and defaults true for firmware-KMS compatibility.
+- `vboxvideo` has no PRIME import and unconditionally requires XRGB8888 dumb
+  staging; do not allow the general conversion opt-out to bypass it.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable

@@ -49,7 +49,10 @@ Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;
 unsupported client-target formats will then fail instead of consuming CPU time.
-The default is true to retain firmware-KMS compatibility.
+The default is true to retain firmware-KMS compatibility. The exception is
+`vboxvideo`: it does not provide PRIME import and its primary plane requires
+VRAM GEM objects, so the HAL always stages into driver-allocated XRGB8888 dumb
+buffers regardless of this property.
 
 ## Behavior
 

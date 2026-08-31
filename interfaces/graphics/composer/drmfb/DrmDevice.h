@@ -179,6 +179,7 @@ class DrmDevice {
     bool swap_red_blue_ = false;
     bool cpu_conversion_enabled_ = true;
     bool firmware_kms_ = false;
+    bool vboxvideo_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;
