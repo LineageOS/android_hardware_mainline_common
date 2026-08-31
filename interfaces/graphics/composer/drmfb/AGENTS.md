@@ -18,6 +18,8 @@ paths and explicitly prohibits local builds and tests.
 - Prefer atomic KMS and retain the legacy CRTC/page-flip fallback. Atomic frame
   updates must not resubmit modeset state. Legacy presents return a signaled
   fence when syncobj or a waited acquire fence makes one available.
+- Firmware KMS drivers require CRTC activation and a primary framebuffer in one
+  commit. Preserve deferred power-on and the linear XRGB8888 CPU staging path.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable

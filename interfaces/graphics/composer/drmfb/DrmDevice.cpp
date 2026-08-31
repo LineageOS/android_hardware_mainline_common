@@ -48,6 +48,33 @@ uint32_t SwapRedBlueFormat(uint32_t format) {
     }
 }
 
+uint32_t RemoveAlphaFormat(uint32_t format) {
+    switch (format) {
+        case DRM_FORMAT_ARGB8888:
+            return DRM_FORMAT_XRGB8888;
+        case DRM_FORMAT_ABGR8888:
+            return DRM_FORMAT_XBGR8888;
+        default:
+            return format;
+    }
+}
+
+bool IsCpuConversionFormat(uint32_t format) {
+    return format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_XRGB8888 ||
+           format == DRM_FORMAT_ABGR8888 || format == DRM_FORMAT_XBGR8888;
+}
+
+bool IsFirmwareKmsDriver(int fd) {
+    drmVersion* version = drmGetVersion(fd);
+    if (version == nullptr || version->name == nullptr) {
+        if (version != nullptr) drmFreeVersion(version);
+        return false;
+    }
+    const std::string name(version->name, version->name_len);
+    drmFreeVersion(version);
+    return name == "efidrm" || name == "ofdrm" || name == "simpledrm" || name == "vesadrm";
+}
+
 struct CardCandidate {
     std::string path;
     int score = 0;
@@ -82,6 +109,7 @@ int ScoreCard(const std::string& path) {
         }
         drmModeFreeConnector(connector);
     }
+    has_internal |= connected_count > 0 && IsFirmwareKmsDriver(fd.get());
     if (probe_connectors) drmDropMaster(fd.get());
     drmModeFreeResources(resources);
     constexpr int kInternalDisplayScore = 10000;
@@ -171,7 +199,7 @@ size_t CountConnectedConnectors(int fd) {
 }  // namespace
 
 DrmFramebuffer::~DrmFramebuffer() {
-    if (!cpu_swap_red_blue_ && id_ != 0 && drmModeRmFB(drm_fd_, id_) != 0) {
+    if (!cpu_conversion_ && id_ != 0 && drmModeRmFB(drm_fd_, id_) != 0) {
         ALOGW("Failed to remove framebuffer %u: %s", id_, strerror(errno));
     }
     for (size_t i = 0; i < dumb_handles_.size(); ++i) {
@@ -275,6 +303,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     modifiers_supported_ = false;
     syncobj_supported_ = false;
     swap_red_blue_ = ::android::base::GetBoolProperty("vendor.hwc.drmfb.swap_rb", false);
+    firmware_kms_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
@@ -283,6 +312,7 @@ bool DrmDevice::InitPath(const std::string& path) {
         return false;
     }
     gem_registry_ = std::make_shared<GemHandleRegistry>(fd_.get());
+    firmware_kms_ = IsFirmwareKmsDriver(fd_.get());
     const bool universal_planes =
             drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) == 0;
     atomic_kms_ = universal_planes && drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_ATOMIC, 1) == 0;
@@ -317,9 +347,9 @@ bool DrmDevice::InitPath(const std::string& path) {
         ALOGE("No usable pipeline found on %s", path.c_str());
         return false;
     }
-    ALOGI("Opened %s with %zu connector records; backend=%s modifiers=%d swap_rb=%d", path.c_str(),
-          displays_.size(), atomic_kms_ ? "atomic" : "legacy", modifiers_supported_,
-          swap_red_blue_);
+    ALOGI("Opened %s with %zu connector records; backend=%s firmware=%d modifiers=%d swap_rb=%d",
+          path.c_str(), displays_.size(), atomic_kms_ ? "atomic" : "legacy", firmware_kms_,
+          modifiers_supported_, swap_red_blue_);
     return true;
 }
 
@@ -428,7 +458,7 @@ bool DrmDevice::DiscoverConnector(uint32_t connector_id, DrmDisplay* display) {
     display->connector_id = connector_id;
     display->connector_type = connector->connector_type;
     display->connector_type_id = connector->connector_type_id;
-    display->internal = IsInternal(connector->connector_type);
+    display->internal = IsInternal(connector->connector_type) || firmware_kms_;
     display->connected = connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0;
     display->mm_width = connector->mmWidth;
     display->mm_height = connector->mmHeight;
@@ -629,13 +659,13 @@ bool DrmDevice::PlaneSupportsFormat(const DrmDisplay& display, uint32_t format,
     return supported;
 }
 
-bool DrmDevice::CreateCpuSwapFramebuffer(DrmFramebuffer* fb, uint32_t format) {
-    fb->cpu_swap_red_blue_ = true;
+bool DrmDevice::CreateCpuConversionFramebuffer(DrmFramebuffer* fb, uint32_t format) {
+    fb->cpu_conversion_ = true;
     for (size_t i = 0; i < fb->dumb_handles_.size(); ++i) {
         if (drmModeCreateDumbBuffer(fd_.get(), fb->width_, fb->height_, 32, 0,
                                     &fb->dumb_handles_[i], &fb->dumb_pitches_[i],
                                     &fb->dumb_sizes_[i]) != 0) {
-            ALOGE("Failed to create CPU swap dumb buffer: %s", strerror(errno));
+            ALOGE("Failed to create CPU conversion dumb buffer: %s", strerror(errno));
             return false;
         }
         uint64_t map_offset = 0;
@@ -646,7 +676,7 @@ bool DrmDevice::CreateCpuSwapFramebuffer(DrmFramebuffer* fb, uint32_t format) {
         fb->dumb_maps_[i] = mmap(nullptr, fb->dumb_sizes_[i], PROT_READ | PROT_WRITE, MAP_SHARED,
                                  fd_.get(), map_offset);
         if (fb->dumb_maps_[i] == MAP_FAILED) {
-            ALOGE("Failed to map CPU swap dumb buffer: %s", strerror(errno));
+            ALOGE("Failed to map CPU conversion dumb buffer: %s", strerror(errno));
             return false;
         }
         std::array<uint32_t, kMaxPlanes> handles{};
@@ -656,7 +686,7 @@ bool DrmDevice::CreateCpuSwapFramebuffer(DrmFramebuffer* fb, uint32_t format) {
         pitches[0] = fb->dumb_pitches_[i];
         if (drmModeAddFB2(fd_.get(), fb->width_, fb->height_, format, handles.data(),
                           pitches.data(), offsets.data(), &fb->dumb_framebuffers_[i], 0) != 0) {
-            ALOGE("Failed to create CPU swap framebuffer: %s", strerror(errno));
+            ALOGE("Failed to create CPU conversion framebuffer: %s", strerror(errno));
             return false;
         }
         memset(fb->dumb_maps_[i], 0, fb->dumb_sizes_[i]);
@@ -664,7 +694,7 @@ bool DrmDevice::CreateCpuSwapFramebuffer(DrmFramebuffer* fb, uint32_t format) {
     fb->id_ = fb->dumb_framebuffers_[0];
     fb->format_ = format;
     fb->modifier_ = DRM_FORMAT_MOD_NONE;
-    ALOGI("Using double-buffered CPU red/blue swap fallback for FBs %u and %u",
+    ALOGI("Using double-buffered CPU conversion fallback fourcc=%08x FBs=%u,%u", format,
           fb->dumb_framebuffers_[0], fb->dumb_framebuffers_[1]);
     return true;
 }
@@ -702,25 +732,21 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         ALOGE("Invalid client target dimensions");
         return nullptr;
     }
-    if (swap_red_blue_) {
-        uint64_t protected_content = 0;
-        if (mapper.getProtectedContent(imported, &protected_content) != android::OK ||
-            protected_content != 0 || layouts.size() != 1) {
-            ALOGE("Red/blue swap requires an unprotected single-plane client target");
-            return nullptr;
-        }
+    uint64_t protected_content = 1;
+    bool cpu_compatible = layouts.size() == 1 && IsCpuConversionFormat(format) &&
+                          mapper.getProtectedContent(imported, &protected_content) == android::OK &&
+                          protected_content == 0;
+    if (cpu_compatible) {
         const uint64_t row_bytes = width * 4;
         const auto& layout = layouts[0];
         if (layout.strideInBytes <= 0 || layout.totalSizeInBytes <= 0) {
-            ALOGE("Invalid client target layout for red/blue swap");
-            return nullptr;
-        }
-        const uint64_t stride = static_cast<uint64_t>(layout.strideInBytes);
-        const uint64_t size = static_cast<uint64_t>(layout.totalSizeInBytes);
-        if (stride < row_bytes || stride > std::numeric_limits<uint32_t>::max() ||
-            size < row_bytes || (height - 1) * stride + row_bytes > size) {
-            ALOGE("Invalid client target layout for red/blue swap");
-            return nullptr;
+            cpu_compatible = false;
+        } else {
+            const uint64_t stride = static_cast<uint64_t>(layout.strideInBytes);
+            const uint64_t size = static_cast<uint64_t>(layout.totalSizeInBytes);
+            cpu_compatible = stride >= row_bytes &&
+                             stride <= std::numeric_limits<uint32_t>::max() && size >= row_bytes &&
+                             (height - 1) * stride + row_bytes <= size;
         }
     }
     std::array<uint32_t, kMaxPlanes> pitches{};
@@ -731,16 +757,42 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
     fb->source_format_ = format;
     fb->source_stride_ = layouts[0].strideInBytes;
     fb->source_size_ = layouts[0].totalSizeInBytes;
-    const uint32_t swapped_format = swap_red_blue_ ? SwapRedBlueFormat(format) : 0;
-    if (swap_red_blue_ && swapped_format == 0) {
-        ALOGE("Red/blue swap is unsupported for DRM format %08x", format);
-        return nullptr;
+    uint32_t scanout_format = format;
+    uint32_t staging_format = 0;
+    if (swap_red_blue_) {
+        const uint32_t swapped_format = SwapRedBlueFormat(format);
+        const uint32_t swapped_opaque = RemoveAlphaFormat(swapped_format);
+        if (swapped_format == 0) {
+            ALOGE("Red/blue swap is unsupported for DRM format %08x", format);
+            return nullptr;
+        }
+        if (!atomic_kms_) {
+            staging_format = RemoveAlphaFormat(format);
+        } else if (PlaneSupportsFormat(display_it->second, swapped_format, modifier)) {
+            scanout_format = swapped_format;
+        } else if (PlaneSupportsFormat(display_it->second, swapped_opaque, modifier)) {
+            scanout_format = swapped_opaque;
+        } else if (PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888,
+                                       DRM_FORMAT_MOD_LINEAR)) {
+            staging_format = DRM_FORMAT_XRGB8888;
+        }
+    } else if (atomic_kms_) {
+        const uint32_t opaque_format = RemoveAlphaFormat(format);
+        if (PlaneSupportsFormat(display_it->second, format, modifier)) {
+            scanout_format = format;
+        } else if (PlaneSupportsFormat(display_it->second, opaque_format, modifier)) {
+            scanout_format = opaque_format;
+        } else if (PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888,
+                                       DRM_FORMAT_MOD_LINEAR)) {
+            staging_format = DRM_FORMAT_XRGB8888;
+        }
     }
-    const bool cpu_swap =
-            swap_red_blue_ &&
-            (!atomic_kms_ || !PlaneSupportsFormat(display_it->second, swapped_format, modifier));
-    if (cpu_swap) {
-        if (layouts.size() != 1 || !CreateCpuSwapFramebuffer(fb.get(), format)) return nullptr;
+    if (staging_format != 0) {
+        if (!cpu_compatible || !CreateCpuConversionFramebuffer(fb.get(), staging_format)) {
+            ALOGE("Client target %08x cannot be converted to scanout format %08x", format,
+                  staging_format);
+            return nullptr;
+        }
         return fb;
     }
     int fd_index = 0;
@@ -766,13 +818,14 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         offsets[i] = layouts[i].offsetInBytes;
         modifiers[i] = modifier;
     }
-    const uint32_t scanout_format = swap_red_blue_ ? swapped_format : format;
     const bool has_modifier = modifier != DRM_FORMAT_MOD_NONE && modifier != DRM_FORMAT_MOD_INVALID;
     int error;
     if (has_modifier) {
         if (!modifiers_supported_) {
-            if (swap_red_blue_ && layouts.size() == 1 &&
-                CreateCpuSwapFramebuffer(fb.get(), format)) {
+            if (cpu_compatible && atomic_kms_ &&
+                PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888,
+                                    DRM_FORMAT_MOD_LINEAR) &&
+                CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
                 return fb;
             }
             ALOGE("Buffer requires modifier support (modifier=%" PRIu64 ")", modifier);
@@ -786,7 +839,9 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
                               pitches.data(), offsets.data(), &fb->id_, 0);
     }
     if (error != 0) {
-        if (swap_red_blue_ && layouts.size() == 1 && CreateCpuSwapFramebuffer(fb.get(), format)) {
+        if (cpu_compatible && atomic_kms_ &&
+            PlaneSupportsFormat(display_it->second, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR) &&
+            CreateCpuConversionFramebuffer(fb.get(), DRM_FORMAT_XRGB8888)) {
             return fb;
         }
         ALOGE("drmModeAddFB2 failed: %s", strerror(errno));
@@ -802,11 +857,11 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
 bool DrmDevice::PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,
                                    int* scanout_fence) {
     *scanout_fence = acquire_fence;
-    if (fb == nullptr || !fb->cpu_swap_red_blue_) return true;
+    if (fb == nullptr || !fb->cpu_conversion_) return true;
     if (acquire_fence >= 0) {
         constexpr int kAcquireFenceTimeoutMs = 3000;
         if (sync_wait(acquire_fence, kAcquireFenceTimeoutMs) != 0) {
-            ALOGE("Acquire fence timed out before CPU red/blue swap");
+            ALOGE("Acquire fence timed out before CPU scanout conversion");
             return false;
         }
     }
@@ -819,7 +874,7 @@ bool DrmDevice::PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, in
     if (fb->source_stride_ < row_bytes || fb->dumb_pitches_[next_index] < row_bytes ||
         source_end > fb->source_size_ || destination_end > fb->dumb_sizes_[next_index] ||
         fb->dumb_maps_[next_index] == nullptr || fb->dumb_maps_[next_index] == MAP_FAILED) {
-        ALOGE("Invalid buffer bounds for CPU red/blue swap");
+        ALOGE("Invalid buffer bounds for CPU scanout conversion");
         return false;
     }
     void* source = nullptr;
@@ -828,12 +883,12 @@ bool DrmDevice::PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, in
     android::GraphicBufferMapper& mapper = android::GraphicBufferMapper::get();
     if (mapper.lock(fb->imported_handle_, GRALLOC_USAGE_SW_READ_OFTEN, bounds, &source) !=
         android::OK) {
-        ALOGE("Unable to map client target for CPU red/blue swap");
+        ALOGE("Unable to map client target for CPU scanout conversion");
         return false;
     }
     if (source == nullptr) {
         mapper.unlock(fb->imported_handle_);
-        ALOGE("Client target mapping returned no address for CPU red/blue swap");
+        ALOGE("Client target mapping returned no address for CPU scanout conversion");
         return false;
     }
     const auto* source_bytes = static_cast<const uint8_t*>(source);
@@ -845,28 +900,51 @@ bool DrmDevice::PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, in
         const uint8_t* source_row = source_bytes + static_cast<size_t>(source_offset);
         uint8_t* destination_row = destination_bytes + static_cast<size_t>(destination_offset);
         for (uint32_t x = 0; x < fb->width_; ++x) {
-            destination_row[x * 4] = source_row[x * 4 + 2];
-            destination_row[x * 4 + 1] = source_row[x * 4 + 1];
-            destination_row[x * 4 + 2] = source_row[x * 4];
-            destination_row[x * 4 + 3] = source_row[x * 4 + 3];
+            const uint8_t* source_pixel = source_row + x * 4;
+            uint8_t red;
+            uint8_t green = source_pixel[1];
+            uint8_t blue;
+            uint8_t alpha = 0xff;
+            if (fb->source_format_ == DRM_FORMAT_ABGR8888 ||
+                fb->source_format_ == DRM_FORMAT_XBGR8888) {
+                red = source_pixel[0];
+                blue = source_pixel[2];
+                if (fb->source_format_ == DRM_FORMAT_ABGR8888) alpha = source_pixel[3];
+            } else {
+                blue = source_pixel[0];
+                red = source_pixel[2];
+                if (fb->source_format_ == DRM_FORMAT_ARGB8888) alpha = source_pixel[3];
+            }
+            if (swap_red_blue_) std::swap(red, blue);
+            uint8_t* destination_pixel = destination_row + x * 4;
+            if (fb->format_ == DRM_FORMAT_XRGB8888 || fb->format_ == DRM_FORMAT_ARGB8888) {
+                destination_pixel[0] = blue;
+                destination_pixel[1] = green;
+                destination_pixel[2] = red;
+            } else {
+                destination_pixel[0] = red;
+                destination_pixel[1] = green;
+                destination_pixel[2] = blue;
+            }
+            destination_pixel[3] = alpha;
         }
     }
     android::base::unique_fd unlock_fence;
     const android::status_t unlock_result = mapper.unlock(fb->imported_handle_, &unlock_fence);
     if (unlock_result != android::OK) {
-        ALOGE("Unable to unlock client target after CPU red/blue swap");
+        ALOGE("Unable to unlock client target after CPU scanout conversion");
         return false;
     }
     constexpr int kUnlockFenceTimeoutMs = 3000;
     if (unlock_fence.ok() && sync_wait(unlock_fence.get(), kUnlockFenceTimeoutMs) != 0) {
-        ALOGE("CPU red/blue swap unlock fence failed");
+        ALOGE("CPU scanout conversion unlock fence failed");
         return false;
     }
     fb->prepared_dumb_index_ = next_index;
     fb->id_ = fb->dumb_framebuffers_[next_index];
     const int dirty_result = drmModeDirtyFB(fd_.get(), fb->id_, nullptr, 0);
     if (dirty_result != 0 && dirty_result != -ENOSYS && dirty_result != -EINVAL) {
-        ALOGW("Failed to mark CPU swap framebuffer dirty: %s", strerror(errno));
+        ALOGW("Failed to mark CPU conversion framebuffer dirty: %s", strerror(errno));
     }
     *scanout_fence = -1;
     return true;
@@ -951,6 +1029,11 @@ bool DrmDevice::Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
                      int acquire_fence) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
+    if (fb == nullptr) {
+        return std::any_of(
+                it->second.configs.begin(), it->second.configs.end(),
+                [&it](const DrmConfig& config) { return config.id == it->second.active_config; });
+    }
     if (!atomic_kms_) {
         const DrmDisplay& d = it->second;
         const auto config =
@@ -1095,6 +1178,10 @@ bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& 
                         int acquire_fence, android::base::unique_fd* out_fence) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
+    if (fb == nullptr) {
+        *out_fence = CreateSignaledFence();
+        return true;
+    }
     int scanout_fence = acquire_fence;
     if (!PrepareFramebuffer(fb, acquire_fence, &scanout_fence)) return false;
     out_fence->reset();
@@ -1105,14 +1192,14 @@ bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& 
         if (!out_fence->ok()) {
             ALOGW("Legacy present completed without an exportable sync-file fence");
         }
-        if (fb != nullptr && fb->cpu_swap_red_blue_) {
+        if (fb != nullptr && fb->cpu_conversion_) {
             fb->dumb_index_ = fb->prepared_dumb_index_;
         }
         return true;
     }
     const bool presented = AtomicCommit(&it->second, fb, scanout_fence, true, out_fence) &&
                            AtomicCommit(&it->second, fb, scanout_fence, false, out_fence);
-    if (presented && fb != nullptr && fb->cpu_swap_red_blue_) {
+    if (presented && fb != nullptr && fb->cpu_conversion_) {
         fb->dumb_index_ = fb->prepared_dumb_index_;
     }
     return presented;
@@ -1140,35 +1227,25 @@ bool DrmDevice::SetPower(int64_t display, bool on) {
               ok ? "succeeded" : "failed");
         return ok;
     }
-    drmModeAtomicReq* request = drmModeAtomicAlloc();
-    uint32_t mode_blob = 0;
-    bool ok = request != nullptr;
     if (on) {
-        const auto config =
-                std::find_if(d.configs.begin(), d.configs.end(),
-                             [&d](const DrmConfig& item) { return item.id == d.active_config; });
-        ok = ok && config != d.configs.end() &&
-             drmModeCreatePropertyBlob(fd_.get(), &config->mode, sizeof(config->mode),
-                                       &mode_blob) == 0 &&
-             AddProperty(request, d.connector_id, d.props.connector_crtc_id, d.crtc_id) &&
-             AddProperty(request, d.crtc_id, d.props.crtc_mode_id, mode_blob) &&
-             AddProperty(request, d.crtc_id, d.props.crtc_active, 1);
-    } else {
-        ok = ok && AddProperty(request, d.plane_id, d.props.plane_fb_id, 0) &&
-             AddProperty(request, d.plane_id, d.props.plane_crtc_id, 0) &&
-             AddProperty(request, d.connector_id, d.props.connector_crtc_id, 0) &&
-             AddProperty(request, d.crtc_id, d.props.crtc_active, 0) &&
-             AddProperty(request, d.crtc_id, d.props.crtc_mode_id, 0);
+        d.powered = true;
+        d.modeset_needed = true;
+        ALOGI("Display %" PRId64 " power ON deferred until framebuffer present", display);
+        return true;
     }
+    drmModeAtomicReq* request = drmModeAtomicAlloc();
+    bool ok = request != nullptr && AddProperty(request, d.plane_id, d.props.plane_fb_id, 0) &&
+              AddProperty(request, d.plane_id, d.props.plane_crtc_id, 0) &&
+              AddProperty(request, d.connector_id, d.props.connector_crtc_id, 0) &&
+              AddProperty(request, d.crtc_id, d.props.crtc_active, 0) &&
+              AddProperty(request, d.crtc_id, d.props.crtc_mode_id, 0);
     ok = ok && drmModeAtomicCommit(fd_.get(), request, DRM_MODE_ATOMIC_ALLOW_MODESET, nullptr) == 0;
     if (request != nullptr) drmModeAtomicFree(request);
-    if (mode_blob != 0) drmModeDestroyPropertyBlob(fd_.get(), mode_blob);
     if (ok) {
-        d.powered = on;
-        d.modeset_needed = !on;
+        d.powered = false;
+        d.modeset_needed = true;
     }
-    ALOGI("Display %" PRId64 " power %s %s", display, on ? "ON" : "OFF",
-          ok ? "succeeded" : "failed");
+    ALOGI("Display %" PRId64 " power OFF %s", display, ok ? "succeeded" : "failed");
     return ok;
 }
 

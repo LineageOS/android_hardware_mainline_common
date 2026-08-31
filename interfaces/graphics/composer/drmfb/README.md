@@ -34,13 +34,16 @@ the established convention that a zero offset after plane zero starts a new
 FD; nonzero offsets share the preceding FD.
 
 Systems whose CPU renderer produces red/blue-swapped client targets can set the
-read-only `vendor.hwc.drmfb.swap_rb=true` property. The HAL first reinterprets
-single-plane 32-bit RGB buffers with the paired DRM FourCC. If the selected
-primary plane cannot scan out that format, it swaps the channels into a mapped
-DRM dumb buffer and scans out the original format. The CPU fallback requires
-`DRM_CAP_DUMB_BUFFER` and a CPU-readable client target; it intentionally rejects
-multiplane, YUV, 10-bit, protected, or otherwise unmappable targets. Leave the
-property disabled for correctly rendered GPU output.
+read-only `vendor.hwc.drmfb.swap_rb=true` property. The HAL first tries a paired
+opaque DRM FourCC and otherwise applies the correction during CPU staging. Leave
+the property disabled for correctly rendered GPU output.
+
+When a primary plane cannot scan out Android's client-target FourCC/modifier,
+the HAL converts unprotected, CPU-readable, single-plane 32-bit RGB targets into
+double-buffered linear `XRGB8888` dumb framebuffers. This supports the universal
+compatibility format exposed by `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`
+without requiring those drivers to scan out `ABGR8888`. Multiplane, YUV, 10-bit,
+protected, or otherwise unmappable client targets are not staged.
 
 ## Behavior
 
@@ -58,8 +61,9 @@ property disabled for correctly rendered GPU output.
   with a waited acquire fence used as a compatibility fallback.
 - A constrained non-seamless mode change waits until its requested monotonic
   time before applying the mode; seamless transitions are not supported.
-- OFF disables the CRTC. ON prepares its mode state; legacy scanout is attached
-  by the next present.
+- OFF disables the CRTC. Atomic and legacy ON transitions defer activation until
+  a framebuffer is presented, accommodating drivers that require a primary
+  plane whenever a CRTC is active.
 - Vsync uses DRM CRTC sequence events and falls back to monotonic timed waits.
 - Layer creation and destruction can use Composer3 lifecycle batch commands.
 - Fixed-refresh debug callbacks report the active mode period immediately when
