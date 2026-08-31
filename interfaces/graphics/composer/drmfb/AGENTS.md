@@ -34,6 +34,8 @@ paths and explicitly prohibits local builds and tests.
 - `hyperv_drm` has a fixed virtual connector without detect support. Accept its
   unknown connection state only when valid modes exist; do not generalize that
   exception to hotpluggable DRM connectors.
+- `bochs-drm` has the same fixed virtual connector behavior and otherwise uses
+  generic shmem, XRGB staging, damage, and synthetic-vsync paths.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable

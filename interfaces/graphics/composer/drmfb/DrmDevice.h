@@ -192,6 +192,7 @@ class DrmDevice {
     bool vboxvideo_ = false;
     bool qxl_ = false;
     bool hyperv_drm_ = false;
+    bool bochs_drm_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;

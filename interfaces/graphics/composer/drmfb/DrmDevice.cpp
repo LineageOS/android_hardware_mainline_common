@@ -101,7 +101,8 @@ int ScoreCard(const std::string& path) {
         return -1;
     }
     const bool probe_connectors = drmSetMaster(fd.get()) == 0;
-    const bool hyperv_drm = GetDriverName(fd.get()) == "hyperv_drm";
+    const std::string driver_name = GetDriverName(fd.get());
+    const bool fixed_virtual_connector = driver_name == "hyperv_drm" || driver_name == "bochs-drm";
     bool has_internal = false;
     int connected_count = 0;
     for (int i = 0; i < resources->count_connectors; ++i) {
@@ -110,7 +111,7 @@ int ScoreCard(const std::string& path) {
                                  : drmModeGetConnectorCurrent(fd.get(), resources->connectors[i]);
         if (connector == nullptr) continue;
         if ((connector->connection == DRM_MODE_CONNECTED ||
-             (hyperv_drm && connector->connection == DRM_MODE_UNKNOWNCONNECTION)) &&
+             (fixed_virtual_connector && connector->connection == DRM_MODE_UNKNOWNCONNECTION)) &&
             connector->count_modes > 0) {
             ++connected_count;
             has_internal |= IsInternalConnector(connector->connector_type);
@@ -317,6 +318,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     vboxvideo_ = false;
     qxl_ = false;
     hyperv_drm_ = false;
+    bochs_drm_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
@@ -331,6 +333,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     vboxvideo_ = driver_name == "vboxvideo";
     qxl_ = driver_name == "qxl";
     hyperv_drm_ = driver_name == "hyperv_drm";
+    bochs_drm_ = driver_name == "bochs-drm";
     const bool universal_planes =
             drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) == 0;
     atomic_kms_ = universal_planes && drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_ATOMIC, 1) == 0;
@@ -366,11 +369,11 @@ bool DrmDevice::InitPath(const std::string& path) {
         return false;
     }
     ALOGI("Opened %s with %zu connector records; driver=%s backend=%s firmware=%d vbox=%d "
-          "qxl=%d hyperv=%d "
+          "qxl=%d hyperv=%d bochs=%d "
           "modifiers=%d swap_rb=%d cpu_conversion=%d",
           path.c_str(), displays_.size(), driver_name.c_str(), atomic_kms_ ? "atomic" : "legacy",
-          firmware_kms_, vboxvideo_, qxl_, hyperv_drm_, modifiers_supported_, swap_red_blue_,
-          cpu_conversion_enabled_);
+          firmware_kms_, vboxvideo_, qxl_, hyperv_drm_, bochs_drm_, modifiers_supported_,
+          swap_red_blue_, cpu_conversion_enabled_);
     return true;
 }
 
@@ -481,7 +484,8 @@ bool DrmDevice::DiscoverConnector(uint32_t connector_id, DrmDisplay* display) {
     display->connector_type_id = connector->connector_type_id;
     display->internal = IsInternal(connector->connector_type) || firmware_kms_;
     display->connected = (connector->connection == DRM_MODE_CONNECTED ||
-                          (hyperv_drm_ && connector->connection == DRM_MODE_UNKNOWNCONNECTION)) &&
+                          ((hyperv_drm_ || bochs_drm_) &&
+                           connector->connection == DRM_MODE_UNKNOWNCONNECTION)) &&
                          connector->count_modes > 0;
     display->mm_width = connector->mmWidth;
     display->mm_height = connector->mmHeight;
@@ -1330,7 +1334,7 @@ std::string DrmDevice::Dump() const {
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
         << " modifiers=" << modifiers_supported_ << " syncobj=" << syncobj_supported_
         << " firmware=" << firmware_kms_ << " vbox=" << vboxvideo_ << " qxl=" << qxl_
-        << " hyperv=" << hyperv_drm_ << " swapRb=" << swap_red_blue_
+        << " hyperv=" << hyperv_drm_ << " bochs=" << bochs_drm_ << " swapRb=" << swap_red_blue_
         << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected

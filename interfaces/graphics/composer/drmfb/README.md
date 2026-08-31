@@ -84,6 +84,13 @@ backend correctly rejects QXL because gralloc transport requires PRIME export.
 QXL performs full primary updates itself and has no hardware-vblank callbacks,
 so drmfb's synthetic-vsync fallback remains applicable.
 
+The `bochs-drm` QEMU standard-VGA driver uses atomic GEM-shmem scanout with
+linear XRGB8888/BGRX8888, damage clips, and no hardware-vblank callbacks. It is
+covered by direct PRIME import or XRGB8888 staging, client-target damage,
+deferred CRTC activation, and synthetic vsync. Like Hyper-V, its fixed virtual
+connector has no detect callback; drmfb accepts `UNKNOWNCONNECTION` for this
+driver only when valid modes are present.
+
 Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;
