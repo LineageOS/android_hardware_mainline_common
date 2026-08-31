@@ -983,7 +983,8 @@ bool DrmDevice::AddProperty(drmModeAtomicReq* request, uint32_t object_id, uint3
 }
 
 bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer>& fb,
-                             int acquire_fence, bool test_only,
+                             int acquire_fence, bool full_damage,
+                             const std::vector<DrmDamage>& damage, bool test_only,
                              android::base::unique_fd* out_fence) {
     if (d == nullptr) return false;
     auto config = std::find_if(d->configs.begin(), d->configs.end(),
@@ -1020,12 +1021,25 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
              AddProperty(request, d->plane_id, d->props.plane_crtc_w, width) &&
              AddProperty(request, d->plane_id, d->props.plane_crtc_h, height);
         if (ok && d->props.plane_damage_clips != 0) {
-            drm_mode_rect damage{.x1 = 0,
-                                 .y1 = 0,
-                                 .x2 = static_cast<int32_t>(fb->width()),
-                                 .y2 = static_cast<int32_t>(fb->height())};
-            ok = drmModeCreatePropertyBlob(fd_.get(), &damage, sizeof(damage), &damage_blob) == 0 &&
-                 AddProperty(request, d->plane_id, d->props.plane_damage_clips, damage_blob);
+            std::vector<drm_mode_rect> damage_rects;
+            if (full_damage) {
+                damage_rects.push_back({.x1 = 0,
+                                        .y1 = 0,
+                                        .x2 = static_cast<int32_t>(fb->width()),
+                                        .y2 = static_cast<int32_t>(fb->height())});
+            } else {
+                damage_rects.reserve(damage.size());
+                for (const DrmDamage& rect : damage) {
+                    damage_rects.push_back(
+                            {.x1 = rect.left, .y1 = rect.top, .x2 = rect.right, .y2 = rect.bottom});
+                }
+            }
+            if (!damage_rects.empty()) {
+                ok = drmModeCreatePropertyBlob(fd_.get(), damage_rects.data(),
+                                               damage_rects.size() * sizeof(damage_rects[0]),
+                                               &damage_blob) == 0 &&
+                     AddProperty(request, d->plane_id, d->props.plane_damage_clips, damage_blob);
+            }
         }
     } else if (ok) {
         ok = AddProperty(request, d->plane_id, d->props.plane_fb_id, 0) &&
@@ -1080,7 +1094,7 @@ bool DrmDevice::Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
                 (fb->width() == config->mode.hdisplay && fb->height() == config->mode.vdisplay));
     }
     android::base::unique_fd unused;
-    return AtomicCommit(&it->second, fb, acquire_fence, true, &unused);
+    return AtomicCommit(&it->second, fb, acquire_fence, true, {}, true, &unused);
 }
 
 bool DrmDevice::TestConfiguration(int64_t display) {
@@ -1211,7 +1225,8 @@ android::base::unique_fd DrmDevice::CreateSignaledFence() const {
 }
 
 bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
-                        int acquire_fence, android::base::unique_fd* out_fence) {
+                        int acquire_fence, bool full_damage, const std::vector<DrmDamage>& damage,
+                        android::base::unique_fd* out_fence) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
     if (fb == nullptr) {
@@ -1233,8 +1248,9 @@ bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& 
         }
         return true;
     }
-    const bool presented = AtomicCommit(&it->second, fb, scanout_fence, true, out_fence) &&
-                           AtomicCommit(&it->second, fb, scanout_fence, false, out_fence);
+    const bool presented =
+            AtomicCommit(&it->second, fb, scanout_fence, full_damage, damage, true, out_fence) &&
+            AtomicCommit(&it->second, fb, scanout_fence, full_damage, damage, false, out_fence);
     if (presented && fb != nullptr && fb->cpu_conversion_) {
         fb->dumb_index_ = fb->prepared_dumb_index_;
     }

@@ -346,6 +346,20 @@ bool ComposerClient::SetClientTargetLocked(int64_t display, const ClientTarget& 
         *error = kBadParameter;
         return false;
     }
+    state->target_full_damage = target.damage.empty();
+    state->target_damage.clear();
+    for (const common::Rect& rect : target.damage) {
+        if (rect.left < 0 || rect.top < 0 || rect.right < rect.left || rect.bottom < rect.top ||
+            (state->target != nullptr &&
+             (rect.right > static_cast<int32_t>(state->target->width()) ||
+              rect.bottom > static_cast<int32_t>(state->target->height())))) {
+            *error = kBadParameter;
+            return false;
+        }
+        if (rect.left == rect.right || rect.top == rect.bottom) continue;
+        state->target_damage.push_back(
+                {.left = rect.left, .top = rect.top, .right = rect.right, .bottom = rect.bottom});
+    }
     if (buffer.fence.get() >= 0) {
         const int fence = dup(buffer.fence.get());
         if (fence < 0) {
@@ -388,7 +402,8 @@ bool ComposerClient::PresentLocked(int64_t display, std::vector<CommandResultPay
         return false;
     }
     ::android::base::unique_fd fence;
-    const bool presented = drm_.Present(display, state->target, state->target_fence.get(), &fence);
+    const bool presented = drm_.Present(display, state->target, state->target_fence.get(),
+                                        state->target_full_damage, state->target_damage, &fence);
     state->target_fence.reset();
     if (!presented) {
         *error = kNoResources;
@@ -401,6 +416,10 @@ bool ComposerClient::PresentLocked(int64_t display, std::vector<CommandResultPay
         results->emplace_back(std::move(present));
     }
     state->scanout = state->target;
+    // Client-target damage describes one frame. If no new target is supplied,
+    // full damage is safer than replaying stale partial rectangles.
+    state->target_full_damage = true;
+    state->target_damage.clear();
     return true;
 }
 
@@ -425,6 +444,8 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         const auto saved_layers = state->layers;
         const auto saved_slots = state->target_slots;
         const auto saved_target = state->target;
+        const bool saved_target_full_damage = state->target_full_damage;
+        const auto saved_target_damage = state->target_damage;
         const int64_t saved_next_layer = state->next_layer;
         const ValidationState saved_validation = state->validation;
         ::android::base::unique_fd saved_target_fence(
@@ -437,6 +458,8 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             state->layers = saved_layers;
             state->target_slots = saved_slots;
             state->target = saved_target;
+            state->target_full_damage = saved_target_full_damage;
+            state->target_damage = saved_target_damage;
             state->next_layer = saved_next_layer;
             state->target_fence = std::move(saved_target_fence);
             state->validation = saved_validation;
@@ -738,6 +761,8 @@ ndk::ScopedAStatus ComposerClient::setActiveConfig(int64_t display, int32_t conf
         }
         states_[display].target_slots.assign(states_[display].target_slots.size(), nullptr);
         states_[display].target.reset();
+        states_[display].target_full_damage = true;
+        states_[display].target_damage.clear();
         states_[display].scanout.reset();
         states_[display].validation = ValidationState::kDirty;
         notify_refresh = states_[display].refresh_debug_enabled;
@@ -800,6 +825,8 @@ ndk::ScopedAStatus ComposerClient::setClientTargetSlotCount(int64_t display, int
     if (state == nullptr) return Error(kBadDisplay);
     state->target.reset();
     state->target_slots.assign(count, nullptr);
+    state->target_full_damage = true;
+    state->target_damage.clear();
     return ndk::ScopedAStatus::ok();
 }
 

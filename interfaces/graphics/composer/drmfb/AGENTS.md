@@ -25,7 +25,8 @@ paths and explicitly prohibits local builds and tests.
 - `vboxvideo` has no PRIME import and unconditionally requires XRGB8888 dumb
   staging; do not allow the general conversion opt-out to bypass it.
 - Damage-driven drivers such as `udl` need `FB_DAMAGE_CLIPS` even when the
-  framebuffer ID is unchanged. Preserve full-frame damage on atomic presents.
+  framebuffer ID is unchanged. Preserve client-target damage semantics and
+  command-state rollback instead of forcing full-frame damage.
 - `gud` uses the same generic shmem, XRGB staging, full-damage, and synthetic
   vsync paths; avoid a driver-specific branch unless its kernel ABI changes.
 - `hyperv_drm` has a fixed virtual connector without detect support. Accept its

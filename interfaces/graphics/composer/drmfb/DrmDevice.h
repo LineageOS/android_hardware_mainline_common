@@ -46,6 +46,13 @@ struct DrmConfig {
     drmModeModeInfo mode{};
 };
 
+struct DrmDamage {
+    int32_t left = 0;
+    int32_t top = 0;
+    int32_t right = 0;
+    int32_t bottom = 0;
+};
+
 struct DrmDisplay {
     int64_t id = 0;
     uint32_t connector_id = 0;
@@ -145,6 +152,7 @@ class DrmDevice {
     bool Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence);
     bool TestConfiguration(int64_t display);
     bool Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,
+                 bool full_damage, const std::vector<DrmDamage>& damage,
                  android::base::unique_fd* out_fence);
     bool SetPower(int64_t display, bool on);
     bool SetActiveConfig(int64_t display, int32_t config);
@@ -158,7 +166,8 @@ class DrmDevice {
                       const std::vector<uint32_t>& used_planes);
     bool DiscoverProperties(DrmDisplay* display);
     bool AtomicCommit(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
-                      int acquire_fence, bool test_only, android::base::unique_fd* out_fence);
+                      int acquire_fence, bool full_damage, const std::vector<DrmDamage>& damage,
+                      bool test_only, android::base::unique_fd* out_fence);
     bool LegacyPresent(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
                        int acquire_fence);
     bool PrepareFramebuffer(const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,

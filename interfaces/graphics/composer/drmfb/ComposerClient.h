@@ -130,6 +130,8 @@ class ComposerClient : public BnComposerClient {
         std::shared_ptr<drmfb::DrmFramebuffer> target;
         std::shared_ptr<drmfb::DrmFramebuffer> scanout;
         ::android::base::unique_fd target_fence;
+        bool target_full_damage = true;
+        std::vector<drmfb::DrmDamage> target_damage;
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
         bool refresh_debug_enabled = false;
