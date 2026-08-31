@@ -24,6 +24,8 @@ paths and explicitly prohibits local builds and tests.
   read-only opt-out for staging and defaults true for firmware-KMS compatibility.
 - `vboxvideo` has no PRIME import and unconditionally requires XRGB8888 dumb
   staging; do not allow the general conversion opt-out to bypass it.
+- `qxl` has no usable PRIME sharing and also requires local XRGB8888 dumb
+  staging with a CPU-mappable external allocator.
 - Damage-driven drivers such as `udl` need `FB_DAMAGE_CLIPS` even when the
   framebuffer ID is unchanged. Preserve client-target damage semantics and
   command-state rollback instead of forcing full-frame damage.

@@ -315,6 +315,7 @@ bool DrmDevice::InitPath(const std::string& path) {
             ::android::base::GetBoolProperty("vendor.hwc.drmfb.cpu_conversion", true);
     firmware_kms_ = false;
     vboxvideo_ = false;
+    qxl_ = false;
     hyperv_drm_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
@@ -328,6 +329,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     firmware_kms_ = driver_name == "efidrm" || driver_name == "ofdrm" ||
                     driver_name == "simpledrm" || driver_name == "vesadrm";
     vboxvideo_ = driver_name == "vboxvideo";
+    qxl_ = driver_name == "qxl";
     hyperv_drm_ = driver_name == "hyperv_drm";
     const bool universal_planes =
             drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) == 0;
@@ -364,10 +366,10 @@ bool DrmDevice::InitPath(const std::string& path) {
         return false;
     }
     ALOGI("Opened %s with %zu connector records; driver=%s backend=%s firmware=%d vbox=%d "
-          "hyperv=%d "
+          "qxl=%d hyperv=%d "
           "modifiers=%d swap_rb=%d cpu_conversion=%d",
           path.c_str(), displays_.size(), driver_name.c_str(), atomic_kms_ ? "atomic" : "legacy",
-          firmware_kms_, vboxvideo_, hyperv_drm_, modifiers_supported_, swap_red_blue_,
+          firmware_kms_, vboxvideo_, qxl_, hyperv_drm_, modifiers_supported_, swap_red_blue_,
           cpu_conversion_enabled_);
     return true;
 }
@@ -780,8 +782,9 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
     fb->source_stride_ = layouts[0].strideInBytes;
     fb->source_size_ = layouts[0].totalSizeInBytes;
     uint32_t scanout_format = format;
-    uint32_t staging_format = vboxvideo_ ? DRM_FORMAT_XRGB8888 : 0;
-    if (!vboxvideo_ && swap_red_blue_) {
+    const bool requires_local_dumb = vboxvideo_ || qxl_;
+    uint32_t staging_format = requires_local_dumb ? DRM_FORMAT_XRGB8888 : 0;
+    if (!requires_local_dumb && swap_red_blue_) {
         const uint32_t swapped_format = SwapRedBlueFormat(format);
         const uint32_t swapped_opaque = RemoveAlphaFormat(swapped_format);
         if (swapped_format == 0) {
@@ -798,7 +801,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
                                        DRM_FORMAT_MOD_LINEAR)) {
             staging_format = DRM_FORMAT_XRGB8888;
         }
-    } else if (!vboxvideo_ && atomic_kms_) {
+    } else if (!requires_local_dumb && atomic_kms_) {
         const uint32_t opaque_format = RemoveAlphaFormat(format);
         if (PlaneSupportsFormat(display_it->second, format, modifier)) {
             scanout_format = format;
@@ -810,7 +813,7 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(int64_t display, buffer_
         }
     }
     if (staging_format != 0) {
-        if (!cpu_conversion_enabled_ && !vboxvideo_) {
+        if (!cpu_conversion_enabled_ && !requires_local_dumb) {
             ALOGE("CPU conversion disabled for unsupported client target %08x", format);
             return nullptr;
         }
@@ -1326,8 +1329,9 @@ std::string DrmDevice::Dump() const {
     std::ostringstream out;
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
         << " modifiers=" << modifiers_supported_ << " syncobj=" << syncobj_supported_
-        << " firmware=" << firmware_kms_ << " vbox=" << vboxvideo_ << " hyperv=" << hyperv_drm_
-        << " swapRb=" << swap_red_blue_ << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
+        << " firmware=" << firmware_kms_ << " vbox=" << vboxvideo_ << " qxl=" << qxl_
+        << " hyperv=" << hyperv_drm_ << " swapRb=" << swap_red_blue_
+        << " cpuConversion=" << cpu_conversion_enabled_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected
             << " internal=" << d.internal << " power=" << d.powered

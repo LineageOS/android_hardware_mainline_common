@@ -75,6 +75,15 @@ only for `hyperv_drm` when the connector supplies valid modes. Runtime display
 power-down remains limited by the kernel driver's lack of an atomic-disable
 callback.
 
+The `qxl` driver exposes atomic XRGB8888/ARGB8888 scanout but explicitly returns
+`-ENOSYS` for PRIME SG export and import, and its primary plane requires QXL GEM
+objects. drmfb therefore always stages client targets into QXL-allocated
+XRGB8888 dumb buffers, independent of the general CPU-conversion opt-out. Pair
+this path with a CPU-mappable allocator such as `allocator.fb`; minigbm's dumb
+backend correctly rejects QXL because gralloc transport requires PRIME export.
+QXL performs full primary updates itself and has no hardware-vblank callbacks,
+so drmfb's synthetic-vsync fallback remains applicable.
+
 Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;

@@ -190,6 +190,7 @@ class DrmDevice {
     bool cpu_conversion_enabled_ = true;
     bool firmware_kms_ = false;
     bool vboxvideo_ = false;
+    bool qxl_ = false;
     bool hyperv_drm_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
