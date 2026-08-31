@@ -95,6 +95,7 @@ ImportedBuffer::~ImportedBuffer() {
 }
 
 FbdevDevice::~FbdevDevice() {
+    RestoreColorMap();
     if (framebuffer_ != MAP_FAILED) munmap(framebuffer_, framebuffer_size_);
 }
 
@@ -173,17 +174,19 @@ bool FbdevDevice::InitPath(const std::string& path) {
     }
     required_line_bytes /= 8;
     const bool truecolor = fixed.visual == FB_VISUAL_TRUECOLOR;
+    const bool directcolor = fixed.visual == FB_VISUAL_DIRECTCOLOR;
     const bool pseudocolor = fixed.visual == FB_VISUAL_PSEUDOCOLOR && info.bits_per_pixel == 8;
-    if (fixed.type != FB_TYPE_PACKED_PIXELS || (!truecolor && !pseudocolor) || info.nonstd != 0 ||
-        info.grayscale > 1 || info.xoffset != 0 || info.yoffset % std::max(info.yres, 1U) != 0 ||
-        info.xres == 0 || info.yres == 0 || info.xres_virtual < info.xres ||
-        info.yres_virtual < info.yres || info.yoffset > info.yres_virtual - info.yres ||
-        info.bits_per_pixel == 0 || info.bits_per_pixel > 32 || fixed.line_length == 0 ||
+    if (fixed.type != FB_TYPE_PACKED_PIXELS || (!truecolor && !directcolor && !pseudocolor) ||
+        info.nonstd != 0 || info.grayscale > 1 || info.xoffset != 0 ||
+        info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
+        info.xres_virtual < info.xres || info.yres_virtual < info.yres ||
+        info.yoffset > info.yres_virtual - info.yres || info.bits_per_pixel == 0 ||
+        info.bits_per_pixel > 32 || fixed.line_length == 0 ||
         fixed.line_length < required_line_bytes) {
         ALOGE("Unsupported fbdev geometry or channel layout on %s", path.c_str());
         return false;
     }
-    if (truecolor) {
+    if (truecolor || directcolor) {
         if (info.red.length == 0 || info.green.length == 0 || info.blue.length == 0 ||
             info.red.offset >= info.bits_per_pixel ||
             info.red.length > info.bits_per_pixel - info.red.offset ||
@@ -254,6 +257,16 @@ bool FbdevDevice::InitPath(const std::string& path) {
         munmap(map, map_size);
         return false;
     }
+    std::vector<uint16_t> saved_red;
+    std::vector<uint16_t> saved_green;
+    std::vector<uint16_t> saved_blue;
+    std::vector<uint16_t> saved_alpha;
+    if (directcolor && !ConfigureDirectColor(candidate.get(), info, &saved_red, &saved_green,
+                                             &saved_blue, &saved_alpha)) {
+        ALOGE("Unable to install required direct-color ramps on %s", path.c_str());
+        munmap(map, map_size);
+        return false;
+    }
     struct sigaction previous{};
     bool vsync_signal_installed = sigaction(kVsyncInterruptSignal, nullptr, &previous) == 0;
     if (vsync_signal_installed && previous.sa_handler != SIG_DFL &&
@@ -270,6 +283,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
     if (!vsync_signal_installed) {
         ALOGW("Hardware fbdev vsync waits cannot be interrupted; using timed fallback");
     }
+    RestoreColorMap();
     if (framebuffer_ != MAP_FAILED) munmap(framebuffer_, framebuffer_size_);
     fd_ = std::move(candidate);
     path_ = path;
@@ -283,6 +297,11 @@ bool FbdevDevice::InitPath(const std::string& path) {
     blank_supported_ = blank_supported;
     vsync_signal_installed_ = vsync_signal_installed;
     pseudocolor_ = pseudocolor;
+    directcolor_ = directcolor;
+    saved_cmap_red_ = std::move(saved_red);
+    saved_cmap_green_ = std::move(saved_green);
+    saved_cmap_blue_ = std::move(saved_blue);
+    saved_cmap_alpha_ = std::move(saved_alpha);
     const std::string id(fixed_.id, strnlen(fixed_.id, sizeof(fixed_.id)));
     requires_write_flush_ = id == "efidrmdrmfb" || id == "ofdrmdrmfb" || id == "simpledrmdrmfb" ||
                             id == "vesadrmdrmfb";
@@ -348,6 +367,74 @@ bool FbdevDevice::ConfigurePalette(int fd) const {
                 .blue = blue.data(),
                 .transp = nullptr};
     return ioctl(fd, FBIOPUTCMAP, &map) == 0;
+}
+
+bool FbdevDevice::ConfigureDirectColor(int fd, const fb_var_screeninfo& info,
+                                       std::vector<uint16_t>* saved_red,
+                                       std::vector<uint16_t>* saved_green,
+                                       std::vector<uint16_t>* saved_blue,
+                                       std::vector<uint16_t>* saved_alpha) const {
+    const uint32_t bits =
+            std::max({info.red.length, info.green.length, info.blue.length, info.transp.length});
+    if (bits == 0 || bits > 16) return false;
+    const uint32_t entries = 1U << bits;
+    std::vector<uint16_t> original_red(entries);
+    std::vector<uint16_t> original_green(entries);
+    std::vector<uint16_t> original_blue(entries);
+    std::vector<uint16_t> original_alpha(entries);
+    fb_cmap original{.start = 0,
+                     .len = entries,
+                     .red = original_red.data(),
+                     .green = original_green.data(),
+                     .blue = original_blue.data(),
+                     .transp = info.transp.length == 0 ? nullptr : original_alpha.data()};
+    if (ioctl(fd, FBIOGETCMAP, &original) != 0) return false;
+
+    auto ramp = [entries](uint32_t channel_bits) {
+        std::vector<uint16_t> values(entries, UINT16_MAX);
+        if (channel_bits == 0) return values;
+        const uint32_t maximum = (1U << channel_bits) - 1;
+        for (uint32_t i = 0; i <= maximum; ++i) {
+            values[i] = static_cast<uint16_t>(static_cast<uint64_t>(i) * UINT16_MAX / maximum);
+        }
+        return values;
+    };
+    std::vector<uint16_t> red = ramp(info.red.length);
+    std::vector<uint16_t> green = ramp(info.green.length);
+    std::vector<uint16_t> blue = ramp(info.blue.length);
+    std::vector<uint16_t> alpha = ramp(info.transp.length);
+    fb_cmap linear{.start = 0,
+                   .len = entries,
+                   .red = red.data(),
+                   .green = green.data(),
+                   .blue = blue.data(),
+                   .transp = info.transp.length == 0 ? nullptr : alpha.data()};
+    if (ioctl(fd, FBIOPUTCMAP, &linear) != 0) {
+        ioctl(fd, FBIOPUTCMAP, &original);
+        return false;
+    }
+    *saved_red = std::move(original_red);
+    *saved_green = std::move(original_green);
+    *saved_blue = std::move(original_blue);
+    if (info.transp.length != 0) *saved_alpha = std::move(original_alpha);
+    return true;
+}
+
+void FbdevDevice::RestoreColorMap() {
+    if (!fd_.ok() || saved_cmap_red_.empty()) return;
+    fb_cmap original{.start = 0,
+                     .len = static_cast<uint32_t>(saved_cmap_red_.size()),
+                     .red = saved_cmap_red_.data(),
+                     .green = saved_cmap_green_.data(),
+                     .blue = saved_cmap_blue_.data(),
+                     .transp = saved_cmap_alpha_.empty() ? nullptr : saved_cmap_alpha_.data()};
+    if (ioctl(fd_.get(), FBIOPUTCMAP, &original) != 0) {
+        ALOGW("Cannot restore direct-color map on %s: %s", path_.c_str(), strerror(errno));
+    }
+    saved_cmap_red_.clear();
+    saved_cmap_green_.clear();
+    saved_cmap_blue_.clear();
+    saved_cmap_alpha_.clear();
 }
 
 bool FbdevDevice::Flush(uint64_t offset, uint64_t size) {
@@ -685,10 +772,10 @@ std::string FbdevDevice::Dump() const {
         << " rgba=" << info_.red.offset << ':' << info_.red.length << ',' << info_.green.offset
         << ':' << info_.green.length << ',' << info_.blue.offset << ':' << info_.blue.length
         << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
-        << " c8=" << pseudocolor_ << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x' << ydpi_
-        << " powered=" << powered_ << " swap_rb=" << swap_red_blue_
-        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
-        << std::dec << " vblankCount=";
+        << " c8=" << pseudocolor_ << " directcolor=" << directcolor_ << " period=" << period_ns_
+        << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
+        << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
+        << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
     if (have_vblank_count_) {
         out << vblank_count_;
     } else {

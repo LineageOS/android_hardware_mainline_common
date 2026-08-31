@@ -76,6 +76,10 @@ class FbdevDevice {
     bool Copy(const ImportedBuffer& source, uint8_t* destination,
               const std::vector<DamageRect>& damage);
     bool ConfigurePalette(int fd) const;
+    bool ConfigureDirectColor(int fd, const fb_var_screeninfo& info, std::vector<uint16_t>* red,
+                              std::vector<uint16_t>* green, std::vector<uint16_t>* blue,
+                              std::vector<uint16_t>* alpha) const;
+    void RestoreColorMap();
     bool Flush(uint64_t offset, uint64_t size);
     int64_t QueryVblank(int64_t fallback_timestamp_ns);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
@@ -94,6 +98,7 @@ class FbdevDevice {
     float ydpi_ = 160.0F;
     bool swap_red_blue_ = false;
     bool pseudocolor_ = false;
+    bool directcolor_ = false;
     bool pan_supported_ = false;
     bool requires_write_flush_ = false;
     bool blank_supported_ = false;
@@ -111,6 +116,10 @@ class FbdevDevice {
     uint32_t vblank_count_ = 0;
     uint64_t missed_vblanks_ = 0;
     int64_t vblank_sample_ns_ = 0;
+    std::vector<uint16_t> saved_cmap_red_;
+    std::vector<uint16_t> saved_cmap_green_;
+    std::vector<uint16_t> saved_cmap_blue_;
+    std::vector<uint16_t> saved_cmap_alpha_;
     mutable std::mutex mutex_;
 };
 

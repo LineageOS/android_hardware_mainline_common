@@ -25,7 +25,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
 - Keep fbdev output generic across validated packed true-color bitfields up to
   32 bits; do not silently accept unprogrammable palettes, grayscale, planar,
-  or nonstandard memory organizations.
+  or nonstandard memory organizations. DIRECTCOLOR requires saved, bounded
+  linear ramps and colormap restoration on device release.
 - C8 is the sole palette exception and uses RGB332. Preserve the fbdev `pwrite`
   damage-notification path because DRM sysfb drivers expose deferred shadow
   mappings rather than direct firmware scanout memory.

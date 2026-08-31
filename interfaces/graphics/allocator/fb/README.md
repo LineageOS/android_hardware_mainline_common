@@ -99,10 +99,13 @@ mode changes, hotplug discovery, and refresh-rate switching are unsupported.
 Fbdev has no reliable completion fence, and fallback vsync is not hardware phase
 locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
 RGB and optional alpha bitfields within 1-32 bits per pixel, including RGB565
-and XRGB2101010. Native mutable C8 pseudocolor requires successful RGB332
-colormap programming; static or unprogrammable palettes are rejected rather
-than displaying incorrect colors. Grayscale, planar, FOURCC, direct-color, and
-nonstandard fbdev modes remain unsupported.
+and XRGB2101010. Direct-color modes are accepted only when their channel lookup
+tables have at most 16-bit indices and the existing colormap can be saved before
+linear ramps are installed; the saved map is restored when the device closes.
+Native mutable C8 pseudocolor requires successful RGB332 colormap programming;
+static or unprogrammable palettes are rejected rather than displaying incorrect
+colors. Grayscale, planar, FOURCC, and nonstandard fbdev modes remain
+unsupported.
 
 DRM fbdev emulation, including `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`,
 maps a shadow framebuffer rather than the firmware aperture. After conversion,
