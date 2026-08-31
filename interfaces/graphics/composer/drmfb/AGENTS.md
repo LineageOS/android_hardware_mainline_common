@@ -22,7 +22,8 @@ paths and explicitly prohibits local builds and tests.
 - Keep both worker threads stoppable, use CRTC sequence events for vsync, and
   use monotonic timestamps.
 - Do not add a device-specific property assignment. The implementation reads
-  `vendor.hwc.drm.device` and otherwise uses `/dev/dri/card0`.
+  `vendor.hwc.drm.device` as an explicit override and otherwise enumerates DRM
+  primary nodes with libdrm.
 
 ## Layout
 

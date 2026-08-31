@@ -20,15 +20,17 @@ ndk::ScopedAStatus Composer::createClient(std::shared_ptr<IComposerClient>* out_
     if (!client_.expired()) {
         return ndk::ScopedAStatus::fromServiceSpecificError(IComposer::EX_NO_RESOURCES);
     }
-    const std::string path = android::base::GetProperty("vendor.hwc.drm.device", "/dev/dri/card0");
+    const std::string path = android::base::GetProperty("vendor.hwc.drm.device", "");
     auto client = ndk::SharedRefBase::make<ComposerClient>(path);
     if (client == nullptr || !client->Init()) {
-        ALOGE("Unable to initialize Composer client for %s", path.c_str());
+        ALOGE("Unable to initialize Composer client for %s",
+              path.empty() ? "any auto-detected DRM device" : path.c_str());
         return ndk::ScopedAStatus::fromServiceSpecificError(IComposer::EX_NO_RESOURCES);
     }
     client_ = client;
     *out_client = std::move(client);
-    ALOGI("Created singleton Composer client using %s", path.c_str());
+    ALOGI("Created singleton Composer client using %s",
+          path.empty() ? "auto-detected DRM device" : path.c_str());
     return ndk::ScopedAStatus::ok();
 }
 

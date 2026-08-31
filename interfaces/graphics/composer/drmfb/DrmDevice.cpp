@@ -30,6 +30,51 @@ namespace {
 using android::base::StringPrintf;
 constexpr size_t kMaxPlanes = 4;
 
+struct CardCandidate {
+    std::string path;
+    int score = 0;
+};
+
+bool IsInternalConnector(uint32_t type) {
+    return type == DRM_MODE_CONNECTOR_LVDS || type == DRM_MODE_CONNECTOR_eDP ||
+           type == DRM_MODE_CONNECTOR_DSI || type == DRM_MODE_CONNECTOR_DPI ||
+           type == DRM_MODE_CONNECTOR_VIRTUAL;
+}
+
+int ScoreCard(const std::string& path) {
+    android::base::unique_fd fd(open(path.c_str(), O_RDWR | O_CLOEXEC));
+    if (!fd.ok()) return -1;
+    drmModeRes* resources = drmModeGetResources(fd.get());
+    if (resources == nullptr || resources->count_crtcs == 0 || resources->count_connectors == 0 ||
+        resources->count_encoders == 0) {
+        if (resources != nullptr) drmModeFreeResources(resources);
+        return -1;
+    }
+    const bool probe_connectors = drmSetMaster(fd.get()) == 0;
+    bool has_internal = false;
+    int connected_count = 0;
+    for (int i = 0; i < resources->count_connectors; ++i) {
+        drmModeConnector* connector =
+                probe_connectors ? drmModeGetConnector(fd.get(), resources->connectors[i])
+                                 : drmModeGetConnectorCurrent(fd.get(), resources->connectors[i]);
+        if (connector == nullptr) continue;
+        if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
+            ++connected_count;
+            has_internal |= IsInternalConnector(connector->connector_type);
+        }
+        drmModeFreeConnector(connector);
+    }
+    if (probe_connectors) drmDropMaster(fd.get());
+    drmModeFreeResources(resources);
+    constexpr int kInternalDisplayScore = 10000;
+    constexpr int kExternalDisplayScore = 5000;
+    constexpr int kHeadlessScore = 100;
+    return (has_internal          ? kInternalDisplayScore
+            : connected_count > 0 ? kExternalDisplayScore
+                                  : kHeadlessScore) +
+           connected_count;
+}
+
 std::string ModeKey(uint32_t connector_id, const drmModeModeInfo& mode) {
     std::ostringstream key;
     key << connector_id << ':' << mode.clock << ':' << mode.hdisplay << ':' << mode.hsync_start
@@ -121,6 +166,57 @@ DrmDevice::~DrmDevice() {
 }
 
 bool DrmDevice::Init(const std::string& path) {
+    if (!path.empty()) return InitPath(path);
+
+    const int max_devices = drmGetDevices2(0, nullptr, 0);
+    if (max_devices <= 0) {
+        ALOGE("No DRM devices found: %s", max_devices < 0 ? strerror(-max_devices) : "none");
+        return false;
+    }
+    std::vector<drmDevicePtr> devices(max_devices, nullptr);
+    const int device_count = drmGetDevices2(0, devices.data(), max_devices);
+    if (device_count <= 0) {
+        ALOGE("Unable to enumerate DRM devices: %s",
+              device_count < 0 ? strerror(-device_count) : "none");
+        return false;
+    }
+    std::vector<CardCandidate> candidates;
+    std::set<std::string> paths;
+    for (int i = 0; i < device_count; ++i) {
+        drmDevicePtr device = devices[i];
+        if (device == nullptr || (device->available_nodes & (1 << DRM_NODE_PRIMARY)) == 0 ||
+            device->nodes[DRM_NODE_PRIMARY] == nullptr) {
+            continue;
+        }
+        std::string candidate_path = device->nodes[DRM_NODE_PRIMARY];
+        if (!paths.insert(candidate_path).second) continue;
+        const int score = ScoreCard(candidate_path);
+        if (score >= 0) candidates.push_back({std::move(candidate_path), score});
+    }
+    drmFreeDevices(devices.data(), device_count);
+    std::sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.score != rhs.score ? lhs.score > rhs.score : lhs.path < rhs.path;
+    });
+    for (const CardCandidate& candidate : candidates) {
+        ALOGI("Trying auto-detected DRM device %s (score=%d)", candidate.path.c_str(),
+              candidate.score);
+        if (InitPath(candidate.path)) return true;
+    }
+    ALOGE("No usable DRM KMS primary node found");
+    return false;
+}
+
+bool DrmDevice::InitPath(const std::string& path) {
+    displays_.clear();
+    connector_display_ids_.clear();
+    stable_config_ids_.clear();
+    gem_registry_.reset();
+    if (fd_.ok() && drmIsMaster(fd_.get()) != 0) drmDropMaster(fd_.get());
+    fd_.reset();
+    atomic_kms_ = false;
+    modifiers_supported_ = false;
+    next_display_id_ = 0;
+    next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
     if (!fd_.ok()) {
         ALOGE("Cannot open DRM device %s: %s", path.c_str(), strerror(errno));
@@ -152,14 +248,20 @@ bool DrmDevice::Init(const std::string& path) {
         displays_.clear();
         Rescan();
     }
+    const bool has_connected_display =
+            std::any_of(displays_.begin(), displays_.end(),
+                        [](const auto& item) { return item.second.connected; });
+    if (connected_connectors > 0 && !has_connected_display) {
+        ALOGE("No usable pipeline found on %s", path.c_str());
+        return false;
+    }
     ALOGI("Opened %s with %zu connector records; backend=%s modifiers=%d", path.c_str(),
           displays_.size(), atomic_kms_ ? "atomic" : "legacy", modifiers_supported_);
     return true;
 }
 
 bool DrmDevice::IsInternal(uint32_t type) {
-    return type == DRM_MODE_CONNECTOR_LVDS || type == DRM_MODE_CONNECTOR_eDP ||
-           type == DRM_MODE_CONNECTOR_DSI || type == DRM_MODE_CONNECTOR_DPI;
+    return IsInternalConnector(type);
 }
 
 int32_t DrmDevice::VsyncPeriod(const drmModeModeInfo& mode) {

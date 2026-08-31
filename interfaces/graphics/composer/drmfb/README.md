@@ -8,11 +8,14 @@ client target through DRM KMS.
 ## Integration
 
 Add `android.hardware.graphics.composer3-service.drmfb` to the product packages
-and include its VINTF fragment. The service opens the path from the read-only
-`vendor.hwc.drm.device` property, defaulting to `/dev/dri/card0`. Products only
-need to set that property when their KMS primary node differs. The HAL requires
-DRM master access and prefers atomic modesetting with a primary plane. Drivers
-without atomic KMS use a legacy CRTC/page-flip backend.
+and include its VINTF fragment. By default the service enumerates DRM primary
+nodes with libdrm and deterministically prefers a KMS card with a connected
+internal display (including virtual-machine connectors), followed by any
+connected display and then a headless KMS card. The read-only
+`vendor.hwc.drm.device` property can select an explicit
+primary-node path and disables automatic selection. The HAL requires DRM master
+access and prefers atomic modesetting with a primary plane. Drivers without
+atomic KMS use a legacy CRTC/page-flip backend.
 
 The paired allocator must expose mapper 4+ standard metadata for DRM fourcc,
 modifier, dimensions, and plane layouts. Plane dma-buf FDs are inferred using

@@ -138,6 +138,7 @@ class DrmDevice {
     std::string Dump() const;
 
   private:
+    bool InitPath(const std::string& path);
     bool DiscoverConnector(uint32_t connector_id, DrmDisplay* display);
     bool FindPipeline(drmModeConnector* connector, DrmDisplay* display,
                       const std::vector<uint32_t>& used_crtcs,
