@@ -28,6 +28,9 @@ paths and explicitly prohibits local builds and tests.
   framebuffer ID is unchanged. Preserve full-frame damage on atomic presents.
 - `gud` uses the same generic shmem, XRGB staging, full-damage, and synthetic
   vsync paths; avoid a driver-specific branch unless its kernel ABI changes.
+- `hyperv_drm` has a fixed virtual connector without detect support. Accept its
+  unknown connection state only when valid modes exist; do not generalize that
+  exception to hotpluggable DRM connectors.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held. Serialize synchronous
   hotplug callbacks with `hotplug_callback_mutex_` and refresh enable/disable

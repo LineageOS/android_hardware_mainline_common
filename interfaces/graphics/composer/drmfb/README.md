@@ -64,6 +64,15 @@ present is transferred over USB, and synthetic vsync covers the absence of a
 hardware vblank source. As with UDL, select its primary node explicitly on a
 multi-card system when the USB display should own the composer service.
 
+The `hyperv_drm` synthetic display also uses atomic GEM-shmem scanout, exposes
+only linear XRGB8888, and updates VRAM from damage clips. drmfb therefore uses
+the same XRGB staging, full-frame damage, deferred CRTC activation, and
+synthetic-vsync paths. Its fixed virtual connector has no detect callback and
+can remain `DRM_MODE_UNKNOWNCONNECTION`; drmfb treats that state as connected
+only for `hyperv_drm` when the connector supplies valid modes. Runtime display
+power-down remains limited by the kernel driver's lack of an atomic-disable
+callback.
+
 Direct scanout is always preferred over CPU conversion, including compatible
 alpha-to-opaque FourCC reinterpretation. Products can set the read-only
 `vendor.hwc.drmfb.cpu_conversion=false` property to disable staging entirely;
