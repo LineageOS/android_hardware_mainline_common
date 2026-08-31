@@ -20,8 +20,11 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Keep synthetic vsync stoppable and invoke Binder callbacks without `mutex_`.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.
 - Keep fbdev output generic across validated packed true-color bitfields up to
-  32 bits; do not silently accept palette, grayscale, planar, or nonstandard
-  memory organizations.
+  32 bits; do not silently accept unprogrammable palettes, grayscale, planar,
+  or nonstandard memory organizations.
+- C8 is the sole palette exception and uses RGB332. Preserve the fbdev `pwrite`
+  damage-notification path because DRM sysfb drivers expose deferred shadow
+  mappings rather than direct firmware scanout memory.
 - Update `README.md` when capabilities, formats, ABI, properties, or packaging
   change.
 

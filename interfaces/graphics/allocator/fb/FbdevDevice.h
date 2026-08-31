@@ -60,6 +60,8 @@ class FbdevDevice {
   private:
     bool InitPath(const std::string& path);
     bool Copy(const ImportedBuffer& source, uint8_t* destination);
+    bool ConfigurePalette(int fd) const;
+    bool Flush(uint64_t offset, uint64_t size);
     uint32_t Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
     void WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const;
 
@@ -75,6 +77,9 @@ class FbdevDevice {
     float xdpi_ = 160.0F;
     float ydpi_ = 160.0F;
     bool swap_red_blue_ = false;
+    bool pseudocolor_ = false;
+    bool pan_supported_ = false;
+    bool requires_write_flush_ = false;
     bool blank_supported_ = false;
     bool powered_ = false;
     mutable std::mutex mutex_;

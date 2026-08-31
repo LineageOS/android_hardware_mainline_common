@@ -15,8 +15,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cinttypes>
+#include <climits>
 #include <cstring>
 #include <limits>
 #include <sstream>
@@ -89,6 +91,8 @@ bool FbdevDevice::InitPath(const std::string& path) {
         ALOGE("Cannot query %s: %s", path.c_str(), strerror(errno));
         return false;
     }
+    if (info.xres_virtual == 0) info.xres_virtual = info.xres;
+    if (info.yres_virtual == 0) info.yres_virtual = info.yres;
     uint64_t required_line_bits;
     uint64_t required_line_bytes;
     if (__builtin_mul_overflow(static_cast<uint64_t>(info.xres),
@@ -98,38 +102,49 @@ bool FbdevDevice::InitPath(const std::string& path) {
         return false;
     }
     required_line_bytes /= 8;
-    if (fixed.type != FB_TYPE_PACKED_PIXELS || fixed.visual != FB_VISUAL_TRUECOLOR ||
-        info.nonstd != 0 || info.grayscale != 0 || info.xoffset != 0 ||
-        info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
+    const bool truecolor = fixed.visual == FB_VISUAL_TRUECOLOR;
+    const bool pseudocolor = fixed.visual == FB_VISUAL_PSEUDOCOLOR && info.bits_per_pixel == 8;
+    if (fixed.type != FB_TYPE_PACKED_PIXELS || (!truecolor && !pseudocolor) || info.nonstd != 0 ||
+        info.grayscale > 1 || info.xoffset != 0 || info.yoffset % std::max(info.yres, 1U) != 0 ||
+        info.xres == 0 || info.yres == 0 || info.xres_virtual < info.xres ||
+        info.yres_virtual < info.yres || info.yoffset > info.yres_virtual - info.yres ||
         info.bits_per_pixel == 0 || info.bits_per_pixel > 32 || fixed.line_length == 0 ||
-        fixed.line_length < required_line_bytes || info.red.length == 0 || info.green.length == 0 ||
-        info.blue.length == 0 || info.red.offset >= info.bits_per_pixel ||
-        info.red.length > info.bits_per_pixel - info.red.offset ||
-        info.green.offset >= info.bits_per_pixel ||
-        info.green.length > info.bits_per_pixel - info.green.offset ||
-        info.blue.offset >= info.bits_per_pixel ||
-        info.blue.length > info.bits_per_pixel - info.blue.offset ||
-        (info.transp.length != 0 &&
-         (info.transp.offset >= info.bits_per_pixel ||
-          info.transp.length > info.bits_per_pixel - info.transp.offset))) {
+        fixed.line_length < required_line_bytes) {
         ALOGE("Unsupported fbdev geometry or channel layout on %s", path.c_str());
         return false;
     }
-    const uint32_t red_mask = FieldMask(info.red);
-    const uint32_t green_mask = FieldMask(info.green);
-    const uint32_t blue_mask = FieldMask(info.blue);
-    const uint32_t alpha_mask = FieldMask(info.transp);
-    if ((red_mask & green_mask) != 0 || (red_mask & blue_mask) != 0 ||
-        (red_mask & alpha_mask) != 0 || (green_mask & blue_mask) != 0 ||
-        (green_mask & alpha_mask) != 0 || (blue_mask & alpha_mask) != 0) {
-        ALOGE("Overlapping fbdev channel bitfields on %s", path.c_str());
-        return false;
+    if (truecolor) {
+        if (info.red.length == 0 || info.green.length == 0 || info.blue.length == 0 ||
+            info.red.offset >= info.bits_per_pixel ||
+            info.red.length > info.bits_per_pixel - info.red.offset ||
+            info.green.offset >= info.bits_per_pixel ||
+            info.green.length > info.bits_per_pixel - info.green.offset ||
+            info.blue.offset >= info.bits_per_pixel ||
+            info.blue.length > info.bits_per_pixel - info.blue.offset ||
+            (info.transp.length != 0 &&
+             (info.transp.offset >= info.bits_per_pixel ||
+              info.transp.length > info.bits_per_pixel - info.transp.offset))) {
+            ALOGE("Unsupported fbdev channel layout on %s", path.c_str());
+            return false;
+        }
+        const uint32_t red_mask = FieldMask(info.red);
+        const uint32_t green_mask = FieldMask(info.green);
+        const uint32_t blue_mask = FieldMask(info.blue);
+        const uint32_t alpha_mask = FieldMask(info.transp);
+        if ((red_mask & green_mask) != 0 || (red_mask & blue_mask) != 0 ||
+            (red_mask & alpha_mask) != 0 || (green_mask & blue_mask) != 0 ||
+            (green_mask & alpha_mask) != 0 || (blue_mask & alpha_mask) != 0) {
+            ALOGE("Overlapping fbdev channel bitfields on %s", path.c_str());
+            return false;
+        }
     }
     const uint64_t virtual_height = std::max(info.yres_virtual, info.yres);
     uint64_t map_size;
     if (__builtin_mul_overflow(static_cast<uint64_t>(fixed.line_length), virtual_height,
                                &map_size) ||
-        map_size == 0 || map_size > fixed.smem_len || map_size > SIZE_MAX) {
+        map_size == 0 || (fixed.smem_len != 0 && map_size > fixed.smem_len) ||
+        map_size > SIZE_MAX ||
+        map_size > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
         ALOGE("Unsafe framebuffer size on %s", path.c_str());
         return false;
     }
@@ -140,7 +155,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
     }
     bool blank_supported = ioctl(candidate.get(), FBIOBLANK, FB_BLANK_POWERDOWN) == 0;
     if (!blank_supported) {
-        if (errno != ENOTTY && errno != EINVAL) {
+        if (errno != ENOTTY && errno != EINVAL && errno != ENOSYS && errno != EOPNOTSUPP) {
             ALOGE("Cannot establish initial OFF state on %s: %s", path.c_str(), strerror(errno));
             munmap(map, map_size);
             return false;
@@ -150,6 +165,11 @@ bool FbdevDevice::InitPath(const std::string& path) {
         if (msync(map, map_size, MS_SYNC) != 0) {
             ALOGW("Initial framebuffer clear failed: %s", strerror(errno));
         }
+    }
+    if (pseudocolor && !ConfigurePalette(candidate.get())) {
+        ALOGE("Unable to install required RGB332 palette on %s", path.c_str());
+        munmap(map, map_size);
+        return false;
     }
     if (framebuffer_ != MAP_FAILED) munmap(framebuffer_, framebuffer_size_);
     fd_ = std::move(candidate);
@@ -162,6 +182,11 @@ bool FbdevDevice::InitPath(const std::string& path) {
     current_page_ = std::min(page_count_ - 1, info_.yoffset / info_.yres);
     swap_red_blue_ = android::base::GetBoolProperty("vendor.hwc.fbdev.swap_rb", false);
     blank_supported_ = blank_supported;
+    pseudocolor_ = pseudocolor;
+    const std::string id(fixed_.id, strnlen(fixed_.id, sizeof(fixed_.id)));
+    requires_write_flush_ = id == "efidrmdrmfb" || id == "ofdrmdrmfb" || id == "simpledrmdrmfb" ||
+                            id == "vesadrmdrmfb";
+    pan_supported_ = page_count_ > 1 && fixed_.ypanstep != 0 && info_.yres % fixed_.ypanstep == 0;
     if (static_cast<int32_t>(info_.width) > 0) xdpi_ = info_.xres * 25.4F / info_.width;
     if (static_cast<int32_t>(info_.height) > 0) ydpi_ = info_.yres * 25.4F / info_.height;
     uint64_t total_x = static_cast<uint64_t>(info_.xres) + info_.left_margin + info_.right_margin +
@@ -207,6 +232,44 @@ std::shared_ptr<ImportedBuffer> FbdevDevice::ImportBuffer(const native_handle_t*
     return imported;
 }
 
+bool FbdevDevice::ConfigurePalette(int fd) const {
+    std::array<uint16_t, 256> red{};
+    std::array<uint16_t, 256> green{};
+    std::array<uint16_t, 256> blue{};
+    for (uint32_t i = 0; i < 256; ++i) {
+        red[i] = static_cast<uint16_t>(((i >> 5) & 0x7) * 65535 / 7);
+        green[i] = static_cast<uint16_t>(((i >> 2) & 0x7) * 65535 / 7);
+        blue[i] = static_cast<uint16_t>((i & 0x3) * 65535 / 3);
+    }
+    fb_cmap map{.start = 0,
+                .len = 256,
+                .red = red.data(),
+                .green = green.data(),
+                .blue = blue.data(),
+                .transp = nullptr};
+    return ioctl(fd, FBIOPUTCMAP, &map) == 0;
+}
+
+bool FbdevDevice::Flush(uint64_t offset, uint64_t size) {
+    const auto* source = static_cast<const uint8_t*>(framebuffer_) + offset;
+    uint64_t written = 0;
+    while (written < size) {
+        const size_t count = static_cast<size_t>(std::min<uint64_t>(size - written, SSIZE_MAX));
+        const ssize_t result = pwrite(fd_.get(), source + written, count, offset + written);
+        if (result < 0 && errno == EINTR) continue;
+        if (result <= 0) break;
+        written += result;
+    }
+    if (written == size) return true;
+    if (requires_write_flush_) {
+        ALOGE("Incomplete fbdev damage write: %" PRIu64 " of %" PRIu64 " bytes", written, size);
+        return false;
+    }
+    if (msync(framebuffer_, framebuffer_size_, MS_SYNC) == 0) return true;
+    ALOGW("Unable to flush fbdev mapping: %s", strerror(errno));
+    return false;
+}
+
 bool FbdevDevice::Test(const std::shared_ptr<ImportedBuffer>& buffer) const {
     return buffer == nullptr || (buffer->view().layout.width == info_.xres &&
                                  buffer->view().layout.height == info_.yres &&
@@ -214,6 +277,10 @@ bool FbdevDevice::Test(const std::shared_ptr<ImportedBuffer>& buffer) const {
 }
 
 uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const {
+    if (pseudocolor_) {
+        return (static_cast<uint32_t>(red) & 0xe0) | ((static_cast<uint32_t>(green) >> 3) & 0x1c) |
+               (static_cast<uint32_t>(blue) >> 6);
+    }
     auto channel = [](uint8_t value, const fb_bitfield& field) -> uint32_t {
         if (field.length == 0) return 0;
         const uint64_t maximum = field.length == 32 ? UINT32_MAX : (1ULL << field.length) - 1;
@@ -274,7 +341,7 @@ bool FbdevDevice::Copy(const ImportedBuffer& source, uint8_t* destination) {
     const uint64_t required =
             static_cast<uint64_t>(layout.height - 1) * plane.stride + source_row_bytes;
     if (plane.stride < source_row_bytes || required > plane.size ||
-        plane.offset + required > layout.allocation_size) {
+        plane.offset > layout.allocation_size || required > layout.allocation_size - plane.offset) {
         return false;
     }
     const uint8_t* pixels = source.pixels() + plane.offset;
@@ -341,14 +408,12 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
     if (!powered_) return false;
     if (buffer == nullptr) {
         memset(framebuffer_, 0, framebuffer_size_);
-        if (msync(framebuffer_, framebuffer_size_, MS_SYNC) != 0) {
-            ALOGW("Empty composition clear failed: %s", strerror(errno));
-        }
+        if (!Flush(0, framebuffer_size_)) return false;
         if (acquire_fence >= 0) present_fence->reset(dup(acquire_fence));
         return true;
     }
     uint32_t target_page = current_page_;
-    if (page_count_ > 1) target_page = (current_page_ + 1) % page_count_;
+    if (pan_supported_) target_page = (current_page_ + 1) % page_count_;
     const uint64_t offset = static_cast<uint64_t>(target_page) * info_.yres * fixed_.line_length;
     const uint64_t page_size = static_cast<uint64_t>(info_.yres) * fixed_.line_length;
     if (offset + page_size > framebuffer_size_) return false;
@@ -367,16 +432,17 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
         ALOGE("Client target conversion failed");
         return false;
     }
-    if (msync(framebuffer_, framebuffer_size_, MS_SYNC) != 0) {
-        ALOGW("Framebuffer msync failed: %s", strerror(errno));
-    }
-    if (page_count_ > 1) {
+    if (!Flush(offset, page_size)) return false;
+    if (pan_supported_) {
         fb_var_screeninfo pan = info_;
         pan.xoffset = 0;
         pan.yoffset = target_page * info_.yres;
         pan.activate = FB_ACTIVATE_VBL;
         if (ioctl(fd_.get(), FBIOPAN_DISPLAY, &pan) != 0) {
             ALOGW("FBIOPAN_DISPLAY failed, copying visible page: %s", strerror(errno));
+            if (errno == ENOTTY || errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP) {
+                pan_supported_ = false;
+            }
 #ifdef FBIO_WAITFORVSYNC
             uint32_t argument = 0;
             if (ioctl(fd_.get(), FBIO_WAITFORVSYNC, &argument) != 0 && errno != ENOTTY &&
@@ -390,9 +456,7 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer, int acq
                 !Copy(*buffer, static_cast<uint8_t*>(framebuffer_) + visible_offset)) {
                 return false;
             }
-            if (msync(framebuffer_, framebuffer_size_, MS_SYNC) != 0) {
-                ALOGW("Visible framebuffer msync failed: %s", strerror(errno));
-            }
+            if (!Flush(visible_offset, page_size)) return false;
         } else {
             info_.yoffset = pan.yoffset;
             current_page_ = target_page;
@@ -414,9 +478,7 @@ bool FbdevDevice::SetPower(bool on) {
     }
     if (!blank_supported_ && !on) {
         memset(framebuffer_, 0, framebuffer_size_);
-        if (msync(framebuffer_, framebuffer_size_, MS_SYNC) != 0) {
-            ALOGW("Framebuffer blank emulation failed: %s", strerror(errno));
-        }
+        if (!Flush(0, framebuffer_size_)) return false;
     }
     powered_ = on;
     return true;
@@ -431,9 +493,9 @@ std::string FbdevDevice::Dump() const {
         << info_.yres_virtual << " stride=" << fixed_.line_length << " bpp=" << info_.bits_per_pixel
         << " rgba=" << info_.red.offset << ':' << info_.red.length << ',' << info_.green.offset
         << ':' << info_.green.length << ',' << info_.blue.offset << ':' << info_.blue.length
-        << " pages=" << page_count_ << " page=" << current_page_ << " period=" << period_ns_
-        << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
-        << " swap_rb=" << swap_red_blue_ << '\n';
+        << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
+        << " c8=" << pseudocolor_ << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x' << ydpi_
+        << " powered=" << powered_ << " swap_rb=" << swap_red_blue_ << '\n';
     return out.str();
 }
 

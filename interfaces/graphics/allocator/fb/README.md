@@ -87,6 +87,15 @@ mode changes, hotplug discovery, and refresh-rate switching are unsupported.
 Fbdev has no reliable completion fence, and synthetic vsync is not hardware
 phase locked. Packed true-color fbdev outputs may use arbitrary non-overlapping
 RGB and optional alpha bitfields within 1-32 bits per pixel, including RGB565
-and XRGB2101010. Palette, grayscale, planar, FOURCC, and nonstandard fbdev modes
-remain unsupported. Use the Composer Binder dump for geometry, channel layout,
-page, power, target, layer, and validation state.
+and XRGB2101010. Native mutable C8 pseudocolor requires successful RGB332
+colormap programming; static or unprogrammable palettes are rejected rather
+than displaying incorrect colors. Grayscale, planar, FOURCC, direct-color, and
+nonstandard fbdev modes remain unsupported.
+
+DRM fbdev emulation, including `efidrm`, `ofdrm`, `simpledrm`, and `vesadrm`,
+maps a shadow framebuffer rather than the firmware aperture. After conversion,
+the HAL uses `pwrite` on the fbdev node to trigger immediate damage propagation,
+with `msync` as a compatibility fallback. It treats `smem_len == 0` as unknown,
+uses the reported line stride, does not depend on physical `smem_start`, and
+caches permanent pan/blank limitations. Use the Composer Binder dump for
+geometry, channel layout, page, power, target, layer, and validation state.
