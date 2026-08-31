@@ -31,6 +31,9 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   change its palette and use the precomputed bounded nearest-color lookup.
   Preserve the fbdev `pwrite` damage-notification path because DRM sysfb drivers
   expose deferred shadow mappings rather than direct firmware scanout memory.
+- Monochrome output requires explicit MONO01/MONO10 polarity and packed-bit
+  ordering. Grayscale is limited to validated packed whole-pixel fields and
+  uses luminance conversion; `swap_rb` remains before every output conversion.
 - Keep partial conversion and flush bounded to clipped damage, but copy a full
   frame before panning to a backing page whose contents are not synchronized.
 - Virtual-height expansion may change only `yres_virtual`; re-query fixed and

@@ -84,6 +84,11 @@ bool FramebufferSize(const fb_fix_screeninfo& fixed, const fb_var_screeninfo& in
            *size <= static_cast<uint64_t>(std::numeric_limits<off_t>::max());
 }
 
+bool SameBitfield(const fb_bitfield& first, const fb_bitfield& second) {
+    return first.offset == second.offset && first.length == second.length &&
+           first.msb_right == second.msb_right;
+}
+
 }  // namespace
 
 ImportedBuffer::~ImportedBuffer() {
@@ -173,17 +178,31 @@ bool FbdevDevice::InitPath(const std::string& path) {
         return false;
     }
     required_line_bytes /= 8;
-    const bool truecolor = fixed.visual == FB_VISUAL_TRUECOLOR;
-    const bool directcolor = fixed.visual == FB_VISUAL_DIRECTCOLOR;
-    const bool pseudocolor = fixed.visual == FB_VISUAL_PSEUDOCOLOR && info.bits_per_pixel == 8;
-    const bool static_pseudocolor =
-            fixed.visual == FB_VISUAL_STATIC_PSEUDOCOLOR && info.bits_per_pixel == 8;
+    const bool monochrome =
+            (fixed.visual == FB_VISUAL_MONO01 || fixed.visual == FB_VISUAL_MONO10) &&
+            info.bits_per_pixel == 1 && info.grayscale <= 1;
+    const bool grayscale = fixed.visual == FB_VISUAL_TRUECOLOR && info.grayscale == 1 &&
+                           (info.bits_per_pixel == 2 || info.bits_per_pixel == 4 ||
+                            info.bits_per_pixel == 8 || info.bits_per_pixel == 16) &&
+                           info.red.offset == 0 && info.red.length == info.bits_per_pixel &&
+                           SameBitfield(info.red, info.green) &&
+                           SameBitfield(info.red, info.blue) && info.transp.length == 0;
+    const bool truecolor = fixed.visual == FB_VISUAL_TRUECOLOR && info.grayscale == 0;
+    const bool directcolor = fixed.visual == FB_VISUAL_DIRECTCOLOR && info.grayscale == 0;
+    const bool pseudocolor = fixed.visual == FB_VISUAL_PSEUDOCOLOR && info.bits_per_pixel == 8 &&
+                             info.grayscale == 0;
+    const bool static_pseudocolor = fixed.visual == FB_VISUAL_STATIC_PSEUDOCOLOR &&
+                                    info.bits_per_pixel == 8 && info.grayscale == 0;
+    const bool valid_nonstd =
+            info.nonstd == 0 || (monochrome && info.nonstd == FB_NONSTD_REV_PIX_IN_B);
     if (fixed.type != FB_TYPE_PACKED_PIXELS ||
-        (!truecolor && !directcolor && !pseudocolor && !static_pseudocolor) || info.nonstd != 0 ||
-        info.grayscale > 1 || info.xoffset != 0 || info.yoffset % std::max(info.yres, 1U) != 0 ||
-        info.xres == 0 || info.yres == 0 || info.xres_virtual < info.xres ||
-        info.yres_virtual < info.yres || info.yoffset > info.yres_virtual - info.yres ||
-        info.bits_per_pixel == 0 || info.bits_per_pixel > 32 || fixed.line_length == 0 ||
+        (!monochrome && !grayscale && !truecolor && !directcolor && !pseudocolor &&
+         !static_pseudocolor) ||
+        !valid_nonstd || info.grayscale > 1 || info.xoffset != 0 ||
+        info.yoffset % std::max(info.yres, 1U) != 0 || info.xres == 0 || info.yres == 0 ||
+        info.xres_virtual < info.xres || info.yres_virtual < info.yres ||
+        info.yoffset > info.yres_virtual - info.yres || info.bits_per_pixel == 0 ||
+        info.bits_per_pixel > 32 || fixed.line_length == 0 ||
         fixed.line_length < required_line_bytes) {
         ALOGE("Unsupported fbdev geometry or channel layout on %s", path.c_str());
         return false;
@@ -241,6 +260,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
         ALOGE("Cannot map %s: %s", path.c_str(), strerror(errno));
         return false;
     }
+    const uint8_t mode_clear_pixel = fixed.visual == FB_VISUAL_MONO01 ? UINT8_MAX : 0;
     bool blank_supported = ioctl(candidate.get(), FBIOBLANK, FB_BLANK_POWERDOWN) == 0;
     if (!blank_supported) {
         if (errno != ENOTTY && errno != EINVAL && errno != ENOSYS && errno != EOPNOTSUPP) {
@@ -249,7 +269,7 @@ bool FbdevDevice::InitPath(const std::string& path) {
             return false;
         }
         ALOGW("FBIOBLANK unsupported on %s; emulating OFF with a black framebuffer", path.c_str());
-        memset(map, 0, map_size);
+        memset(map, mode_clear_pixel, map_size);
         if (msync(map, map_size, MS_SYNC) != 0) {
             ALOGW("Initial framebuffer clear failed: %s", strerror(errno));
         }
@@ -275,8 +295,8 @@ bool FbdevDevice::InitPath(const std::string& path) {
         munmap(map, map_size);
         return false;
     }
-    const uint8_t clear_pixel = static_lookup.empty() ? 0 : static_lookup[0];
-    if (!blank_supported && clear_pixel != 0) {
+    const uint8_t clear_pixel = static_lookup.empty() ? mode_clear_pixel : static_lookup[0];
+    if (!blank_supported && clear_pixel != mode_clear_pixel) {
         memset(map, clear_pixel, map_size);
         if (msync(map, map_size, MS_SYNC) != 0) {
             ALOGW("Static-palette framebuffer clear failed: %s", strerror(errno));
@@ -314,6 +334,9 @@ bool FbdevDevice::InitPath(const std::string& path) {
     pseudocolor_ = pseudocolor;
     directcolor_ = directcolor;
     static_pseudocolor_ = static_pseudocolor;
+    monochrome_ = monochrome;
+    grayscale_ = grayscale;
+    reverse_pixels_in_byte_ = (info.nonstd & FB_NONSTD_REV_PIX_IN_B) != 0;
     clear_pixel_ = clear_pixel;
     saved_cmap_red_ = std::move(saved_red);
     saved_cmap_green_ = std::move(saved_green);
@@ -544,6 +567,23 @@ uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alp
         const uint32_t b = (static_cast<uint32_t>(blue) * 15 + 127) / 255;
         return static_palette_lookup_[(r << 8) | (g << 4) | b];
     }
+    const uint32_t luminance = (77U * red + 150U * green + 29U * blue + 128) >> 8;
+    if (monochrome_) {
+        const bool white = luminance >= 128;
+        return white == (fixed_.visual == FB_VISUAL_MONO10) ? 1 : 0;
+    }
+    if (grayscale_) {
+        const uint32_t maximum = (1U << info_.bits_per_pixel) - 1;
+        uint32_t value = (luminance * maximum + 127) / 255;
+        if (info_.red.msb_right != 0) {
+            uint32_t reversed = 0;
+            for (uint32_t bit = 0; bit < info_.bits_per_pixel; ++bit) {
+                reversed |= ((value >> bit) & 1U) << (info_.bits_per_pixel - bit - 1);
+            }
+            value = reversed;
+        }
+        return value;
+    }
     auto channel = [](uint8_t value, const fb_bitfield& field) -> uint32_t {
         if (field.length == 0) return 0;
         const uint64_t maximum = field.length == 32 ? UINT32_MAX : (1ULL << field.length) - 1;
@@ -565,6 +605,16 @@ uint32_t FbdevDevice::Pack(uint8_t red, uint8_t green, uint8_t blue, uint8_t alp
 void FbdevDevice::WritePixel(uint8_t* row, uint32_t x, uint32_t pixel) const {
     const uint32_t bits_per_pixel = info_.bits_per_pixel;
     const uint64_t first_bit = static_cast<uint64_t>(x) * bits_per_pixel;
+    if (bits_per_pixel < 8 && 8 % bits_per_pixel == 0 && (monochrome_ || grayscale_)) {
+        const uint32_t pixels_per_byte = 8 / bits_per_pixel;
+        uint32_t slot = x % pixels_per_byte;
+        if (!reverse_pixels_in_byte_) slot = pixels_per_byte - slot - 1;
+        const uint32_t shift = slot * bits_per_pixel;
+        const uint8_t mask = static_cast<uint8_t>(((1U << bits_per_pixel) - 1) << shift);
+        uint8_t& byte = row[first_bit / 8];
+        byte = static_cast<uint8_t>((byte & ~mask) | ((pixel << shift) & mask));
+        return;
+    }
     if ((bits_per_pixel & 7U) == 0) {
         memcpy(row + first_bit / 8, &pixel, bits_per_pixel / 8);
         return;
@@ -837,10 +887,10 @@ std::string FbdevDevice::Dump() const {
         << ':' << info_.green.length << ',' << info_.blue.offset << ':' << info_.blue.length
         << " pages=" << page_count_ << " page=" << current_page_ << " pan=" << pan_supported_
         << " c8=" << pseudocolor_ << " staticPalette=" << static_pseudocolor_
-        << " directcolor=" << directcolor_ << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x'
-        << ydpi_ << " powered=" << powered_ << " swap_rb=" << swap_red_blue_
-        << " vblankSample=" << have_vblank_sample_ << " vblankFlags=0x" << std::hex << vblank_flags_
-        << std::dec << " vblankCount=";
+        << " directcolor=" << directcolor_ << " mono=" << monochrome_ << " grayscale=" << grayscale_
+        << " period=" << period_ns_ << " dpi=" << xdpi_ << 'x' << ydpi_ << " powered=" << powered_
+        << " swap_rb=" << swap_red_blue_ << " vblankSample=" << have_vblank_sample_
+        << " vblankFlags=0x" << std::hex << vblank_flags_ << std::dec << " vblankCount=";
     if (have_vblank_count_) {
         out << vblank_count_;
     } else {
