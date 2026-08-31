@@ -100,6 +100,13 @@ The default is true to retain firmware-KMS compatibility. The exception is
 VRAM GEM objects, so the HAL always stages into driver-allocated XRGB8888 dumb
 buffers regardless of this property.
 
+Minigbm's generic `staging` backend can provide system-DMA-heap client targets
+for other display-only DRM cards by setting
+`vendor.minigbm.generic_backend=staging`. If such a card rejects
+`PRIME_FD_TO_HANDLE`, drmfb now falls back to its local XRGB8888 dumb staging
+path after the failed import. This requires CPU conversion to remain enabled,
+unless the driver is one of the mandatory local-staging backends above.
+
 ## Behavior
 
 - Physical connectors are ordered internal-first and then by connector ID.

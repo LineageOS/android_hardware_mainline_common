@@ -22,6 +22,8 @@ paths and explicitly prohibits local builds and tests.
   commit. Preserve deferred power-on and the linear XRGB8888 CPU staging path.
 - Direct scanout must remain preferred. `vendor.hwc.drmfb.cpu_conversion` is a
   read-only opt-out for staging and defaults true for firmware-KMS compatibility.
+- Generic minigbm staging buffers may not support PRIME import into the display
+  card. Preserve the CPU staging retry after `drmPrimeFDToHandle` failure.
 - `vboxvideo` has no PRIME import and unconditionally requires XRGB8888 dumb
   staging; do not allow the general conversion opt-out to bypass it.
 - `qxl` has no usable PRIME sharing and also requires local XRGB8888 dumb
