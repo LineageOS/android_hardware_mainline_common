@@ -56,6 +56,10 @@ struct DrmDisplay {
     bool internal = false;
     bool connected = false;
     bool powered = false;
+    bool modeset_needed = true;
+    bool has_legacy_framebuffer = false;
+    uint32_t legacy_format = 0;
+    uint64_t legacy_modifier = 0;
     int32_t mm_width = 0;
     int32_t mm_height = 0;
     int32_t active_config = 0;
@@ -86,6 +90,8 @@ class DrmFramebuffer {
     uint32_t id() const { return id_; }
     uint32_t width() const { return width_; }
     uint32_t height() const { return height_; }
+    uint32_t format() const { return format_; }
+    uint64_t modifier() const { return modifier_; }
 
   private:
     friend class DrmDevice;
@@ -97,6 +103,8 @@ class DrmFramebuffer {
     uint32_t id_ = 0;
     uint32_t width_ = 0;
     uint32_t height_ = 0;
+    uint32_t format_ = 0;
+    uint64_t modifier_ = 0;
     std::array<uint32_t, 4> gem_handles_{};
 };
 
@@ -117,12 +125,14 @@ class DrmDevice {
     std::map<int64_t, DrmDisplay>& displays() { return displays_; }
     const std::map<int64_t, DrmDisplay>& displays() const { return displays_; }
     int fd() const { return fd_.get(); }
+    bool uses_atomic_kms() const { return atomic_kms_; }
+    std::mutex& event_mutex() { return event_mutex_; }
 
     std::shared_ptr<DrmFramebuffer> ImportBuffer(buffer_handle_t handle);
     bool Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence);
     bool TestConfiguration(int64_t display);
-    android::base::unique_fd Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
-                                     int acquire_fence);
+    bool Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb, int acquire_fence,
+                 android::base::unique_fd* out_fence);
     bool SetPower(int64_t display, bool on);
     bool SetActiveConfig(int64_t display, int32_t config);
     std::string Dump() const;
@@ -135,6 +145,8 @@ class DrmDevice {
     bool DiscoverProperties(DrmDisplay* display);
     bool AtomicCommit(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
                       int acquire_fence, bool test_only, android::base::unique_fd* out_fence);
+    bool LegacyPresent(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
+                       int acquire_fence);
     uint32_t GetPropertyId(uint32_t object_id, uint32_t object_type, const char* name,
                            uint64_t* value = nullptr) const;
     bool AddProperty(drmModeAtomicReq* request, uint32_t object_id, uint32_t property_id,
@@ -143,6 +155,7 @@ class DrmDevice {
     static int32_t VsyncPeriod(const drmModeModeInfo& mode);
 
     android::base::unique_fd fd_;
+    bool atomic_kms_ = false;
     bool modifiers_supported_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
@@ -150,6 +163,7 @@ class DrmDevice {
     std::map<std::string, int32_t> stable_config_ids_;
     std::map<int64_t, DrmDisplay> displays_;
     std::shared_ptr<GemHandleRegistry> gem_registry_;
+    std::mutex event_mutex_;
 };
 
 }  // namespace drmfb

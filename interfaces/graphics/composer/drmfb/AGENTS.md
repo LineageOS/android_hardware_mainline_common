@@ -13,7 +13,9 @@ paths and explicitly prohibits local builds and tests.
 - Preserve command-level `commandIndex` errors and the validate, accept,
   present state machine.
 - Keep display/config IDs stable for the lifetime of the service process.
-- Use atomic KMS only. A real present must provide a valid out-fence.
+- Prefer atomic KMS and retain the legacy CRTC/page-flip fallback. Atomic frame
+  updates must not resubmit modeset state. Legacy presents intentionally omit
+  a present fence after synchronously waiting for page-flip completion.
 - Keep imported mapper handles alive as long as their DRM framebuffer IDs.
 - Do not call Binder callbacks while `mutex_` is held; serialize callbacks with
   `callback_mutex_`.
@@ -26,7 +28,7 @@ paths and explicitly prohibits local builds and tests.
 
 - `Composer.*`: service singleton and capability policy.
 - `ComposerClient.*`: AIDL methods, command/state handling, callbacks/workers.
-- `DrmDevice.*`: resource/property discovery, FB import, atomic KMS, modes.
+- `DrmDevice.*`: resource/property discovery, FB import, atomic and legacy KMS.
 - `service.cpp`, RC, XML, and `Android.bp`: vendor service integration.
 
 Keep changes minimal and Google C++ style. Do not use exceptions or catch

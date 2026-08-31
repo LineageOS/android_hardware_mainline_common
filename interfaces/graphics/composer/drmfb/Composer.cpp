@@ -33,7 +33,7 @@ ndk::ScopedAStatus Composer::createClient(std::shared_ptr<IComposerClient>* out_
 }
 
 ndk::ScopedAStatus Composer::getCapabilities(std::vector<Capability>* capabilities) {
-    capabilities->clear();
+    *capabilities = {Capability::PRESENT_FENCE_IS_NOT_RELIABLE};
     return ndk::ScopedAStatus::ok();
 }
 

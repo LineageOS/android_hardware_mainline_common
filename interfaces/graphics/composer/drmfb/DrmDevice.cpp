@@ -10,6 +10,7 @@
 #include <drm/drm.h>
 #include <drm/drm_fourcc.h>
 #include <log/log.h>
+#include <poll.h>
 #include <sync/sync.h>
 #include <ui/GraphicBufferMapper.h>
 #include <xf86drm.h>
@@ -50,6 +51,30 @@ bool IsUsableEdid(const std::vector<uint8_t>& edid) {
         if (sum != 0) return false;
     }
     return true;
+}
+
+struct PageFlipResult {
+    bool complete = false;
+};
+
+void HandlePageFlip(int, unsigned int, unsigned int, unsigned int, unsigned int, void* data) {
+    static_cast<PageFlipResult*>(data)->complete = true;
+}
+
+size_t CountConnectedConnectors(int fd) {
+    drmModeRes* resources = drmModeGetResources(fd);
+    if (resources == nullptr) return 0;
+    size_t count = 0;
+    for (int i = 0; i < resources->count_connectors; ++i) {
+        drmModeConnector* connector = drmModeGetConnector(fd, resources->connectors[i]);
+        if (connector != nullptr && connector->connection == DRM_MODE_CONNECTED &&
+            connector->count_modes > 0) {
+            ++count;
+        }
+        if (connector != nullptr) drmModeFreeConnector(connector);
+    }
+    drmModeFreeResources(resources);
+    return count;
 }
 
 }  // namespace
@@ -102,10 +127,11 @@ bool DrmDevice::Init(const std::string& path) {
         return false;
     }
     gem_registry_ = std::make_shared<GemHandleRegistry>(fd_.get());
-    if (drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) != 0 ||
-        drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_ATOMIC, 1) != 0) {
-        ALOGE("DRM device does not support universal planes and atomic KMS");
-        return false;
+    const bool universal_planes =
+            drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) == 0;
+    atomic_kms_ = universal_planes && drmSetClientCap(fd_.get(), DRM_CLIENT_CAP_ATOMIC, 1) == 0;
+    if (!atomic_kms_) {
+        ALOGW("Atomic KMS unavailable; using legacy modesetting");
     }
     if (drmSetMaster(fd_.get()) != 0 || drmIsMaster(fd_.get()) == 0) {
         ALOGE("DRM master access is required: %s", strerror(errno));
@@ -114,9 +140,20 @@ bool DrmDevice::Init(const std::string& path) {
     uint64_t modifiers = 0;
     modifiers_supported_ =
             drmGetCap(fd_.get(), DRM_CAP_ADDFB2_MODIFIERS, &modifiers) == 0 && modifiers != 0;
+    const size_t connected_connectors = CountConnectedConnectors(fd_.get());
     Rescan();
-    ALOGI("Opened %s with %zu connector records; modifiers=%d", path.c_str(), displays_.size(),
-          modifiers_supported_);
+    const size_t discovered_displays =
+            std::count_if(displays_.begin(), displays_.end(),
+                          [](const auto& item) { return item.second.connected; });
+    if (atomic_kms_ && discovered_displays < connected_connectors) {
+        ALOGW("Atomic discovery found %zu of %zu connected displays; retrying with legacy KMS",
+              discovered_displays, connected_connectors);
+        atomic_kms_ = false;
+        displays_.clear();
+        Rescan();
+    }
+    ALOGI("Opened %s with %zu connector records; backend=%s modifiers=%d", path.c_str(),
+          displays_.size(), atomic_kms_ ? "atomic" : "legacy", modifiers_supported_);
     return true;
 }
 
@@ -181,7 +218,8 @@ std::vector<DrmDevice::HotplugChange> DrmDevice::Rescan() {
         if (!FindPipeline(drmModeGetConnector(fd_.get(), connector_id), &candidate, used_crtcs,
                           used_planes) ||
             !DiscoverProperties(&candidate)) {
-            ALOGW("No complete atomic pipeline for connector %u", connector_id);
+            ALOGW("No complete %s pipeline for connector %u", atomic_kms_ ? "atomic" : "legacy",
+                  connector_id);
             if (was_connected) changes.push_back({display_id, false});
             continue;
         }
@@ -189,13 +227,24 @@ std::vector<DrmDevice::HotplugChange> DrmDevice::Rescan() {
         used_planes.push_back(candidate.plane_id);
         auto old = displays_.find(display_id);
         if (old != displays_.end() && was_connected) {
+            const int32_t discovered_config = candidate.active_config;
             candidate.powered = old->second.powered;
+            candidate.modeset_needed = old->second.modeset_needed ||
+                                       candidate.crtc_id != old->second.crtc_id ||
+                                       candidate.plane_id != old->second.plane_id ||
+                                       discovered_config != old->second.active_config;
+            candidate.has_legacy_framebuffer = old->second.has_legacy_framebuffer;
+            candidate.legacy_format = old->second.legacy_format;
+            candidate.legacy_modifier = old->second.legacy_modifier;
+            bool preserved_config = false;
             for (const DrmConfig& config : candidate.configs) {
                 if (config.id == old->second.active_config) {
                     candidate.active_config = config.id;
+                    preserved_config = true;
                     break;
                 }
             }
+            if (!preserved_config) candidate.modeset_needed = true;
         }
         displays_[display_id] = std::move(candidate);
         if (!was_connected) changes.push_back({display_id, true});
@@ -253,8 +302,8 @@ bool DrmDevice::FindPipeline(drmModeConnector* connector, DrmDisplay* display,
                              const std::vector<uint32_t>& used_planes) {
     if (connector == nullptr) return false;
     drmModeRes* resources = drmModeGetResources(fd_.get());
-    drmModePlaneRes* planes = drmModeGetPlaneResources(fd_.get());
-    if (resources == nullptr || planes == nullptr) {
+    drmModePlaneRes* planes = atomic_kms_ ? drmModeGetPlaneResources(fd_.get()) : nullptr;
+    if (resources == nullptr || (atomic_kms_ && planes == nullptr)) {
         if (resources != nullptr) drmModeFreeResources(resources);
         if (planes != nullptr) drmModeFreePlaneResources(planes);
         drmModeFreeConnector(connector);
@@ -269,6 +318,12 @@ bool DrmDevice::FindPipeline(drmModeConnector* connector, DrmDisplay* display,
             if ((encoder->possible_crtcs & (1U << c)) == 0 ||
                 std::find(used_crtcs.begin(), used_crtcs.end(), crtc) != used_crtcs.end())
                 continue;
+            if (!atomic_kms_) {
+                display->crtc_id = crtc;
+                display->crtc_index = c;
+                found = true;
+                break;
+            }
             for (uint32_t p = 0; p < planes->count_planes; ++p) {
                 drmModePlane* plane = drmModeGetPlane(fd_.get(), planes->planes[p]);
                 if (plane == nullptr) continue;
@@ -290,7 +345,7 @@ bool DrmDevice::FindPipeline(drmModeConnector* connector, DrmDisplay* display,
         }
         drmModeFreeEncoder(encoder);
     }
-    drmModeFreePlaneResources(planes);
+    if (planes != nullptr) drmModeFreePlaneResources(planes);
     drmModeFreeResources(resources);
     drmModeFreeConnector(connector);
     return found;
@@ -317,30 +372,22 @@ uint32_t DrmDevice::GetPropertyId(uint32_t object_id, uint32_t object_type, cons
 
 bool DrmDevice::DiscoverProperties(DrmDisplay* d) {
     DrmProperties& p = d->props;
-    uint64_t crtc_active = 0;
-    p.connector_crtc_id = GetPropertyId(d->connector_id, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID");
     p.connector_edid = GetPropertyId(d->connector_id, DRM_MODE_OBJECT_CONNECTOR, "EDID");
-    p.crtc_active = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "ACTIVE", &crtc_active);
-    d->powered = crtc_active != 0;
-    p.crtc_mode_id = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "MODE_ID");
-    p.crtc_out_fence_ptr = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "OUT_FENCE_PTR");
-    p.plane_fb_id = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "FB_ID");
-    p.plane_crtc_id = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
-    p.plane_src_x = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_X");
-    p.plane_src_y = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_Y");
-    p.plane_src_w = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_W");
-    p.plane_src_h = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_H");
-    p.plane_crtc_x = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_X");
-    p.plane_crtc_y = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_Y");
-    p.plane_crtc_w = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_W");
-    p.plane_crtc_h = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_H");
-    p.plane_in_fence_fd = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "IN_FENCE_FD");
+    uint64_t connector_crtc = 0;
+    if (atomic_kms_) {
+        p.connector_crtc_id = GetPropertyId(d->connector_id, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID",
+                                            &connector_crtc);
+    }
     drmModeCrtc* current_crtc = drmModeGetCrtc(fd_.get(), d->crtc_id);
     if (current_crtc != nullptr && current_crtc->mode_valid) {
         const std::string current_key = ModeKey(d->connector_id, current_crtc->mode);
         for (const DrmConfig& config : d->configs) {
             if (ModeKey(d->connector_id, config.mode) == current_key) {
                 d->active_config = config.id;
+                if (!atomic_kms_ || connector_crtc == d->crtc_id) {
+                    d->powered = true;
+                    d->modeset_needed = false;
+                }
                 break;
             }
         }
@@ -364,6 +411,24 @@ bool DrmDevice::DiscoverProperties(DrmDisplay* d) {
         }
         if (!IsUsableEdid(d->edid)) d->edid.clear();
     }
+    if (!atomic_kms_) return true;
+
+    uint64_t crtc_active = 0;
+    p.crtc_active = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "ACTIVE", &crtc_active);
+    d->powered = crtc_active != 0;
+    p.crtc_mode_id = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "MODE_ID");
+    p.crtc_out_fence_ptr = GetPropertyId(d->crtc_id, DRM_MODE_OBJECT_CRTC, "OUT_FENCE_PTR");
+    p.plane_fb_id = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "FB_ID");
+    p.plane_crtc_id = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
+    p.plane_src_x = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_X");
+    p.plane_src_y = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_Y");
+    p.plane_src_w = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_W");
+    p.plane_src_h = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "SRC_H");
+    p.plane_crtc_x = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_X");
+    p.plane_crtc_y = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_Y");
+    p.plane_crtc_w = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_W");
+    p.plane_crtc_h = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "CRTC_H");
+    p.plane_in_fence_fd = GetPropertyId(d->plane_id, DRM_MODE_OBJECT_PLANE, "IN_FENCE_FD");
     return p.connector_crtc_id && p.crtc_active && p.crtc_mode_id && p.crtc_out_fence_ptr &&
            p.plane_fb_id && p.plane_crtc_id && p.plane_src_x && p.plane_src_y && p.plane_src_w &&
            p.plane_src_h && p.plane_crtc_x && p.plane_crtc_y && p.plane_crtc_w && p.plane_crtc_h;
@@ -434,6 +499,8 @@ std::shared_ptr<DrmFramebuffer> DrmDevice::ImportBuffer(buffer_handle_t handle) 
     }
     fb->width_ = width;
     fb->height_ = height;
+    fb->format_ = format;
+    fb->modifier_ = modifier;
     ALOGV("Imported FB %u %ux%u fourcc=%08x modifier=%" PRIu64, fb->id_, fb->width_, fb->height_,
           format, modifier);
     return fb;
@@ -452,19 +519,22 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
     auto config = std::find_if(d->configs.begin(), d->configs.end(),
                                [d](const DrmConfig& c) { return c.id == d->active_config; });
     if (config == d->configs.end()) return false;
+    const bool modeset = d->modeset_needed || !d->powered;
     uint32_t mode_blob = 0;
-    if (drmModeCreatePropertyBlob(fd_.get(), &config->mode, sizeof(config->mode), &mode_blob) != 0)
+    if (modeset &&
+        drmModeCreatePropertyBlob(fd_.get(), &config->mode, sizeof(config->mode), &mode_blob) != 0)
         return false;
     drmModeAtomicReq* request = drmModeAtomicAlloc();
     int fence = -1;
     const uint32_t width = config->mode.hdisplay;
     const uint32_t height = config->mode.vdisplay;
-    bool ok = request != nullptr &&
-              AddProperty(request, d->connector_id, d->props.connector_crtc_id, d->crtc_id) &&
-              AddProperty(request, d->crtc_id, d->props.crtc_active, 1) &&
-              AddProperty(request, d->crtc_id, d->props.crtc_mode_id, mode_blob) &&
-              AddProperty(request, d->crtc_id, d->props.crtc_out_fence_ptr,
-                          reinterpret_cast<uint64_t>(&fence));
+    bool ok = request != nullptr && AddProperty(request, d->crtc_id, d->props.crtc_out_fence_ptr,
+                                                reinterpret_cast<uint64_t>(&fence));
+    if (ok && modeset) {
+        ok = AddProperty(request, d->connector_id, d->props.connector_crtc_id, d->crtc_id) &&
+             AddProperty(request, d->crtc_id, d->props.crtc_active, 1) &&
+             AddProperty(request, d->crtc_id, d->props.crtc_mode_id, mode_blob);
+    }
     if (ok && fb != nullptr) {
         ok = AddProperty(request, d->plane_id, d->props.plane_fb_id, fb->id()) &&
              AddProperty(request, d->plane_id, d->props.plane_crtc_id, d->crtc_id) &&
@@ -488,20 +558,21 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
         constexpr int kAcquireFenceTimeoutMs = 3000;
         ok = sync_wait(acquire_fence, kAcquireFenceTimeoutMs) == 0;
     }
-    const uint32_t flags =
-            DRM_MODE_ATOMIC_ALLOW_MODESET | (test_only ? DRM_MODE_ATOMIC_TEST_ONLY : 0);
+    const uint32_t flags = (modeset ? DRM_MODE_ATOMIC_ALLOW_MODESET : 0) |
+                           (test_only ? DRM_MODE_ATOMIC_TEST_ONLY : 0);
     if (ok && drmModeAtomicCommit(fd_.get(), request, flags, nullptr) != 0) {
         ALOGE("Atomic %s failed for display %" PRId64 ": %s", test_only ? "test" : "present", d->id,
               strerror(errno));
         ok = false;
     }
     if (request != nullptr) drmModeAtomicFree(request);
-    drmModeDestroyPropertyBlob(fd_.get(), mode_blob);
+    if (mode_blob != 0) drmModeDestroyPropertyBlob(fd_.get(), mode_blob);
     if (test_only) {
         if (fence >= 0) close(fence);
     } else if (ok && fence >= 0) {
         out_fence->reset(fence);
         d->powered = true;
+        d->modeset_needed = false;
     } else {
         if (fence >= 0) close(fence);
         ok = false;
@@ -513,15 +584,28 @@ bool DrmDevice::AtomicCommit(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer
 bool DrmDevice::Test(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
                      int acquire_fence) {
     auto it = displays_.find(display);
+    if (it == displays_.end() || !it->second.connected) return false;
+    if (!atomic_kms_) {
+        const DrmDisplay& d = it->second;
+        const auto config =
+                std::find_if(d.configs.begin(), d.configs.end(),
+                             [&d](const DrmConfig& item) { return item.id == d.active_config; });
+        return config != d.configs.end() &&
+               (fb == nullptr ||
+                (fb->width() == config->mode.hdisplay && fb->height() == config->mode.vdisplay));
+    }
     android::base::unique_fd unused;
-    return it != displays_.end() && it->second.connected &&
-           AtomicCommit(&it->second, fb, acquire_fence, true, &unused);
+    return AtomicCommit(&it->second, fb, acquire_fence, true, &unused);
 }
 
 bool DrmDevice::TestConfiguration(int64_t display) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
     DrmDisplay& d = it->second;
+    if (!atomic_kms_) {
+        return std::any_of(d.configs.begin(), d.configs.end(),
+                           [&d](const DrmConfig& item) { return item.id == d.active_config; });
+    }
     drmModeAtomicReq* request = drmModeAtomicAlloc();
     uint32_t mode_blob = 0;
     bool ok = request != nullptr;
@@ -552,17 +636,85 @@ bool DrmDevice::TestConfiguration(int64_t display) {
     return ok;
 }
 
-android::base::unique_fd DrmDevice::Present(int64_t display,
-                                            const std::shared_ptr<DrmFramebuffer>& fb,
-                                            int acquire_fence) {
-    auto it = displays_.find(display);
-    android::base::unique_fd fence;
-    if (it == displays_.end() || !it->second.connected ||
-        !AtomicCommit(&it->second, fb, acquire_fence, true, &fence) ||
-        !AtomicCommit(&it->second, fb, acquire_fence, false, &fence)) {
-        return {};
+bool DrmDevice::LegacyPresent(DrmDisplay* d, const std::shared_ptr<DrmFramebuffer>& fb,
+                              int acquire_fence) {
+    if (d == nullptr) return false;
+    if (fb == nullptr) {
+        if (!d->has_legacy_framebuffer) return true;
+        if (drmModeSetCrtc(fd_.get(), d->crtc_id, 0, 0, 0, nullptr, 0, nullptr) != 0) {
+            ALOGE("Failed to clear legacy display %" PRId64 ": %s", d->id, strerror(errno));
+            return false;
+        }
+        d->has_legacy_framebuffer = false;
+        d->modeset_needed = true;
+        return true;
     }
-    return fence;
+    const auto config =
+            std::find_if(d->configs.begin(), d->configs.end(),
+                         [d](const DrmConfig& item) { return item.id == d->active_config; });
+    if (config == d->configs.end() || fb->width() != config->mode.hdisplay ||
+        fb->height() != config->mode.vdisplay) {
+        ALOGE("Legacy framebuffer dimensions do not match display %" PRId64, d->id);
+        return false;
+    }
+    if (acquire_fence >= 0) {
+        constexpr int kAcquireFenceTimeoutMs = 3000;
+        if (sync_wait(acquire_fence, kAcquireFenceTimeoutMs) != 0) {
+            ALOGE("Acquire fence timed out for legacy display %" PRId64, d->id);
+            return false;
+        }
+    }
+    const bool framebuffer_changed =
+            d->has_legacy_framebuffer &&
+            (d->legacy_format != fb->format() || d->legacy_modifier != fb->modifier());
+    if (d->modeset_needed || !d->powered || framebuffer_changed) {
+        uint32_t connector = d->connector_id;
+        if (drmModeSetCrtc(fd_.get(), d->crtc_id, fb->id(), 0, 0, &connector, 1, &config->mode) !=
+            0) {
+            ALOGE("Legacy modeset failed for display %" PRId64 ": %s", d->id, strerror(errno));
+            return false;
+        }
+        d->powered = true;
+        d->modeset_needed = false;
+        d->has_legacy_framebuffer = true;
+        d->legacy_format = fb->format();
+        d->legacy_modifier = fb->modifier();
+        return true;
+    }
+    std::lock_guard event_lock(event_mutex_);
+    PageFlipResult result;
+    if (drmModePageFlip(fd_.get(), d->crtc_id, fb->id(), DRM_MODE_PAGE_FLIP_EVENT, &result) != 0) {
+        ALOGE("Legacy page flip failed for display %" PRId64 ": %s", d->id, strerror(errno));
+        return false;
+    }
+    while (!result.complete) {
+        pollfd drm_poll{fd_.get(), POLLIN, 0};
+        const int poll_result = poll(&drm_poll, 1, -1);
+        if (poll_result < 0 && errno == EINTR) continue;
+        if (poll_result <= 0 || (drm_poll.revents & POLLIN) == 0) {
+            ALOGE("Legacy page flip event wait failed for display %" PRId64 ": %s", d->id,
+                  strerror(errno));
+            continue;
+        }
+        drmEventContext context{};
+        context.version = DRM_EVENT_CONTEXT_VERSION;
+        context.page_flip_handler2 = HandlePageFlip;
+        if (drmHandleEvent(fd_.get(), &context) != 0) {
+            ALOGE("Legacy page flip event handling failed for display %" PRId64 ": %s", d->id,
+                  strerror(errno));
+        }
+    }
+    return true;
+}
+
+bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& fb,
+                        int acquire_fence, android::base::unique_fd* out_fence) {
+    auto it = displays_.find(display);
+    if (it == displays_.end() || !it->second.connected) return false;
+    out_fence->reset();
+    if (!atomic_kms_) return LegacyPresent(&it->second, fb, acquire_fence);
+    return AtomicCommit(&it->second, fb, acquire_fence, true, out_fence) &&
+           AtomicCommit(&it->second, fb, acquire_fence, false, out_fence);
 }
 
 bool DrmDevice::SetPower(int64_t display, bool on) {
@@ -570,6 +722,23 @@ bool DrmDevice::SetPower(int64_t display, bool on) {
     if (it == displays_.end() || !it->second.connected) return false;
     DrmDisplay& d = it->second;
     if (d.powered == on) return true;
+    if (!atomic_kms_) {
+        bool ok = true;
+        if (on) {
+            d.powered = true;
+            d.modeset_needed = true;
+        } else {
+            ok = drmModeSetCrtc(fd_.get(), d.crtc_id, 0, 0, 0, nullptr, 0, nullptr) == 0;
+            if (ok) {
+                d.powered = false;
+                d.modeset_needed = true;
+                d.has_legacy_framebuffer = false;
+            }
+        }
+        ALOGI("Legacy display %" PRId64 " power %s %s", display, on ? "ON" : "OFF",
+              ok ? "succeeded" : "failed");
+        return ok;
+    }
     drmModeAtomicReq* request = drmModeAtomicAlloc();
     uint32_t mode_blob = 0;
     bool ok = request != nullptr;
@@ -593,7 +762,10 @@ bool DrmDevice::SetPower(int64_t display, bool on) {
     ok = ok && drmModeAtomicCommit(fd_.get(), request, DRM_MODE_ATOMIC_ALLOW_MODESET, nullptr) == 0;
     if (request != nullptr) drmModeAtomicFree(request);
     if (mode_blob != 0) drmModeDestroyPropertyBlob(fd_.get(), mode_blob);
-    if (ok) d.powered = on;
+    if (ok) {
+        d.powered = on;
+        d.modeset_needed = !on;
+    }
     ALOGI("Display %" PRId64 " power %s %s", display, on ? "ON" : "OFF",
           ok ? "succeeded" : "failed");
     return ok;
@@ -622,12 +794,14 @@ bool DrmDevice::SetActiveConfig(int64_t display, int32_t config) {
 
 std::string DrmDevice::Dump() const {
     std::ostringstream out;
-    out << "DRM fd=" << fd_.get() << " modifiers=" << modifiers_supported_ << '\n';
+    out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")
+        << " modifiers=" << modifiers_supported_ << '\n';
     for (const auto& [id, d] : displays_) {
         out << " display=" << id << " " << d.name << " connected=" << d.connected
             << " internal=" << d.internal << " power=" << d.powered
             << " connector=" << d.connector_id << " crtc=" << d.crtc_id << " plane=" << d.plane_id
-            << " activeConfig=" << d.active_config << " configs=" << d.configs.size() << '\n';
+            << " activeConfig=" << d.active_config << " modesetNeeded=" << d.modeset_needed
+            << " configs=" << d.configs.size() << '\n';
     }
     return out.str();
 }

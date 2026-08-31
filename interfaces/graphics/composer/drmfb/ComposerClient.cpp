@@ -330,17 +330,19 @@ bool ComposerClient::PresentLocked(int64_t display, std::vector<CommandResultPay
         *error = kNotValidated;
         return false;
     }
-    android::base::unique_fd fence =
-            drm_.Present(display, state->target, state->target_fence.get());
+    android::base::unique_fd fence;
+    const bool presented = drm_.Present(display, state->target, state->target_fence.get(), &fence);
     state->target_fence.reset();
-    if (!fence.ok()) {
+    if (!presented) {
         *error = kNoResources;
         return false;
     }
-    PresentFence present;
-    present.display = display;
-    present.fence = ndk::ScopedFileDescriptor(fence.release());
-    results->emplace_back(std::move(present));
+    if (fence.ok()) {
+        PresentFence present;
+        present.display = display;
+        present.fence = ndk::ScopedFileDescriptor(fence.release());
+        results->emplace_back(std::move(present));
+    }
     state->scanout = state->target;
     return true;
 }
@@ -952,23 +954,32 @@ void ComposerClient::VblankLoop() {
         int64_t timestamp = 0;
         SequenceResult sequence_result;
         uint64_t queued_sequence = 0;
-        const int queue_result = drmCrtcQueueSequence(
-                drm_.fd(), crtc_id, DRM_CRTC_SEQUENCE_RELATIVE | DRM_CRTC_SEQUENCE_NEXT_ON_MISS, 1,
-                &queued_sequence, reinterpret_cast<uint64_t>(&sequence_result));
-        if (queue_result == 0) {
-            pollfd fds[2] = {{drm_.fd(), POLLIN, 0}, {wake_fd_.get(), POLLIN, 0}};
-            while (!stopping_ && sequence_result.timestamp_ns == 0) {
-                const int count = poll(fds, 2, -1);
-                if (count < 0 && errno == EINTR) continue;
-                if (count <= 0 || (fds[1].revents & POLLIN) != 0) break;
-                if ((fds[0].revents & POLLIN) != 0) {
-                    drmEventContext context{};
-                    context.version = DRM_EVENT_CONTEXT_VERSION;
-                    context.sequence_handler = HandleSequence;
-                    if (drmHandleEvent(drm_.fd(), &context) != 0) break;
+        int queue_result;
+        {
+            std::unique_lock event_lock(drm_.event_mutex());
+            queue_result = drmCrtcQueueSequence(
+                    drm_.fd(), crtc_id, DRM_CRTC_SEQUENCE_RELATIVE | DRM_CRTC_SEQUENCE_NEXT_ON_MISS,
+                    1, &queued_sequence, reinterpret_cast<uint64_t>(&sequence_result));
+            if (queue_result == 0) {
+                pollfd fds[2] = {{drm_.fd(), POLLIN, 0}, {wake_fd_.get(), POLLIN, 0}};
+                while (!stopping_ && sequence_result.timestamp_ns == 0) {
+                    const int count = poll(fds, 2, -1);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count <= 0) continue;
+                    if ((fds[1].revents & POLLIN) != 0) break;
+                    if ((fds[0].revents & POLLIN) != 0) {
+                        drmEventContext context{};
+                        context.version = DRM_EVENT_CONTEXT_VERSION;
+                        context.sequence_handler = HandleSequence;
+                        if (drmHandleEvent(drm_.fd(), &context) != 0) {
+                            ALOGW("Failed to handle CRTC sequence event: %s", strerror(errno));
+                        }
+                    }
                 }
             }
-            if (stopping_) break;
+        }
+        if (stopping_) break;
+        if (queue_result == 0) {
             timestamp = static_cast<int64_t>(sequence_result.timestamp_ns);
         } else {
             std::unique_lock lock(mutex_);
