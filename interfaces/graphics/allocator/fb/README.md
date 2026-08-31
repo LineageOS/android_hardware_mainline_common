@@ -1,0 +1,88 @@
+# fbdev graphics HAL
+
+`fb` is a software-only graphics stack for systems with a legacy Linux fbdev
+display and a software renderer such as SwiftShader or llvmpipe. It contains an
+allocator AIDL V2 service, a Stable-C mapper V5 SP-HAL, and a Composer3 V4
+service. It is not a GPU allocator and does not produce dma-bufs.
+
+## Integration
+
+Install these standalone modules together:
+
+- `android.hardware.graphics.allocator-service.fb`
+- `mapper.fb`
+- `android.hardware.graphics.composer3-service.fb`
+
+Alternatively install the non-updatable, SoC-specific vendor-bootstrap APEX
+`com.android.hardware.graphics.fb`. For APEX products, set
+`fb_graphics.include_init_rc=false` and
+`fb_graphics.include_vintf_fragments=false` to avoid duplicate standalone init
+and VINTF installation. The APEX uses the platform hardware key and certificate
+and contains both services, the mapper, all VINTF fragments, and generated init
+scripts. Its linker configuration exposes `mapper.fb` from the APEX namespace
+to Stable-C mapper clients. A product must install exactly one
+allocator/mapper/composer stack and
+must not install both this APEX and another graphics HAL APEX.
+
+SELinux policy outside this directory must allow the allocator to create and
+map memfds, SurfaceFlinger and graphics clients to use the mapper SP-HAL, and
+the composer domain to open, ioctl, and map the selected framebuffer node.
+Device-node labels and allow rules are board-specific and are intentionally not
+provided here. The product sepolicy must also map `mapper/fb` to
+`u:object_r:hal_graphics_mapper_service:s0` in `service_contexts`.
+
+## Properties
+
+- `vendor.hwc.fbdev.device` is a read-only explicit fbdev path. Without it the
+  composer tries `/dev/graphics/fb0` and then `/dev/fb0`.
+- `vendor.hwc.fbdev.swap_rb` is a read-only boolean, default false. It swaps
+  source red and blue only in the bounded RGB conversion path.
+
+## Buffers
+
+The transport handle has two FDs and fixed-width integer fields only. One memfd
+contains linear pixels; the other contains shared standard metadata followed by
+the exact requested client reserved region. Process mappings and lock counts are
+never serialized. Protected allocations and unknown V2 usage bits or options
+are rejected.
+
+Supported formats are RGBA_8888, RGBX_8888, BGRA_8888, RGB_888, RGB_565,
+RGBA_FP16, BLOB, RAW16, YV12, NV21/YCRCB_420_SP, planar YCBCR_420_888, P010, and
+P210. YUV is linear media/VTS support only; Composer accepts RGB client targets
+in the five 8-bit/565 formats and converts them to the fbdev channel layout.
+There is no camera-vendor tiling, implementation-defined format selection,
+compression, or GPU-private memory.
+
+GPU texture/render usage flags are accepted only to interoperate with software
+EGL/Vulkan implementations that consume mapper-locked shared memory. These
+allocations do not satisfy a hardware GPU driver's dma-buf or private-memory
+requirements. Front-buffer allocations are intentionally unsupported.
+
+Mutable dataspace, blend mode, SMPTE2086, and CTA861_3 values are in the shared
+metadata memfd and serialized across processes with advisory file locks.
+Standard metadata encoding uses the platform mapper helpers. Pixel mappings
+support nested locks, explicit flush/reread, and return no fabricated release
+fence.
+
+## Composer Scope
+
+The composer exposes one internal physical display and one fixed configuration
+from fbdev. Every layer is validated as `Composition.CLIENT`; only the client
+target is presented. It supports transactional lifecycle batch commands,
+target slots, expected-present timestamps, fixed-refresh debug callbacks,
+NATIVE/COLORIMETRIC behavior, and stoppable synthetic monotonic vsync.
+
+If `yres_virtual` contains multiple complete pages, frames are copied to an
+inactive page and presented with `FBIOPAN_DISPLAY`. Otherwise Composer performs
+a best-effort `FBIO_WAITFORVSYNC` and copies to the visible page. Acquire fences
+are waited for up to three seconds. A waited acquire sync-file is duplicated as
+the present fence when available; otherwise no fence is returned under
+`PRESENT_FENCE_IS_NOT_RELIABLE`. Eventfds are never exposed as fences.
+
+Virtual displays, readback, overlays, sideband, HDR display output, color
+transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
+mode changes, hotplug discovery, and refresh-rate switching are unsupported.
+Fbdev has no reliable completion fence, and synthetic vsync is not hardware
+phase locked. Output bitfields are limited to 8 bits per RGB channel and 32
+bits per pixel. Use the Composer Binder dump for geometry, channel layout,
+page, power, target, layer, and validation state.
