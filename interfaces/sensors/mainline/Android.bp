@@ -66,6 +66,12 @@ cc_binary {
     visibility: [":__subpackages__"],
 }
 
+linker_config {
+    name: "com.android.hardware.sensors.mainline-linker-config",
+    src: "apex_linkerconfig.json",
+    installable: false,
+}
+
 prebuilt_etc {
     name: "sensors-mainline.rc",
     vendor: true,
@@ -99,6 +105,7 @@ apex {
 
     binaries: ["android.hardware.sensors-service.mainline"],
     prebuilts: [
+        "com.android.hardware.sensors.mainline-linker-config",
         "sensors-mainline.xml",
     ] + select(soong_config_variable("sensors_hal_mainline", "run_as_root"), {
         true: ["sensors-mainline-as-root.rc"],
