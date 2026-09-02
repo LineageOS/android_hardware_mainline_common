@@ -425,7 +425,8 @@ bool ComposerClient::PresentLocked(int64_t display, std::vector<CommandResultPay
 
 ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayCommand>& commands,
                                                    std::vector<CommandResultPayload>* results) {
-    std::lock_guard lock(mutex_);
+    std::vector<int64_t> refresh_notifications;
+    std::unique_lock lock(mutex_);
     results->clear();
     for (size_t i = 0; i < commands.size(); ++i) {
         const size_t result_start = results->size();
@@ -450,6 +451,37 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             AddError(i, kUnsupported, results);
             continue;
         }
+        if (command.activeConfig) {
+            const int32_t requested = command.activeConfig->configId;
+            drmfb::DrmDisplay* drm_display = FindDisplayLocked(command.display);
+            const drmfb::DrmConfig* requested_config =
+                    drm_display == nullptr ? nullptr : FindConfig(*drm_display, requested);
+            if (requested_config == nullptr) {
+                AddError(i, kBadConfig, results);
+                continue;
+            }
+            // Applying a mode power-cycles the display, so no transition is seamless.
+            if (command.activeConfig->seamlessRequired && drm_display->active_config != requested) {
+                const drmfb::DrmConfig* current =
+                        FindConfig(*drm_display, drm_display->active_config);
+                AddError(i,
+                         current != nullptr && current->group == requested_config->group
+                                 ? IComposerClient::EX_SEAMLESS_NOT_POSSIBLE
+                                 : IComposerClient::EX_SEAMLESS_NOT_ALLOWED,
+                         results);
+                continue;
+            }
+            bool notify_refresh = false;
+            const int32_t config_error =
+                    SetActiveConfigLocked(command.display, requested, &notify_refresh);
+            if (config_error != 0) {
+                AddError(i, config_error, results);
+                continue;
+            }
+            if (notify_refresh) refresh_notifications.push_back(command.display);
+        }
+        // The state is snapshotted after the mode change because a new mode invalidates the
+        // client target that the previous mode was validated with.
         const auto saved_layers = state->layers;
         const auto saved_slots = state->target_slots;
         const auto saved_target = state->target;
@@ -546,6 +578,10 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
                 AddError(i, error, results);
             }
         }
+    }
+    lock.unlock();
+    for (const int64_t display : refresh_notifications) {
+        NotifyRefreshRateChanged(display);
     }
     return ndk::ScopedAStatus::ok();
 }
@@ -764,25 +800,34 @@ ndk::ScopedAStatus ComposerClient::registerCallback(
     return ndk::ScopedAStatus::ok();
 }
 
+int32_t ComposerClient::SetActiveConfigLocked(int64_t display, int32_t config,
+                                              bool* notify_refresh) {
+    *notify_refresh = false;
+    drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+    DisplayState* state = FindStateLocked(display);
+    if (drm_display == nullptr || state == nullptr) return kBadDisplay;
+    if (FindConfig(*drm_display, config) == nullptr) return kBadConfig;
+    if (drm_display->active_config == config) return 0;
+    if (!drm_.SetActiveConfig(display, config)) return IComposerClient::EX_CONFIG_FAILED;
+    state->target_slots.assign(state->target_slots.size(), nullptr);
+    state->target.reset();
+    state->target_full_damage = true;
+    state->target_damage.clear();
+    state->scanout.reset();
+    state->validation = ValidationState::kDirty;
+    // The vsync phase and period of the previous mode no longer describe the display.
+    state->have_vsync_sample = false;
+    state->last_vsync_ns = 0;
+    *notify_refresh = state->refresh_debug_enabled;
+    return 0;
+}
+
 ndk::ScopedAStatus ComposerClient::setActiveConfig(int64_t display, int32_t config) {
     bool notify_refresh = false;
     {
         std::lock_guard lock(mutex_);
-        drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
-        if (drm_display == nullptr) return Error(kBadDisplay);
-        const drmfb::DrmConfig* requested_config = FindConfig(*drm_display, config);
-        if (requested_config == nullptr) return Error(kBadConfig);
-        if (drm_display->active_config == config) return ndk::ScopedAStatus::ok();
-        if (!drm_.SetActiveConfig(display, config)) {
-            return Error(IComposerClient::EX_CONFIG_FAILED);
-        }
-        states_[display].target_slots.assign(states_[display].target_slots.size(), nullptr);
-        states_[display].target.reset();
-        states_[display].target_full_damage = true;
-        states_[display].target_damage.clear();
-        states_[display].scanout.reset();
-        states_[display].validation = ValidationState::kDirty;
-        notify_refresh = states_[display].refresh_debug_enabled;
+        const int32_t error = SetActiveConfigLocked(display, config, &notify_refresh);
+        if (error != 0) return Error(error);
     }
     if (notify_refresh) NotifyRefreshRateChanged(display);
     return ndk::ScopedAStatus::ok();
@@ -898,6 +943,9 @@ ndk::ScopedAStatus ComposerClient::setPowerMode(int64_t display, PowerMode mode)
     if (!on) {
         state->vsync_enabled = false;
         state->scanout.reset();
+        // Vsync stops while the display is off, so the recorded sample stops being recent.
+        state->have_vsync_sample = false;
+        state->last_vsync_ns = 0;
     }
     return ndk::ScopedAStatus::ok();
 }
@@ -993,6 +1041,26 @@ ndk::ScopedAStatus ComposerClient::getMaxLayerPictureProfiles(int64_t display, i
 ndk::ScopedAStatus ComposerClient::getLuts(int64_t display, const std::vector<Buffer>&,
                                            std::vector<Luts>*) {
     return UnsupportedDisplay(display);
+}
+
+ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t display,
+                                                              VsyncSample* sample) {
+    std::lock_guard lock(mutex_);
+    drmfb::DrmDisplay* drm_display = FindDisplayLocked(display);
+    DisplayState* state = FindStateLocked(display);
+    if (drm_display == nullptr || state == nullptr) return Error(kBadDisplay);
+    const drmfb::DrmConfig* config = FindConfig(*drm_display, drm_display->active_config);
+    if (config == nullptr) return Error(kUnsupported);
+    int64_t timestamp = 0;
+    if (!drm_.QueryVblankSample(display, &timestamp)) {
+        // Only hardware vblank events are reported. A software vsync cadence carries no
+        // information about the display's real vsync phase.
+        if (!state->have_vsync_sample) return Error(kUnsupported);
+        timestamp = state->last_vsync_ns;
+    }
+    sample->timestampNs = timestamp;
+    sample->vsyncPeriodNs = ModePeriod(config->mode);
+    return ndk::ScopedAStatus::ok();
 }
 
 int64_t ComposerClient::MonotonicNanos() {
@@ -1173,6 +1241,10 @@ void ComposerClient::VblankLoop() {
                 FindDisplayLocked(display_id) == nullptr) {
                 continue;
             }
+            if (queue_result == 0 && timestamp > 0) {
+                state->second.have_vsync_sample = true;
+                state->second.last_vsync_ns = timestamp;
+            }
             callback = callback_;
         }
         if (callback != nullptr && !stopping_) {
@@ -1188,7 +1260,7 @@ void ComposerClient::VblankLoop() {
 std::string ComposerClient::Dump() {
     std::lock_guard lock(mutex_);
     std::ostringstream out;
-    out << "drmfb Composer3 V4\n" << drm_.Dump();
+    out << "drmfb Composer3 V5\n" << drm_.Dump();
     for (const auto& [id, state] : states_) {
         out << " state display=" << id << " layers=" << state.layers.size()
             << " targetSlots=" << state.target_slots.size()

@@ -1,6 +1,6 @@
 # DRM framebuffer Composer3 HAL
 
-`drmfb` is a deliberately small Composer3 V4 implementation for systems where
+`drmfb` is a deliberately small Composer3 V5 implementation for systems where
 SurfaceFlinger performs all composition. Every application layer is validated
 as `Composition.CLIENT`; the HAL imports and scans out only the resulting
 client target through DRM KMS.
@@ -129,6 +129,18 @@ unless the driver is one of the mandatory local-staging backends above.
   with a waited acquire fence used as a compatibility fallback.
 - A constrained non-seamless mode change waits until its requested monotonic
   time before applying the mode; seamless transitions are not supported.
+- Mode changes are also accepted as display commands through the
+  `DISPLAY_COMMAND_CONFIG_CHANGE` capability. The command is applied before the
+  rest of its batch so that validation and presentation observe the new mode,
+  and it invalidates the cached client target. A mode change power-cycles the
+  display, so a command that requires seamlessness fails unless the requested
+  mode is already active.
+- `getDisplayKnownVsyncSample` reports a hardware vblank timestamp queried from
+  the CRTC, or the last delivered hardware vblank event, paired with the active
+  mode period. Displays whose vsync is a software cadence, and drivers without
+  vblank support, report `EX_UNSUPPORTED` instead of a synthetic phase. The
+  recorded sample is discarded on mode changes and when the display powers
+  off.
 - OFF disables the CRTC. Atomic and legacy ON transitions defer activation until
   a framebuffer is presented, accommodating drivers that require a primary
   plane whenever a CRTC is active.
@@ -157,8 +169,9 @@ display capabilities are advertised except brightness when backed by an
 unambiguous Linux backlight device. The global
 `PRESENT_FENCE_IS_NOT_RELIABLE` capability covers legacy KMS, while atomic KMS
 still returns explicit present fences. Layer lifecycle batching and fixed-rate
-refresh debug callbacks are advertised; `SKIP_VALIDATE` is not. NATIVE color
-mode with COLORIMETRIC intent is the only color behavior.
+refresh debug callbacks are advertised together with display-command mode
+changes; `SKIP_VALIDATE` is not. NATIVE color mode with COLORIMETRIC intent is
+the only color behavior.
 
 Use `dumpsys android.hardware.graphics.composer3.IComposer/default` for the
 selected DRM objects, modes, power state, layer counts, target cache state, and

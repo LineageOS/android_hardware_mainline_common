@@ -23,7 +23,7 @@ cc_defaults {
     shared_libs: [
         "android.hardware.common-V2-ndk",
         "android.hardware.graphics.common-V7-ndk",
-        "android.hardware.graphics.composer3-V4-ndk",
+        "android.hardware.graphics.composer3-V5-ndk",
         "libbase",
         "libbinder_ndk",
         "libcutils",

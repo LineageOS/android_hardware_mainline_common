@@ -162,6 +162,7 @@ class DrmDevice {
     bool HasBrightness(int64_t display) const;
     bool SetBrightness(int64_t display, float brightness);
     bool SetActiveConfig(int64_t display, int32_t config);
+    bool QueryVblankSample(int64_t display, int64_t* timestamp_ns);
     std::string Dump() const;
 
   private:
@@ -201,6 +202,7 @@ class DrmDevice {
     bool hyperv_drm_ = false;
     bool bochs_drm_ = false;
     bool backlight_discovered_ = false;
+    bool vblank_query_supported_ = true;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;

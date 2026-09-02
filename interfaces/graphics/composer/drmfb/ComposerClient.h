@@ -113,6 +113,7 @@ class ComposerClient : public BnComposerClient {
     ndk::ScopedAStatus getMaxLayerPictureProfiles(int64_t display, int32_t* max_profiles) override;
     ndk::ScopedAStatus getLuts(int64_t display, const std::vector<Buffer>& buffers,
                                std::vector<Luts>* luts) override;
+    ndk::ScopedAStatus getDisplayKnownVsyncSample(int64_t display, VsyncSample* sample) override;
 
   protected:
     ndk::SpAIBinder createBinder() override;
@@ -135,12 +136,15 @@ class ComposerClient : public BnComposerClient {
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
         bool refresh_debug_enabled = false;
+        bool have_vsync_sample = false;
+        int64_t last_vsync_ns = 0;
     };
 
     static ndk::ScopedAStatus Error(int32_t error);
     ndk::ScopedAStatus UnsupportedDisplay(int64_t display);
     drmfb::DrmDisplay* FindDisplayLocked(int64_t display);
     DisplayState* FindStateLocked(int64_t display);
+    int32_t SetActiveConfigLocked(int64_t display, int32_t config, bool* notify_refresh);
     bool SetClientTargetLocked(int64_t display, const ClientTarget& target, int32_t* error);
     bool ApplyLayerLocked(int64_t display, const LayerCommand& command, int32_t* error);
     void AddError(size_t index, int32_t error, std::vector<CommandResultPayload>* results);

@@ -1451,6 +1451,29 @@ bool DrmDevice::SetActiveConfig(int64_t display, int32_t config) {
     return true;
 }
 
+bool DrmDevice::QueryVblankSample(int64_t display, int64_t* timestamp_ns) {
+    if (!vblank_query_supported_) return false;
+    auto it = displays_.find(display);
+    if (it == displays_.end() || !it->second.connected || it->second.crtc_id == 0) return false;
+    uint64_t sequence = 0;
+    uint64_t sample_ns = 0;
+    if (drmCrtcGetSequence(fd_.get(), it->second.crtc_id, &sequence, &sample_ns) != 0) {
+        // EINVAL is also reported for a CRTC whose vblank is momentarily off, so only a
+        // missing ioctl disables querying permanently.
+        if (errno == ENOTTY || errno == ENOSYS || errno == EOPNOTSUPP) {
+            vblank_query_supported_ = false;
+            ALOGI("CRTC sequence queries are unsupported by the DRM driver");
+        }
+        return false;
+    }
+    // Drivers without vblank support report a zeroed timestamp instead of failing.
+    if (sample_ns == 0 || sample_ns > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        return false;
+    }
+    *timestamp_ns = static_cast<int64_t>(sample_ns);
+    return true;
+}
+
 std::string DrmDevice::Dump() const {
     std::ostringstream out;
     out << "DRM fd=" << fd_.get() << " backend=" << (atomic_kms_ ? "atomic" : "legacy")

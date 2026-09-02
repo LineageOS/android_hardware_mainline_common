@@ -1,6 +1,6 @@
 # Agent Notes
 
-This directory implements a client-composition-only Composer3 V4 DRM HAL. Read
+This directory implements a client-composition-only Composer3 V5 DRM HAL. Read
 `INITIAL_IMPLEMENTATION.md` before changing it; that file limits reference
 paths and explicitly prohibits local builds and tests.
 
@@ -15,6 +15,12 @@ paths and explicitly prohibits local builds and tests.
 - Batched layer CREATE and DESTROY operations are transactional command state,
   not direct Binder lifecycle calls.
 - Keep display/config IDs stable for the lifetime of the service process.
+- Apply a display-command mode change before the rest of its batch, invalidate
+  the cached client target, and fail a seamless request that would change the
+  mode. Notify refresh-rate debug callbacks only after `mutex_` is released.
+- Report a known vsync sample only from a real hardware vblank. Never report a
+  synthetic cadence, and discard the recorded sample on mode change and power
+  off.
 - Android requires at least one internal physical display. Preserve promotion
   of the first connected connector when no real internal connector exists.
 - Prefer atomic KMS and retain the legacy CRTC/page-flip fallback. Atomic frame
