@@ -110,6 +110,10 @@ unless the driver is one of the mandatory local-staging backends above.
 ## Behavior
 
 - Physical connectors are ordered internal-first and then by connector ID.
+- If no connected panel/internal connector exists, the first connected display
+  is reported as internal. Android and HWUI require one internal physical
+  display even on desktop and virtual systems whose only output is HDMI, DP, or
+  VGA.
 - Mode configuration IDs remain stable for the service process lifetime.
 - The first callback registration emits a connected event for every display.
 - Validation requests CLIENT composition. Atomic displays use `TEST_ONLY`;

@@ -15,6 +15,8 @@ paths and explicitly prohibits local builds and tests.
 - Batched layer CREATE and DESTROY operations are transactional command state,
   not direct Binder lifecycle calls.
 - Keep display/config IDs stable for the lifetime of the service process.
+- Android requires at least one internal physical display. Preserve promotion
+  of the first connected connector when no real internal connector exists.
 - Prefer atomic KMS and retain the legacy CRTC/page-flip fallback. Atomic frame
   updates must not resubmit modeset state. Legacy presents return a signaled
   fence when syncobj or a waited acquire fence makes one available.

@@ -473,6 +473,18 @@ std::vector<DrmDevice::HotplugChange> DrmDevice::Rescan() {
             changes.push_back({id, false});
         }
     }
+    const bool has_internal_display = std::any_of(
+            displays_.begin(), displays_.end(),
+            [](const auto& item) { return item.second.connected && item.second.internal; });
+    if (!has_internal_display) {
+        auto primary = std::find_if(displays_.begin(), displays_.end(),
+                                    [](const auto& item) { return item.second.connected; });
+        if (primary != displays_.end()) {
+            primary->second.internal = true;
+            ALOGW("No internal connector found; treating display %" PRId64 " (%s) as internal",
+                  primary->first, primary->second.name.c_str());
+        }
+    }
     return changes;
 }
 
