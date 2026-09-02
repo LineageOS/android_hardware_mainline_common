@@ -437,7 +437,16 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         }
         int32_t error = 0;
         bool valid = true;
-        if (command.brightness || command.virtualDisplayOutputBuffer) {
+        if (command.virtualDisplayOutputBuffer) {
+            AddError(i, kUnsupported, results);
+            continue;
+        }
+        if (command.brightness && (!std::isfinite(command.brightness->brightness) ||
+                                   command.brightness->brightness > 1.0F)) {
+            AddError(i, kBadParameter, results);
+            continue;
+        }
+        if (command.brightness && !drm_.HasBrightness(command.display)) {
             AddError(i, kUnsupported, results);
             continue;
         }
@@ -514,6 +523,13 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             result.result = PresentOrValidate::Result::Validated;
             results->emplace_back(result);
             // SKIP_VALIDATE is not advertised, so presentOrValidate always validates.
+        }
+        if (command.brightness &&
+            !drm_.SetBrightness(command.display, command.brightness->brightness)) {
+            results->resize(result_start);
+            restore_state();
+            AddError(i, kNoResources, results);
+            continue;
         }
         if (command.presentDisplay) {
             if (command.expectedPresentTime && command.expectedPresentTime->timestampNanos > 0) {
@@ -595,6 +611,7 @@ ndk::ScopedAStatus ComposerClient::getDisplayCapabilities(int64_t display,
     std::lock_guard lock(mutex_);
     if (FindDisplayLocked(display) == nullptr) return Error(kBadDisplay);
     caps->clear();
+    if (drm_.HasBrightness(display)) caps->push_back(DisplayCapability::BRIGHTNESS);
     return ndk::ScopedAStatus::ok();
 }
 

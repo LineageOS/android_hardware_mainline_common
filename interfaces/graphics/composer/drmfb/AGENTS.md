@@ -48,6 +48,10 @@ paths and explicitly prohibits local builds and tests.
   use monotonic timestamps.
 - Keep refresh-rate debug callbacks outside `mutex_` and report the active
   fixed-refresh mode period for both callback period fields.
+- Advertise brightness only when one real internal display maps unambiguously
+  to one Linux backlight device. Do not use DRM's analog-TV `brightness`
+  property as panel luminance. Keep the initial pairing immutable across
+  rescans so cached display capabilities remain stable.
 - Do not add a device-specific property assignment. The implementation reads
   `vendor.hwc.drm.device` as an explicit override and otherwise enumerates DRM
   primary nodes with libdrm.

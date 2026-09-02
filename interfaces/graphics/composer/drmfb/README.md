@@ -138,13 +138,23 @@ unless the driver is one of the mandatory local-staging backends above.
   enabled and after mode changes.
 - Physical orientation follows the standardized DRM `panel orientation`
   connector property and otherwise defaults to `Transform::NONE`.
+- When exactly one real internal DRM display and one Linux backlight device can
+  be paired unambiguously, that display advertises
+  `DisplayCapability::BRIGHTNESS`. Composer values from 0.0 to 1.0 are scaled
+  into `/sys/class/backlight/*/brightness`; negative values also request
+  backlight power-down through `bl_power` when available. Brightness updates do
+  not require presentation. Board SELinux policy must permit the composer
+  domain to access the selected backlight files. The pairing is frozen during
+  service initialization so display capabilities do not change on hotplug;
+  panels appearing later do not gain brightness support.
 
 ## Intentional Scope
 
 Virtual displays, readback/writeback, overlays, sideband streams, HDR and color
 processing, content sampling, boot configuration persistence, HDCP, LUTs,
 seamless mode changes, idle timers, and low-latency modes are unsupported. No
-display capabilities are advertised. The global
+display capabilities are advertised except brightness when backed by an
+unambiguous Linux backlight device. The global
 `PRESENT_FENCE_IS_NOT_RELIABLE` capability covers legacy KMS, while atomic KMS
 still returns explicit present fences. Layer lifecycle batching and fixed-rate
 refresh debug callbacks are advertised; `SKIP_VALIDATE` is not. NATIVE color

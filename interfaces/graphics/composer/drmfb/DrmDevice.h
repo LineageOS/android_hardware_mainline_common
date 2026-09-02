@@ -62,6 +62,7 @@ struct DrmDisplay {
     uint32_t crtc_index = 0;
     uint32_t plane_id = 0;
     bool internal = false;
+    bool native_internal = false;
     bool connected = false;
     bool powered = false;
     bool modeset_needed = true;
@@ -73,6 +74,9 @@ struct DrmDisplay {
     int32_t mm_height = 0;
     int32_t active_config = 0;
     std::string name;
+    std::string backlight_path;
+    uint32_t backlight_max = 0;
+    bool backlight_power_down = false;
     std::vector<uint8_t> edid;
     std::vector<DrmConfig> configs;
     DrmProperties props;
@@ -155,6 +159,8 @@ class DrmDevice {
                  bool full_damage, const std::vector<DrmDamage>& damage,
                  android::base::unique_fd* out_fence);
     bool SetPower(int64_t display, bool on);
+    bool HasBrightness(int64_t display) const;
+    bool SetBrightness(int64_t display, float brightness);
     bool SetActiveConfig(int64_t display, int32_t config);
     std::string Dump() const;
 
@@ -165,6 +171,7 @@ class DrmDevice {
                       const std::vector<uint32_t>& used_crtcs,
                       const std::vector<uint32_t>& used_planes);
     bool DiscoverProperties(DrmDisplay* display);
+    void DiscoverBacklight();
     bool AtomicCommit(DrmDisplay* display, const std::shared_ptr<DrmFramebuffer>& fb,
                       int acquire_fence, bool full_damage, const std::vector<DrmDamage>& damage,
                       bool test_only, android::base::unique_fd* out_fence);
@@ -193,6 +200,7 @@ class DrmDevice {
     bool qxl_ = false;
     bool hyperv_drm_ = false;
     bool bochs_drm_ = false;
+    bool backlight_discovered_ = false;
     int64_t next_display_id_ = 0;
     int32_t next_config_id_ = 0;
     std::map<uint32_t, int64_t> connector_display_ids_;

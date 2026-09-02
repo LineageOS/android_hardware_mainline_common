@@ -6,8 +6,11 @@
 
 #include "DrmDevice.h"
 
+#include <android-base/file.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
+#include <android-base/strings.h>
 #include <drm/drm.h>
 #include <drm/drm_fourcc.h>
 #include <log/log.h>
@@ -22,13 +25,17 @@
 #include <algorithm>
 #include <cerrno>
 #include <cinttypes>
+#include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <set>
 #include <sstream>
 
 namespace drmfb {
 namespace {
+
+namespace fs = std::filesystem;
 
 using android::base::StringPrintf;
 constexpr size_t kMaxPlanes = 4;
@@ -62,6 +69,11 @@ uint32_t RemoveAlphaFormat(uint32_t format) {
 bool IsCpuConversionFormat(uint32_t format) {
     return format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_XRGB8888 ||
            format == DRM_FORMAT_ABGR8888 || format == DRM_FORMAT_XBGR8888;
+}
+
+bool PathExists(const std::string& path) {
+    std::error_code error;
+    return fs::exists(path, error) && !error;
 }
 
 std::string GetDriverName(int fd) {
@@ -319,6 +331,7 @@ bool DrmDevice::InitPath(const std::string& path) {
     qxl_ = false;
     hyperv_drm_ = false;
     bochs_drm_ = false;
+    backlight_discovered_ = false;
     next_display_id_ = 0;
     next_config_id_ = 0;
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
@@ -445,6 +458,11 @@ std::vector<DrmDevice::HotplugChange> DrmDevice::Rescan() {
         used_crtcs.push_back(candidate.crtc_id);
         used_planes.push_back(candidate.plane_id);
         auto old = displays_.find(display_id);
+        if (old != displays_.end()) {
+            candidate.backlight_path = old->second.backlight_path;
+            candidate.backlight_max = old->second.backlight_max;
+            candidate.backlight_power_down = old->second.backlight_power_down;
+        }
         if (old != displays_.end() && was_connected) {
             const int32_t discovered_config = candidate.active_config;
             candidate.powered = old->second.powered;
@@ -485,6 +503,7 @@ std::vector<DrmDevice::HotplugChange> DrmDevice::Rescan() {
                   primary->first, primary->second.name.c_str());
         }
     }
+    DiscoverBacklight();
     return changes;
 }
 
@@ -494,7 +513,8 @@ bool DrmDevice::DiscoverConnector(uint32_t connector_id, DrmDisplay* display) {
     display->connector_id = connector_id;
     display->connector_type = connector->connector_type;
     display->connector_type_id = connector->connector_type_id;
-    display->internal = IsInternal(connector->connector_type) || firmware_kms_;
+    display->native_internal = IsInternal(connector->connector_type) || firmware_kms_;
+    display->internal = display->native_internal;
     display->connected = (connector->connection == DRM_MODE_CONNECTED ||
                           ((hyperv_drm_ || bochs_drm_) &&
                            connector->connection == DRM_MODE_UNKNOWNCONNECTION)) &&
@@ -668,6 +688,41 @@ bool DrmDevice::DiscoverProperties(DrmDisplay* d) {
     return p.connector_crtc_id && p.crtc_active && p.crtc_mode_id && p.crtc_out_fence_ptr &&
            p.plane_fb_id && p.plane_crtc_id && p.plane_src_x && p.plane_src_y && p.plane_src_w &&
            p.plane_src_h && p.plane_crtc_x && p.plane_crtc_y && p.plane_crtc_w && p.plane_crtc_h;
+}
+
+void DrmDevice::DiscoverBacklight() {
+    if (backlight_discovered_) return;
+    backlight_discovered_ = true;
+    std::vector<DrmDisplay*> internal_displays;
+    for (auto& [id, display] : displays_) {
+        if (display.connected && display.native_internal) internal_displays.push_back(&display);
+    }
+    if (internal_displays.size() != 1) return;
+
+    std::error_code error;
+    fs::directory_iterator iterator("/sys/class/backlight", error);
+    fs::directory_iterator end;
+    std::vector<std::string> backlights;
+    while (!error && iterator != end) {
+        const std::string path = iterator->path().string();
+        if (fs::exists(path + "/brightness", error) && !error &&
+            fs::exists(path + "/max_brightness", error) && !error) {
+            backlights.push_back(path);
+        }
+        iterator.increment(error);
+    }
+    if (error || backlights.size() != 1) return;
+
+    std::string maximum;
+    uint32_t max_value = 0;
+    if (!android::base::ReadFileToString(backlights[0] + "/max_brightness", &maximum) ||
+        !android::base::ParseUint(android::base::Trim(maximum), &max_value) || max_value == 0) {
+        return;
+    }
+    internal_displays[0]->backlight_path = backlights[0];
+    internal_displays[0]->backlight_max = max_value;
+    ALOGI("Display %" PRId64 " uses backlight %s max=%u", internal_displays[0]->id,
+          backlights[0].c_str(), max_value);
 }
 
 bool DrmDevice::PlaneSupportsFormat(const DrmDisplay& display, uint32_t format,
@@ -1279,6 +1334,40 @@ bool DrmDevice::Present(int64_t display, const std::shared_ptr<DrmFramebuffer>& 
     return presented;
 }
 
+bool DrmDevice::HasBrightness(int64_t display) const {
+    auto it = displays_.find(display);
+    return it != displays_.end() && it->second.connected && !it->second.backlight_path.empty() &&
+           it->second.backlight_max != 0;
+}
+
+bool DrmDevice::SetBrightness(int64_t display, float brightness) {
+    auto it = displays_.find(display);
+    if (it == displays_.end() || !HasBrightness(display)) return false;
+    DrmDisplay& drm_display = it->second;
+    const float normalized = brightness < 0.0F ? 0.0F : brightness;
+    const uint32_t value =
+            static_cast<uint32_t>(std::lround(normalized * drm_display.backlight_max));
+    if (!android::base::WriteStringToFile(std::to_string(value),
+                                          drm_display.backlight_path + "/brightness")) {
+        ALOGE("Failed to set display %" PRId64 " backlight to %u: %s", display, value,
+              strerror(errno));
+        return false;
+    }
+    const std::string power_path = drm_display.backlight_path + "/bl_power";
+    if (PathExists(power_path)) {
+        const bool power_down = brightness < 0.0F;
+        if ((power_down || drm_display.powered) &&
+            !android::base::WriteStringToFile(power_down ? "4" : "0", power_path)) {
+            ALOGE("Failed to update display %" PRId64 " backlight power: %s", display,
+                  strerror(errno));
+            return false;
+        }
+        drm_display.backlight_power_down = power_down;
+    }
+    ALOGV("Set display %" PRId64 " brightness=%f backlight=%u", display, brightness, value);
+    return true;
+}
+
 bool DrmDevice::SetPower(int64_t display, bool on) {
     auto it = displays_.find(display);
     if (it == displays_.end() || !it->second.connected) return false;
@@ -1289,6 +1378,15 @@ bool DrmDevice::SetPower(int64_t display, bool on) {
         if (on) {
             d.powered = true;
             d.modeset_needed = true;
+            if (HasBrightness(display) && !d.backlight_power_down) {
+                const std::string power_path = d.backlight_path + "/bl_power";
+                if (PathExists(power_path) && !android::base::WriteStringToFile("0", power_path)) {
+                    d.powered = false;
+                    ALOGE("Failed to power on legacy display %" PRId64 " backlight: %s", display,
+                          strerror(errno));
+                    return false;
+                }
+            }
         } else {
             ok = drmModeSetCrtc(fd_.get(), d.crtc_id, 0, 0, 0, nullptr, 0, nullptr) == 0;
             if (ok) {
@@ -1304,6 +1402,15 @@ bool DrmDevice::SetPower(int64_t display, bool on) {
     if (on) {
         d.powered = true;
         d.modeset_needed = true;
+        if (HasBrightness(display) && !d.backlight_power_down) {
+            const std::string power_path = d.backlight_path + "/bl_power";
+            if (PathExists(power_path) && !android::base::WriteStringToFile("0", power_path)) {
+                d.powered = false;
+                ALOGE("Failed to power on display %" PRId64 " backlight: %s", display,
+                      strerror(errno));
+                return false;
+            }
+        }
         ALOGI("Display %" PRId64 " power ON deferred until framebuffer present", display);
         return true;
     }
