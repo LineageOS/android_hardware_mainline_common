@@ -40,6 +40,15 @@ provided here. The product sepolicy must also map `mapper/fb` to
 - `vendor.hwc.fbdev.swap_rb` is a read-only boolean, default false. It swaps
   source red and blue only in the bounded RGB conversion path.
 
+When exactly one fbdev display and one Linux backlight device exist at service
+initialization, the display advertises `DisplayCapability::BRIGHTNESS`.
+Normalized values are scaled into `/sys/class/backlight/*/brightness`, while
+negative values request backlight power-down through the required `bl_power`
+file without overwriting the previous brightness level.
+The pairing is immutable and multi-display or multi-backlight systems remain
+unsupported rather than risking control of the wrong panel. Board SELinux
+policy must allow the composer domain to access these files.
+
 ## Buffers
 
 The transport handle has two FDs and fixed-width integer fields only. One memfd

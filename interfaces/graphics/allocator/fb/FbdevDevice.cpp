@@ -6,6 +6,7 @@
 
 #include "FbdevDevice.h"
 
+#include <android-base/file.h>
 #include <android-base/properties.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
@@ -22,6 +23,7 @@
 #include <cerrno>
 #include <cinttypes>
 #include <climits>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <sstream>
@@ -867,7 +869,15 @@ bool FbdevDevice::Present(const std::shared_ptr<ImportedBuffer>& buffer,
 
 bool FbdevDevice::SetPower(bool on) {
     std::lock_guard lock(mutex_);
-    if (powered_ == on) return true;
+    if (powered_ == on) {
+        if (on && HasBrightness() && backlight_power_down_ &&
+            !android::base::WriteStringToFile("0", backlight_path_ + "/bl_power")) {
+            ALOGE("Unable to restore backlight %s: %s", backlight_path_.c_str(), strerror(errno));
+            return false;
+        }
+        if (on) backlight_power_down_ = false;
+        return true;
+    }
     if (blank_supported_ &&
         ioctl(fd_.get(), FBIOBLANK, on ? FB_BLANK_UNBLANK : FB_BLANK_POWERDOWN) != 0) {
         ALOGE("FBIOBLANK(%d) failed: %s", on, strerror(errno));
@@ -881,7 +891,52 @@ bool FbdevDevice::SetPower(bool on) {
         ALOGE("Unable to redraw framebuffer after unblank on %s", path_.c_str());
         return false;
     }
+    if (on && HasBrightness() && !backlight_power_down_) {
+        const std::string power_path = backlight_path_ + "/bl_power";
+        if (access(power_path.c_str(), F_OK) == 0 &&
+            !android::base::WriteStringToFile("0", power_path)) {
+            ALOGE("Unable to power on backlight %s: %s", backlight_path_.c_str(), strerror(errno));
+            return false;
+        }
+    }
     powered_ = on;
+    return true;
+}
+
+void FbdevDevice::SetBacklight(std::string path, uint32_t maximum) {
+    std::lock_guard lock(mutex_);
+    backlight_path_ = std::move(path);
+    backlight_max_ = maximum;
+    backlight_power_down_ = false;
+    ALOGI("Framebuffer %s uses backlight %s max=%u", path_.c_str(), backlight_path_.c_str(),
+          backlight_max_);
+}
+
+bool FbdevDevice::SetBrightness(float brightness) {
+    std::lock_guard lock(mutex_);
+    if (!HasBrightness()) return false;
+    if (brightness < 0.0F) {
+        if (!android::base::WriteStringToFile("4", backlight_path_ + "/bl_power")) {
+            ALOGE("Unable to power down backlight %s: %s", backlight_path_.c_str(),
+                  strerror(errno));
+            return false;
+        }
+        backlight_power_down_ = true;
+        return true;
+    }
+    const float normalized = brightness;
+    const uint32_t value = static_cast<uint32_t>(std::lround(normalized * backlight_max_));
+    if (!android::base::WriteStringToFile(std::to_string(value), backlight_path_ + "/brightness")) {
+        ALOGE("Unable to set backlight %s brightness=%u: %s", backlight_path_.c_str(), value,
+              strerror(errno));
+        return false;
+    }
+    const std::string power_path = backlight_path_ + "/bl_power";
+    if (powered_ && !android::base::WriteStringToFile("0", power_path)) {
+        ALOGE("Unable to set backlight %s power: %s", backlight_path_.c_str(), strerror(errno));
+        return false;
+    }
+    backlight_power_down_ = false;
     return true;
 }
 

@@ -12,6 +12,8 @@
 #include <aidl/android/hardware/graphics/composer3/PresentFence.h>
 #include <aidl/android/hardware/graphics/composer3/PresentOrValidate.h>
 #include <aidlcommonsupport/NativeHandle.h>
+#include <android-base/file.h>
+#include <android-base/parseint.h>
 #include <android-base/strings.h>
 #include <android/binder_ibinder_platform.h>
 #include <cutils/native_handle.h>
@@ -25,12 +27,15 @@
 #include <chrono>
 #include <cinttypes>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <set>
 #include <sstream>
 
 namespace aidl::android::hardware::graphics::composer3::impl {
 namespace {
+
+namespace fs = std::filesystem;
 
 constexpr int32_t kConfig = 0;
 constexpr int32_t kBadConfig = IComposerClient::EX_BAD_CONFIG;
@@ -94,6 +99,30 @@ bool ComposerClient::Init() {
     if (displays_.empty()) {
         ALOGE("No usable fbdev displays found");
         return false;
+    }
+    if (displays_.size() == 1) {
+        std::error_code error;
+        fs::directory_iterator iterator("/sys/class/backlight", error);
+        fs::directory_iterator end;
+        std::vector<std::string> backlights;
+        while (!error && iterator != end) {
+            const std::string backlight = iterator->path().string();
+            if (fs::exists(backlight + "/brightness", error) && !error &&
+                fs::exists(backlight + "/max_brightness", error) && !error &&
+                fs::exists(backlight + "/bl_power", error) && !error) {
+                backlights.push_back(backlight);
+            }
+            iterator.increment(error);
+        }
+        if (!error && backlights.size() == 1) {
+            std::string maximum;
+            uint32_t max_value = 0;
+            if (::android::base::ReadFileToString(backlights[0] + "/max_brightness", &maximum) &&
+                ::android::base::ParseUint(::android::base::Trim(maximum), &max_value) &&
+                max_value != 0) {
+                displays_[0]->device->SetBacklight(backlights[0], max_value);
+            }
+        }
     }
     for (size_t display = 0; display < displays_.size(); ++display) {
         displays_[display]->vsync_thread =
@@ -389,11 +418,20 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             AddError(i, kBadDisplay, results);
             continue;
         }
-        if (command.brightness || command.virtualDisplayOutputBuffer) {
+        if (command.virtualDisplayOutputBuffer) {
             AddError(i, kUnsupported, results);
             continue;
         }
         DisplayContext* context = GetDisplay(command.display);
+        if (command.brightness && (!std::isfinite(command.brightness->brightness) ||
+                                   command.brightness->brightness > 1.0F)) {
+            AddError(i, kBadParameter, results);
+            continue;
+        }
+        if (command.brightness && !context->device->HasBrightness()) {
+            AddError(i, kUnsupported, results);
+            continue;
+        }
         DisplayState& state = context->state;
         const auto saved_layers = state.layers;
         const auto saved_slots = state.target_slots;
@@ -459,6 +497,12 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
         if (command.presentOrValidateDisplay) {
             results->emplace_back(PresentOrValidate{
                     .display = command.display, .result = PresentOrValidate::Result::Validated});
+        }
+        if (command.brightness && !context->device->SetBrightness(command.brightness->brightness)) {
+            results->resize(result_start);
+            restore();
+            AddError(i, kNoResources, results);
+            continue;
         }
         if (command.presentDisplay) {
             if (command.expectedPresentTime && command.expectedPresentTime->timestampNanos > 0) {
@@ -532,6 +576,9 @@ ndk::ScopedAStatus ComposerClient::getDisplayCapabilities(int64_t display,
                                                           std::vector<DisplayCapability>* caps) {
     if (!IsDisplay(display)) return Error(kBadDisplay);
     caps->clear();
+    if (GetDisplay(display)->device->HasBrightness()) {
+        caps->push_back(DisplayCapability::BRIGHTNESS);
+    }
     return ndk::ScopedAStatus::ok();
 }
 

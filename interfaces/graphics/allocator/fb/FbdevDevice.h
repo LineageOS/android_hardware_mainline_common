@@ -60,6 +60,9 @@ class FbdevDevice {
                  const std::vector<DamageRect>& damage, int acquire_fence,
                  android::base::unique_fd* present_fence);
     bool SetPower(bool on);
+    void SetBacklight(std::string path, uint32_t maximum);
+    bool HasBrightness() const { return !backlight_path_.empty() && backlight_max_ != 0; }
+    bool SetBrightness(float brightness);
     VsyncWaitResult WaitForVsync(int64_t* timestamp_ns);
     void InterruptVsyncWait();
     std::string Dump() const;
@@ -132,6 +135,9 @@ class FbdevDevice {
     std::vector<uint16_t> saved_cmap_alpha_;
     std::vector<uint8_t> static_palette_lookup_;
     std::vector<uint8_t> last_frame_;
+    std::string backlight_path_;
+    uint32_t backlight_max_ = 0;
+    bool backlight_power_down_ = false;
     mutable std::mutex mutex_;
 };
 

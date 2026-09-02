@@ -52,6 +52,8 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
   mode when a two-page request cannot be used safely.
 - Update `README.md` when capabilities, formats, ABI, properties, or packaging
   change.
+- Advertise brightness only for the immutable, unambiguous one-display and
+  one-backlight pairing. Do not guess mappings on multi-display systems.
 
 The vendor APEX and standalone modules are mutually exclusive. Board SELinux
 policy and framebuffer device labels live outside this directory.
