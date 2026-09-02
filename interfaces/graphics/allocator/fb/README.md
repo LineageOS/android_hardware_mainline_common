@@ -2,7 +2,7 @@
 
 `fb` is a software-only graphics stack for systems with a legacy Linux fbdev
 display and a software renderer such as SwiftShader or llvmpipe. It contains an
-allocator AIDL V2 service, a Stable-C mapper V5 SP-HAL, and a Composer3 V4
+allocator AIDL V3 service, a Stable-C mapper V5 SP-HAL, and a Composer3 V5
 service. It is not a GPU allocator and does not produce dma-bufs.
 
 ## Integration
@@ -86,9 +86,9 @@ enumeration makes the preferred fb0 node display 0. Every layer is validated as
 have independent layer/target state, power, configuration, damage, and
 interruptible vsync workers. The composer supports transactional lifecycle
 batch commands, target slots, expected-present timestamps, fixed-refresh debug
-callbacks, NATIVE/COLORIMETRIC behavior, client-target damage, and hardware
-vsync through `FBIO_WAITFORVSYNC`. Unsupported wait ioctls are cached and use a
-stoppable synthetic monotonic fallback. After a hardware wait,
+callbacks, NATIVE/COLORIMETRIC behavior, client-target damage, display-command
+mode changes, and hardware vsync through `FBIO_WAITFORVSYNC`. Unsupported wait
+ioctls are cached and use a stoppable synthetic monotonic fallback. After a hardware wait,
 `FBIOGET_VBLANK` capability flags and valid retrace counts improve timestamp
 sampling and diagnostics. The
 generic UAPI has no vblank timestamp field, so reserved fields are ignored and
@@ -114,10 +114,27 @@ hardware unblank, or re-enabling an emulated blank, redraws and flushes that
 last frame. Other backing pages remain unsynchronized and continue to receive a
 full copy before panning.
 
+The `DISPLAY_COMMAND_CONFIG_CHANGE` capability is advertised because each
+display has exactly one configuration, so selecting it through a display
+command is a no-op that always succeeds and is always seamless. Any other
+configuration id fails with `EX_BAD_CONFIG`.
+
+`getDisplayKnownVsyncSample` reports the timestamp of the last delivered
+`FBIO_WAITFORVSYNC` event together with the current mode period. Displays
+served by the synthetic monotonic fallback report `EX_UNSUPPORTED` rather than a
+software phase, and the recorded sample is discarded when the display powers
+off.
+
+The allocator implements IAllocator V3 but reports every multi-view description
+as unsupported and rejects `allocateMultiView` with `AllocationError`
+`UNSUPPORTED`. Multi-view handles require view introspection from IMapper V6;
+the mapper stays at Stable-C V5, which is also the version the platform mapper
+VTS requires.
+
 Virtual displays, readback, overlays, sideband, HDR display output, color
 transforms, content sampling, boot config persistence, HDCP, LUTs, seamless
-mode changes, runtime hotplug discovery, and refresh-rate switching are
-unsupported.
+mode changes, multi-view buffers, runtime hotplug discovery, and refresh-rate
+switching are unsupported.
 
 Fbdev has no reliable completion fence, and fallback vsync is not hardware phase
 locked. Packed true-color fbdev outputs may use arbitrary non-overlapping

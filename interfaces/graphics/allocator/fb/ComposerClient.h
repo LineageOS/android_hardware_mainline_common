@@ -112,6 +112,7 @@ class ComposerClient : public BnComposerClient {
     ndk::ScopedAStatus getMaxLayerPictureProfiles(int64_t display, int32_t* max_profiles) override;
     ndk::ScopedAStatus getLuts(int64_t display, const std::vector<Buffer>& buffers,
                                std::vector<Luts>* luts) override;
+    ndk::ScopedAStatus getDisplayKnownVsyncSample(int64_t display, VsyncSample* sample) override;
 
   protected:
     ndk::SpAIBinder createBinder() override;
@@ -132,6 +133,8 @@ class ComposerClient : public BnComposerClient {
         ValidationState validation = ValidationState::kDirty;
         bool vsync_enabled = false;
         bool refresh_debug_enabled = false;
+        bool have_vsync_sample = false;
+        int64_t last_vsync_ns = 0;
     };
     struct DisplayContext {
         std::unique_ptr<fb::FbdevDevice> device;

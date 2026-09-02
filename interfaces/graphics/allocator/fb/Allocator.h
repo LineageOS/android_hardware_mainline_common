@@ -19,6 +19,11 @@ class Allocator : public BnAllocator {
                                  AllocationResult* result) override;
     ndk::ScopedAStatus isSupported(const BufferDescriptorInfo& descriptor, bool* result) override;
     ndk::ScopedAStatus getIMapperLibrarySuffix(std::string* suffix) override;
+    ndk::ScopedAStatus isMultiViewSupported(const std::vector<BufferDescriptorInfo>& descriptors,
+                                            int32_t base_view_index, bool* result) override;
+    ndk::ScopedAStatus allocateMultiView(const std::vector<BufferDescriptorInfo>& descriptors,
+                                         int32_t base_view_index,
+                                         AllocationResult* result) override;
 
   protected:
     ndk::SpAIBinder createBinder() override;

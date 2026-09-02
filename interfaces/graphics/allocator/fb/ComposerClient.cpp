@@ -432,6 +432,12 @@ ndk::ScopedAStatus ComposerClient::executeCommands(const std::vector<DisplayComm
             AddError(i, kUnsupported, results);
             continue;
         }
+        // The single fbdev mode is always active, so applying it is a no-op that cannot
+        // produce a visual artifact and is therefore always seamless.
+        if (command.activeConfig && command.activeConfig->configId != kConfig) {
+            AddError(i, kBadConfig, results);
+            continue;
+        }
         DisplayState& state = context->state;
         const auto saved_layers = state.layers;
         const auto saved_slots = state.target_slots;
@@ -806,7 +812,12 @@ ndk::ScopedAStatus ComposerClient::setPowerMode(int64_t display, PowerMode mode)
     std::lock_guard lock(mutex_);
     DisplayContext* context = GetDisplay(display);
     if (!context->device->SetPower(on)) return Error(kNoResources);
-    if (!on) context->state.vsync_enabled = false;
+    if (!on) {
+        context->state.vsync_enabled = false;
+        // Vsync stops while the display is off, so the recorded sample stops being recent.
+        context->state.have_vsync_sample = false;
+        context->state.last_vsync_ns = 0;
+    }
     vsync_cv_.notify_all();
     context->device->InterruptVsyncWait();
     return ndk::ScopedAStatus::ok();
@@ -907,6 +918,19 @@ ndk::ScopedAStatus ComposerClient::getLuts(int64_t display, const std::vector<Bu
     return UnsupportedDisplay(display);
 }
 
+ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t display,
+                                                              VsyncSample* sample) {
+    if (!IsDisplay(display)) return Error(kBadDisplay);
+    std::lock_guard lock(mutex_);
+    const DisplayContext* context = GetDisplay(display);
+    // Only hardware vsync events are reported. A software vsync cadence carries no
+    // information about the display's real vsync phase.
+    if (!context->state.have_vsync_sample) return Error(kUnsupported);
+    sample->timestampNs = context->state.last_vsync_ns;
+    sample->vsyncPeriodNs = context->device->period_ns();
+    return ndk::ScopedAStatus::ok();
+}
+
 int64_t ComposerClient::MonotonicNanos() {
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -943,6 +967,9 @@ void ComposerClient::VsyncLoop(int64_t display) {
             callback = callback_;
         } else {
             next = timestamp;
+            std::lock_guard lock(mutex_);
+            context->state.have_vsync_sample = true;
+            context->state.last_vsync_ns = timestamp;
         }
         if (callback != nullptr) {
             std::lock_guard callback_lock(vsync_callback_mutex_);
@@ -963,7 +990,7 @@ void ComposerClient::VsyncLoop(int64_t display) {
 std::string ComposerClient::Dump() {
     std::lock_guard lock(mutex_);
     std::ostringstream out;
-    out << "fbdev Composer3 V4 displays=" << displays_.size() << '\n';
+    out << "fbdev Composer3 V5 displays=" << displays_.size() << '\n';
     for (size_t id = 0; id < displays_.size(); ++id) {
         const DisplayContext& display = *displays_[id];
         out << display.device->Dump() << " display=" << id

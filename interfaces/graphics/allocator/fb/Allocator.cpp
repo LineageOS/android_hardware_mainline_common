@@ -108,6 +108,19 @@ ndk::ScopedAStatus Allocator::getIMapperLibrarySuffix(std::string* suffix) {
     return ndk::ScopedAStatus::ok();
 }
 
+ndk::ScopedAStatus Allocator::isMultiViewSupported(const std::vector<BufferDescriptorInfo>&,
+                                                   int32_t, bool* result) {
+    // Multi-view buffers require view introspection from IMapper V6, which the fbdev mapper
+    // does not implement, so no multi-view description can ever be allocated.
+    *result = false;
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Allocator::allocateMultiView(const std::vector<BufferDescriptorInfo>&, int32_t,
+                                                AllocationResult*) {
+    return Error(AllocationError::UNSUPPORTED);
+}
+
 ndk::SpAIBinder Allocator::createBinder() {
     auto binder = BnAllocator::createBinder();
     AIBinder_setInheritRt(binder.get(), true);

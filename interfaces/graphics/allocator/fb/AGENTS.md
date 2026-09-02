@@ -1,7 +1,7 @@
 # Agent Notes
 
 This directory is a self-contained software allocator, Stable-C mapper V5, and
-client-composition-only Composer3 V4 stack for legacy fbdev systems.
+client-composition-only Composer3 V5 stack for legacy fbdev systems.
 
 ## Invariants
 
@@ -23,6 +23,11 @@ client-composition-only Composer3 V4 stack for legacy fbdev systems.
 - Wait acquire fences before CPU access. Never manufacture an eventfd fence.
 - Keep hardware vsync waits interruptible, cache permanent ioctl limitations,
   keep fallback vsync stoppable, and invoke Binder callbacks without `mutex_`.
+- Report a known vsync sample only from a real `FBIO_WAITFORVSYNC` event. Never
+  report the synthetic fallback cadence, and discard the recorded sample when
+  the display powers off.
+- Keep the mapper at Stable-C V5 and report multi-view allocation as
+  unsupported. Do not claim IMapper V6 without real view introspection.
 - Trust `FBIOGET_VBLANK` fields only when their capability bits are set. The
   generic UAPI has no timestamp field; never interpret its reserved words.
 - Do not broaden the red/blue workaround beyond supported RGB conversion.

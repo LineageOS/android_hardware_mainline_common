@@ -34,7 +34,8 @@ ndk::ScopedAStatus Composer::createClient(std::shared_ptr<IComposerClient>* out_
 ndk::ScopedAStatus Composer::getCapabilities(std::vector<Capability>* capabilities) {
     *capabilities = {Capability::PRESENT_FENCE_IS_NOT_RELIABLE,
                      Capability::REFRESH_RATE_CHANGED_CALLBACK_DEBUG,
-                     Capability::LAYER_LIFECYCLE_BATCH_COMMAND};
+                     Capability::LAYER_LIFECYCLE_BATCH_COMMAND,
+                     Capability::DISPLAY_COMMAND_CONFIG_CHANGE};
     return ndk::ScopedAStatus::ok();
 }
 

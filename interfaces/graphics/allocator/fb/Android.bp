@@ -46,7 +46,7 @@ cc_defaults {
     defaults: ["fb_graphics_defaults"],
     srcs: [":fb_graphics_buffer_sources"],
     shared_libs: [
-        "android.hardware.graphics.allocator-V2-ndk",
+        "android.hardware.graphics.allocator-V3-ndk",
         "android.hardware.graphics.common-V7-ndk",
         "libbase",
         "libcutils",
@@ -109,7 +109,7 @@ cc_binary {
     }),
     shared_libs: [
         "android.hardware.common-V2-ndk",
-        "android.hardware.graphics.composer3-V4-ndk",
+        "android.hardware.graphics.composer3-V5-ndk",
         "libbinder_ndk",
         "libhardware",
         "libsync",
