@@ -45,6 +45,10 @@ class ModuleMainline final : public Module {
     ndk::ScopedAStatus setMicMute(bool in_mute) override;
     ndk::ScopedAStatus getSupportedPlaybackRateFactors(
             SupportedPlaybackRateFactors* _aidl_return) override;
+    ndk::ScopedAStatus setAudioPortConfig(
+            const ::aidl::android::media::audio::common::AudioPortConfig& in_requested,
+            ::aidl::android::media::audio::common::AudioPortConfig* out_suggested,
+            bool* _aidl_return) override;
     binder_status_t dump(int fd, const char** args, uint32_t num_args) override;
 
     // Module extension points

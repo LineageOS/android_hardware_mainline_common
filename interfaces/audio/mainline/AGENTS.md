@@ -119,6 +119,12 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   stack stays in charge.
 * `UcmManager::EnableDevice` disables conflicting devices itself: alsa-lib does
   not.
+* Initial (dynamic) port configs carry `gain = null`, and
+  `ModuleMainline::setAudioPortConfig` strips a value-less gain for ports
+  without gain controllers. `Hal2AidlMapper` reuses the device port config it
+  got from `getAudioPortConfigs()` as the template for its requests, and
+  `Module::setAudioPortConfigGain` rejects any gain on a port without `gains`,
+  which fails every stream open ("gains for port N is undefined").
 
 ## When adding a property
 

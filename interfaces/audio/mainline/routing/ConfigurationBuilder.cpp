@@ -8,6 +8,7 @@
 #include "routing/ConfigurationBuilder.h"
 
 #include <algorithm>
+#include <optional>
 
 #include <Utils.h>
 #include <aidl/android/media/audio/common/AudioDeviceDescription.h>
@@ -26,7 +27,6 @@ using ::aidl::android::media::audio::common::AudioChannelLayout;
 using ::aidl::android::media::audio::common::AudioDeviceDescription;
 using ::aidl::android::media::audio::common::AudioDeviceType;
 using ::aidl::android::media::audio::common::AudioFormatDescription;
-using ::aidl::android::media::audio::common::AudioGainConfig;
 using ::aidl::android::media::audio::common::AudioIoFlags;
 using ::aidl::android::media::audio::common::AudioOutputFlags;
 using ::aidl::android::media::audio::common::AudioPort;
@@ -87,6 +87,12 @@ AudioPort MakeMixPort(int32_t id, const std::string& name, bool is_input, int32_
 
 // A port config with everything left dynamic, mirroring what the framework
 // sees before it configures the port.
+//
+// `gain` is deliberately left null. The framework (Hal2AidlMapper) takes an
+// existing device port config as the template for its own requests, so any
+// gain we put here is echoed back in setAudioPortConfig(); Module then
+// validates it against the port's gain controllers and, as none of our ports
+// declare any, rejects the request and the stream open fails.
 AudioPortConfig MakeDynamicPortConfig(const AudioPort& port) {
     AudioPortConfig config;
     config.id = port.id;
@@ -94,7 +100,7 @@ AudioPortConfig MakeDynamicPortConfig(const AudioPort& port) {
     config.format = AudioFormatDescription{};
     config.channelMask = AudioChannelLayout{};
     config.sampleRate = Int{.value = 0};
-    config.gain = AudioGainConfig();
+    config.gain = std::nullopt;
     config.flags = port.flags;
     config.ext = port.ext;
     if (config.ext.getTag() == AudioPortExt::Tag::device) {
