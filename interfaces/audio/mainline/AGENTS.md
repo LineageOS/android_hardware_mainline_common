@@ -55,6 +55,18 @@ stream/
 config/                    XMLs installed into the APEX (effects, policy engine).
 ```
 
+The policy engine XMLs are parsed by the example HAL's xsdc-generated parser,
+whose schema is frozen and *narrower* than the legacy audio policy engine
+parser in `frameworks/av` these files were derived from. An unknown enumerator
+becomes `UNKNOWN` and makes the HAL `LOG_ALWAYS_FATAL` at start-up, so validate
+after every edit:
+
+```sh
+xmllint --noout --xinclude \
+    --schema hardware/interfaces/audio/aidl/default/config/audioPolicy/engine/audio_policy_engine_configuration.xsd \
+    config/audio_policy_engine_configuration.xml
+```
+
 ## Reused from the example HAL (`hardware/interfaces/audio/aidl/default`)
 
 We link `libaudioserviceexampleimpl` statically and derive from:

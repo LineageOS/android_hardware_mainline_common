@@ -87,8 +87,13 @@
         </AttributesGroup>
     </ProductStrategy>
 
+    <!-- AUDIO_STREAM_CALL_ASSISTANT cannot be named here: the engine configuration
+         schema of the AIDL audio HAL only knows the public stream types, and an
+         unknown streamType makes the HAL abort while parsing this file. Leaving
+         the attribute out maps the group to AudioStreamType::INVALID, which the
+         framework accepts for a group that is not tied to a legacy stream. -->
     <ProductStrategy name="STRATEGY_CALL_ASSISTANT">
-        <AttributesGroup streamType="AUDIO_STREAM_CALL_ASSISTANT" volumeGroup="call_assistant">
+        <AttributesGroup volumeGroup="call_assistant">
             <Attributes> <Usage value="AUDIO_USAGE_CALL_ASSISTANT"/> </Attributes>
         </AttributesGroup>
     </ProductStrategy>
