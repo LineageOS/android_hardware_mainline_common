@@ -1,0 +1,220 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Generic alsa-lib / alsa-ucm-conf based AIDL audio HAL for devices running a
+// mainline Linux kernel. See README.md.
+//
+// Soong config variables (namespace "mainline_audio"):
+//   bool disable_bluetooth  - leave the Bluetooth audio module (and the
+//                             Bluetooth audio provider HAL bundled with it)
+//                             out of the APEX. Set it when the device ships
+//                             its own IBluetoothAudioProviderFactory.
+
+cc_defaults {
+    name: "android.hardware.audio.service-aidl.mainline_defaults",
+    vendor: true,
+    defaults: [
+        // Shared library set and BACKEND_NDK of the example HAL.
+        "aidlaudioservice_defaults",
+        "latest_android_hardware_audio_core_ndk_shared",
+        "latest_android_hardware_audio_core_sounddose_ndk_shared",
+        "latest_android_hardware_audio_effect_ndk_shared",
+        "latest_android_hardware_bluetooth_audio_ndk_shared",
+        "latest_android_media_audio_common_types_ndk_shared",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wthread-safety",
+        "-DBACKEND_NDK",
+    ],
+}
+
+cc_binary {
+    name: "android.hardware.audio.service-aidl.mainline",
+    relative_install_path: "hw",
+    defaults: ["android.hardware.audio.service-aidl.mainline_defaults"],
+    srcs: [
+        "main.cpp",
+        "MainlineConfig.cpp",
+        "ModuleMainline.cpp",
+        "Properties.cpp",
+        "alsa/AlsaCard.cpp",
+        "alsa/AlsaError.cpp",
+        "alsa/AlsaFormat.cpp",
+        "alsa/AlsaMixer.cpp",
+        "alsa/AlsaPcm.cpp",
+        "routing/ConfigurationBuilder.cpp",
+        "routing/DeviceInventory.cpp",
+        "routing/RoutingController.cpp",
+        "stream/NullDevice.cpp",
+        "stream/StreamMainline.cpp",
+        "ucm/UcmDeviceMapper.cpp",
+        "ucm/UcmManager.cpp",
+    ],
+    local_include_dirs: ["."],
+    static_libs: [
+        // Module / Stream / Config infrastructure and the r_submix and
+        // bluetooth modules of the example HAL.
+        "libaudioserviceexampleimpl",
+    ],
+    shared_libs: [
+        "android.hardware.bluetooth.audio-impl",
+        "libapexsupport",
+        "libasound",
+        "libaudio_aidl_conversion_common_ndk",
+        "libbluetooth_audio_session_aidl",
+        "liblog",
+        "libmedia_helper",
+        "libstagefright_foundation",
+    ],
+    cflags: select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
+        true: [],
+        default: ["-DMAINLINE_AUDIO_WITH_BLUETOOTH"],
+    }),
+    installable: false, // installed in the APEX below
+}
+
+// --- Files installed into the APEX ------------------------------------------
+
+prebuilt_etc {
+    name: "android.hardware.audio.service-aidl.mainline.rc",
+    src: "android.hardware.audio.service-aidl.mainline.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.audio.service-aidl.mainline.xml",
+    src: "android.hardware.audio.service-aidl.mainline.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.audio.service-aidl.mainline-bluetooth.xml",
+    src: "android.hardware.audio.service-aidl.mainline-bluetooth.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+// Effect configuration read by the example effect service from
+// /apex/<name>/etc/audio_effects_config.xml.
+prebuilt_etc {
+    name: "audio_effects_config.mainline.xml",
+    filename: "audio_effects_config.xml",
+    src: "config/audio_effects_config.xml",
+    installable: false,
+}
+
+// Audio policy engine configuration served through IConfig.getEngineConfig().
+// A copy of the AOSP phone example; a device may override it by placing an
+// audio_policy_engine_configuration.xml into /vendor/etc.
+prebuilt_etc {
+    name: "audio_policy_engine_configuration.mainline.xml",
+    filename: "audio_policy_engine_configuration.xml",
+    src: "config/audio_policy_engine_configuration.xml",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "audio_policy_engine_product_strategies.mainline.xml",
+    filename: "audio_policy_engine_product_strategies.xml",
+    src: "config/audio_policy_engine_product_strategies.xml",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "audio_policy_engine_stream_volumes.mainline.xml",
+    filename: "audio_policy_engine_stream_volumes.xml",
+    src: "config/audio_policy_engine_stream_volumes.xml",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "audio_policy_engine_default_stream_volumes.mainline.xml",
+    filename: "audio_policy_engine_default_stream_volumes.xml",
+    src: "config/audio_policy_engine_default_stream_volumes.xml",
+    installable: false,
+}
+
+// --- APEX -------------------------------------------------------------------
+
+// The manifest keeps the name "com.android.hardware.audio" so that this APEX
+// can be multi-installed next to the example one; apexd activates one of them.
+apex {
+    name: "com.android.hardware.audio.mainline",
+    manifest: "apex_manifest.json",
+    file_contexts: "file_contexts",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    updatable: false,
+    vendor: true,
+
+    binaries: [
+        "android.hardware.audio.service-aidl.mainline",
+        // Effects: the unmodified example effect service with its plug-ins.
+        "android.hardware.audio.effect.service-aidl.example",
+    ],
+    native_shared_libs: [
+        "libaecsw",
+        "libagc1sw",
+        "libagc2sw",
+        "libbassboostsw",
+        "libbundleaidl",
+        "libdownmixaidl",
+        "libdynamicsprocessingaidl",
+        "libenvreverbsw",
+        "libequalizersw",
+        "liberaser",
+        "libextensioneffect",
+        "libhapticgeneratoraidl",
+        "libloudnessenhanceraidl",
+        "libnssw",
+        "libpreprocessingaidl",
+        "libpresetreverbsw",
+        "libreverbaidl",
+        "libspatializersw",
+        "libvirtualizersw",
+        "libvisualizeraidl",
+        "libvolumesw",
+    ],
+    prebuilts: [
+        "android.hardware.audio.service-aidl.mainline.rc",
+        "android.hardware.audio.service-aidl.mainline.xml",
+        "audio_effects_config.mainline.xml",
+        "audio_policy_engine_configuration.mainline.xml",
+        "audio_policy_engine_product_strategies.mainline.xml",
+        "audio_policy_engine_stream_volumes.mainline.xml",
+        "audio_policy_engine_default_stream_volumes.mainline.xml",
+        "audio_eraser_classifier_model",
+        "audio_eraser_separator_model",
+    ] + select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
+        true: [],
+        default: [
+            "android.hardware.audio.service-aidl.mainline-bluetooth.xml",
+            "android.hardware.bluetooth.audio.xml",
+        ],
+    }),
+    required: [
+        // alsa-lib configuration database (/vendor/etc/alsa) and the UCM
+        // top-level files. Card specific UCM profiles are selected by the
+        // product, see README.md.
+        "alsa_lib_conf",
+        "alsa_lib_conf_cards",
+        "alsa_lib_conf_ctl",
+        "alsa_lib_conf_pcm",
+        "alsa-ucm-conf-base",
+    ] + select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
+        true: [],
+        default: [
+            "aidl_audio_set_configurations_bfbs",
+            "aidl_default_audio_set_configurations_json",
+            "aidl_audio_set_scenarios_bfbs",
+            "aidl_default_audio_set_scenarios_json",
+            "hfp_codec_capabilities_xml",
+        ],
+    }),
+}
