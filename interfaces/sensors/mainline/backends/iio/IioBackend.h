@@ -40,7 +40,21 @@
  * ------------------
  * When buffer enable fails, BufferSensorThread sets sensor->is_poll_mode=true.
  * PollSensorThread detects this flag change after BufferSensorThread returns
- * and continues with the poll loop instead of exiting.
+ * and continues with the poll mode loop instead of exiting.
+ *
+ * HID Sensor Compatibility
+ * ------------------------
+ * HID sensors (hid-sensor-accel-3d, hid-sensor-gyro-3d, etc.) use push-based
+ * buffers via iio_push_to_buffers_with_ts() when HID reports arrive. They don't
+ * follow the standard trigger-based buffer model.
+ *
+ * Expected behavior:
+ * - Buffer enable will likely fail (scan_elements may not be writable)
+ * - Falls back to poll mode automatically
+ * - Poll mode reads _raw attributes which HID sensors expose
+ * - Works correctly but with higher latency than buffer mode
+ *
+ * HID sensors are common on x86 laptops/desktops with Intel/AMD chipsets.
  */
 
 #pragma once
