@@ -58,7 +58,7 @@ class LegacyParam {
     template <typename T>
     T GetValue(size_t byte_offset) const {
         T value{};
-        std::memcpy(ValueData() + byte_offset, &value, sizeof(T));
+        std::memcpy(&value, ValueData() + byte_offset, sizeof(T));
         return value;
     }
 
