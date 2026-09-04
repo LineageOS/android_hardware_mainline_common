@@ -83,7 +83,7 @@ ndk::ScopedAStatus GetVendorExtension(LegacyEffectHandle& effect, const VendorEx
     if (!bytes.has_value()) return IllegalArgument("vendor parameter request without payload");
     LegacyParam param(*bytes);
     if (!param.IsValid()) return IllegalArgument("malformed effect_param_t request");
-    const auto status = LegacyStatusToBinder(GetParam(effect, &param), "vendor GET_PARAM");
+    auto status = LegacyStatusToBinder(GetParam(effect, &param), "vendor GET_PARAM");
     if (!status.isOk()) return status;
     *reply = MakeExtension(param.bytes());
     return ndk::ScopedAStatus::ok();
@@ -109,8 +109,7 @@ class VendorTranslator final : public ParameterTranslator {
             return IllegalArgument("typed parameter id for a vendor effect");
         }
         VendorExtension reply;
-        const auto status =
-                GetVendorExtension(effect, id.get<Parameter::Id::vendorEffectTag>(), &reply);
+        auto status = GetVendorExtension(effect, id.get<Parameter::Id::vendorEffectTag>(), &reply);
         if (!status.isOk()) return status;
         specific->set<Parameter::Specific::vendorEffect>(reply);
         return ndk::ScopedAStatus::ok();

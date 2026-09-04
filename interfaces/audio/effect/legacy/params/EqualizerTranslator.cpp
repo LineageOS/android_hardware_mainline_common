@@ -73,7 +73,7 @@ class EqualizerTranslator final : public TypedTranslator<Equalizer, Parameter::S
             }
             case Equalizer::bandLevels: {
                 for (const auto& band : value.get<Equalizer::bandLevels>()) {
-                    const auto status =
+                    auto status =
                             LegacyStatusToBinder(SetIndexed(effect, EQ_PARAM_BAND_LEVEL, band.index,
                                                             static_cast<int16_t>(band.levelMb)),
                                                  "EQ_PARAM_BAND_LEVEL");

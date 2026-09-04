@@ -41,13 +41,12 @@ class TypedTranslator : public ParameterTranslator {
         Effect value;
         if (effect_id.getTag() == Effect::Id::vendorExtensionTag) {
             VendorExtension reply;
-            const auto status = GetVendorExtension(
+            auto status = GetVendorExtension(
                     effect, effect_id.template get<Effect::Id::vendorExtensionTag>(), &reply);
             if (!status.isOk()) return status;
             value.template set<Effect::vendor>(reply);
         } else if (effect_id.getTag() == Effect::Id::commonTag) {
-            const auto status =
-                    GetTyped(effect, effect_id.template get<Effect::Id::commonTag>(), &value);
+            auto status = GetTyped(effect, effect_id.template get<Effect::Id::commonTag>(), &value);
             if (!status.isOk()) return status;
         } else {
             return GetExtra(effect, effect_id, &value);

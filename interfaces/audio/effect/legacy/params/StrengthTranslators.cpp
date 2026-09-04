@@ -152,8 +152,8 @@ class VirtualizerTranslator final
         param.SetParam<uint32_t>(0, VIRTUALIZER_PARAM_VIRTUAL_SPEAKER_ANGLES);
         param.SetParam<uint32_t>(1, static_cast<uint32_t>(mask.value()));
         param.SetParam<uint32_t>(2, static_cast<uint32_t>(device.value()));
-        const auto status = LegacyStatusToBinder(GetParam(effect, &param),
-                                                 "VIRTUALIZER_PARAM_VIRTUAL_SPEAKER_ANGLES");
+        auto status = LegacyStatusToBinder(GetParam(effect, &param),
+                                           "VIRTUALIZER_PARAM_VIRTUAL_SPEAKER_ANGLES");
         if (!status.isOk()) return status;
 
         std::vector<Virtualizer::ChannelAngle> angles;
