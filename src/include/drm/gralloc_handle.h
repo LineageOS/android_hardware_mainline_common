@@ -78,7 +78,16 @@ struct gralloc_handle_t {
 
 static inline struct gralloc_handle_t *gralloc_handle(buffer_handle_t handle)
 {
-	return (struct gralloc_handle_t *)handle;
+	/*
+	 * buffer_handle_t is a 'const native_handle_t *', which is only
+	 * 4-byte aligned, while gralloc_handle_t requires 8-byte alignment.
+	 * The underlying buffer is always allocated by native_handle_create(),
+	 * i.e. by malloc(), so it is suitably aligned for gralloc_handle_t.
+	 * Round-tripping through uintptr_t drops the const qualifier and the
+	 * alignment assumptions in a single step, which keeps both
+	 * -Wcast-qual and -Wcast-align quiet in C as well as in C++.
+	 */
+	return (struct gralloc_handle_t *)(uintptr_t)handle;
 }
 
 /**
