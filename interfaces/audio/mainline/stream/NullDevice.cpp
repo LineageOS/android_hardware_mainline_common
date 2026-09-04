@@ -14,6 +14,7 @@
 
 #include <android-base/logging.h>
 #include <audio_utils/clock.h>
+#include <utils/SystemClock.h>
 
 namespace aidl::android::hardware::audio::core::mainline {
 

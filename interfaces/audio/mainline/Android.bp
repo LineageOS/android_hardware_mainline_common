@@ -75,6 +75,7 @@ cc_binary {
         "liblog",
         "libmedia_helper",
         "libstagefright_foundation",
+        "libutils",
     ],
     cflags: select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
         true: [],
