@@ -18,7 +18,7 @@ together with the unmodified AIDL effect service of the AOSP example HAL.
 | APEX module            | `com.android.hardware.audio.mainline`                       |
 | APEX manifest name     | `com.android.hardware.audio` (multi-install with the example) |
 | Core HAL binary        | `/apex/com.android.hardware.audio/bin/hw/android.hardware.audio.service-aidl.mainline` |
-| Init services          | `vendor.audio-hal-aidl-mainline`, `vendor.audio-effect-hal-aidl-mainline` |
+| Init services          | `vendor.audio-hal-aidl-mainline`, `vendor.audio-effect-hal-aidl-mainline` (unless `external_effects`) |
 | AIDL instances         | `IConfig/default`, `IModule/default`, `IModule/r_submix`, `IModule/bluetooth` (optional), `IFactory/default` (effects) |
 | Log tags               | `MainlineAudio_*`                                           |
 
@@ -41,12 +41,17 @@ The APEX `required`s the alsa-lib configuration database (`/vendor/etc/alsa`)
 and the UCM top-level files (`alsa-ucm-conf-base`); card profiles are the
 product's choice.
 
-Optional build time switch (Soong config namespace `mainline_audio`):
+Optional build time switches (Soong config namespace `mainline_audio`):
 
 ```makefile
 # Leave the Bluetooth audio module and the bundled IBluetoothAudioProviderFactory
 # out of the APEX, e.g. because the device ships its own Bluetooth audio HAL.
 $(call soong_config_set_bool,mainline_audio,disable_bluetooth,true)
+
+# Leave the effect HAL (IFactory/default, the example effect service and its
+# plug-ins) out of the APEX, e.g. to use the legacy effect library wrapper in
+# ../effect/legacy instead. Exactly one IFactory/default may be installed.
+$(call soong_config_set_bool,mainline_audio,external_effects,true)
 ```
 
 ### Things the device still has to provide

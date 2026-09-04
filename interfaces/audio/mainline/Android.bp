@@ -11,6 +11,11 @@
 //                             Bluetooth audio provider HAL bundled with it)
 //                             out of the APEX. Set it when the device ships
 //                             its own IBluetoothAudioProviderFactory.
+//   bool external_effects   - leave the effect HAL (IFactory/default: the
+//                             example effect service, its plug-ins and
+//                             configuration) out of the APEX. Set it when the
+//                             device provides its own AIDL effect HAL, e.g.
+//                             the legacy library wrapper in ../effect/legacy.
 
 cc_defaults {
     name: "android.hardware.audio.service-aidl.mainline_defaults",
@@ -100,6 +105,19 @@ prebuilt_etc {
     installable: false,
 }
 
+prebuilt_etc {
+    name: "android.hardware.audio.service-aidl.mainline-effects.rc",
+    src: "android.hardware.audio.service-aidl.mainline-effects.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.audio.service-aidl.mainline-effects.xml",
+    src: "android.hardware.audio.service-aidl.mainline-effects.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
 // Effect configuration read by the example effect service from
 // /apex/<name>/etc/audio_effects_config.xml.
 prebuilt_etc {
@@ -155,43 +173,56 @@ apex {
 
     binaries: [
         "android.hardware.audio.service-aidl.mainline",
-        // Effects: the unmodified example effect service with its plug-ins.
-        "android.hardware.audio.effect.service-aidl.example",
-    ],
-    native_shared_libs: [
-        "libaecsw",
-        "libagc1sw",
-        "libagc2sw",
-        "libbassboostsw",
-        "libbundleaidl",
-        "libdownmixaidl",
-        "libdynamicsprocessingaidl",
-        "libenvreverbsw",
-        "libequalizersw",
-        "liberaser",
-        "libextensioneffect",
-        "libhapticgeneratoraidl",
-        "libloudnessenhanceraidl",
-        "libnssw",
-        "libpreprocessingaidl",
-        "libpresetreverbsw",
-        "libreverbaidl",
-        "libspatializersw",
-        "libvirtualizersw",
-        "libvisualizeraidl",
-        "libvolumesw",
-    ],
+    ] + select(soong_config_variable("mainline_audio", "external_effects"), {
+        true: [],
+        default: [
+            // Effects: the unmodified example effect service with its plug-ins.
+            "android.hardware.audio.effect.service-aidl.example",
+        ],
+    }),
+    native_shared_libs: select(soong_config_variable("mainline_audio", "external_effects"), {
+        true: [],
+        default: [
+            "libaecsw",
+            "libagc1sw",
+            "libagc2sw",
+            "libbassboostsw",
+            "libbundleaidl",
+            "libdownmixaidl",
+            "libdynamicsprocessingaidl",
+            "libenvreverbsw",
+            "libequalizersw",
+            "liberaser",
+            "libextensioneffect",
+            "libhapticgeneratoraidl",
+            "libloudnessenhanceraidl",
+            "libnssw",
+            "libpreprocessingaidl",
+            "libpresetreverbsw",
+            "libreverbaidl",
+            "libspatializersw",
+            "libvirtualizersw",
+            "libvisualizeraidl",
+            "libvolumesw",
+        ],
+    }),
     prebuilts: [
         "android.hardware.audio.service-aidl.mainline.rc",
         "android.hardware.audio.service-aidl.mainline.xml",
-        "audio_effects_config.mainline.xml",
         "audio_policy_engine_configuration.mainline.xml",
         "audio_policy_engine_product_strategies.mainline.xml",
         "audio_policy_engine_stream_volumes.mainline.xml",
         "audio_policy_engine_default_stream_volumes.mainline.xml",
-        "audio_eraser_classifier_model",
-        "audio_eraser_separator_model",
-    ] + select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
+    ] + select(soong_config_variable("mainline_audio", "external_effects"), {
+        true: [],
+        default: [
+            "android.hardware.audio.service-aidl.mainline-effects.rc",
+            "android.hardware.audio.service-aidl.mainline-effects.xml",
+            "audio_effects_config.mainline.xml",
+            "audio_eraser_classifier_model",
+            "audio_eraser_separator_model",
+        ],
+    }) + select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
         true: [],
         default: [
             "android.hardware.audio.service-aidl.mainline-bluetooth.xml",

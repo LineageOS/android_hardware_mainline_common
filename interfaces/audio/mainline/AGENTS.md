@@ -70,8 +70,10 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   before touching `StreamMainline.cpp`; note that a `burst` may arrive in
   STANDBY without a prior `start()`.
 * `Module::createInstance(R_SUBMIX / BLUETOOTH)` for the software modules.
-* The effect service binary and its plug-in libraries are bundled unmodified;
-  their `visibility` in `frameworks/av/media/libeffects` and
+* The effect service binary and its plug-in libraries are bundled unmodified
+  (unless the `mainline_audio.external_effects` Soong config variable is set,
+  which drops them together with their rc and VINTF fragment); their
+  `visibility` in `frameworks/av/media/libeffects` and
   `hardware/interfaces/audio/aidl/default/*` was extended to allow this.
 
 ## Threading
