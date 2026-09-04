@@ -156,7 +156,7 @@ ndk::ScopedAStatus GbmMesaAllocator::allocate(const std::vector<uint8_t>& encode
 
     struct gralloc_buffer_desc gbmDesc = {};
     const BufferDescriptorInfo info = {
-        .name = "auto_generated",
+        .name = {"auto_generated"},
         .width = static_cast<int32_t>(mapperV4Descriptor.width),
         .height = static_cast<int32_t>(mapperV4Descriptor.height),
         .layerCount = static_cast<int32_t>(mapperV4Descriptor.layerCount),
