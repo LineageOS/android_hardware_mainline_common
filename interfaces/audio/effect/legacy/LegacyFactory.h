@@ -43,7 +43,10 @@ class LegacyFactory final : public BnFactory {
     ndk::ScopedAStatus destroyEffect(const std::shared_ptr<IEffect>& effect) override;
     binder_status_t dump(int fd, const char** args, uint32_t num_args) override;
 
-    size_t effect_count() const { return effects_.size(); }
+    size_t effect_count() const EXCLUDES(lock_) {
+        std::lock_guard guard(lock_);
+        return effects_.size();
+    }
 
   private:
     // One usable effect implementation.
