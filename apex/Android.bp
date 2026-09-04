@@ -1,0 +1,97 @@
+// Copyright (C) 2024 The Android Open Source Project
+// Copyright (C) 2026 The LineageOS Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+soong_config_module_type {
+    name: "gralloc_gbm_mesa_apex",
+    module_type: "apex",
+    config_namespace: "gralloc_gbm_mesa",
+    bool_variables: [
+        "RELEASE_SM_OPEN_DECLARED_PASSTHROUGH_HAL",
+    ],
+    properties: [
+        "defaults",
+    ],
+}
+
+gralloc_gbm_mesa_apex {
+    name: "com.android.hardware.graphics.allocator.gm",
+    manifest: "apex_manifest.json",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: "apex_file_contexts",
+    updatable: false,
+    vendor: true,
+
+    binaries: [
+        "android.hardware.graphics.allocator-service.gm",
+    ],
+    prebuilts: [
+        "android.hardware.graphics.allocator-service.gm.xml", // vintf
+        "com.android.hardware.graphics.allocator.gm.rc", // init_rc
+        "com.android.hardware.graphics.allocator.gm-linker-config", // make the apex namespace visible for mapper library
+    ],
+    overrides: [
+        "android.hardware.graphics.allocator-service.gm",
+    ],
+
+    soong_config_variables: {
+        RELEASE_SM_OPEN_DECLARED_PASSTHROUGH_HAL: {
+            defaults: [
+                "com.android.hardware.graphics.allocator.gm-mapper-defaults",
+            ],
+            conditions_default: {},
+        },
+    },
+}
+
+apex_defaults {
+    name: "com.android.hardware.graphics.allocator.gm-mapper-defaults",
+
+    // for app_process32 apps
+    compile_multilib: "both",
+
+    native_shared_libs: [
+        "mapper.gm",
+    ],
+    prebuilts: [
+        "mapper.gm.xml", // vintf
+    ],
+    overrides: [
+        "mapper.gm",
+    ],
+}
+
+linker_config {
+    name: "com.android.hardware.graphics.allocator.gm-linker-config",
+    src: "apex_linkerconfig.json",
+    installable: false,
+}
+
+genrule {
+    name: "gen-com.android.hardware.graphics.allocator.gm.rc",
+    srcs: [":android.hardware.graphics.allocator-service.gm.rc"],
+    out: ["com.android.hardware.graphics.allocator.gm.rc"],
+    cmd: "sed -E 's%/vendor/bin/%/apex/com.android.hardware.graphics.allocator/bin/%' $(in) > $(out)",
+}
+
+prebuilt_etc {
+    name: "com.android.hardware.graphics.allocator.gm.rc",
+    src: ":gen-com.android.hardware.graphics.allocator.gm.rc",
+    installable: false,
+}

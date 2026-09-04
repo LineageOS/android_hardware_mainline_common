@@ -142,7 +142,7 @@ cc_library_shared {
 cc_binary {
     name: "android.hardware.graphics.allocator-service.gm",
     relative_install_path: "hw",
-    init_rc: ["src/aidl/android.hardware.graphics.allocator-service.gm.rc"],
+    init_rc: [":android.hardware.graphics.allocator-service.gm.rc"],
     vintf_fragments: ["src/aidl/android.hardware.graphics.allocator-service.gm.xml"],
     vendor: true,
     header_libs: [
@@ -189,4 +189,23 @@ cc_binary {
             cflags: ["-DANDROID_API_LEVEL=%d"],
         },
     },
+}
+
+filegroup {
+    name: "android.hardware.graphics.allocator-service.gm.rc",
+    srcs: ["src/aidl/android.hardware.graphics.allocator-service.gm.rc"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.graphics.allocator-service.gm.xml",
+    src: "src/aidl/android.hardware.graphics.allocator-service.gm.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "mapper.gm.xml",
+    src: "src/mapper_stablec/mapper.gm.xml",
+    sub_dir: "vintf",
+    installable: false,
 }

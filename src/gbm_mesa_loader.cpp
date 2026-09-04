@@ -12,6 +12,12 @@
 #include <dlfcn.h>
 #include <log/log.h>
 
+#ifdef __LP64__
+#define GBM_BASEPATH "/vendor/lib64/"
+#else
+#define GBM_BASEPATH "/vendor/lib/"
+#endif
+
 struct gbm_priv_ops gbm_priv_ops = {
 	false,
 	NULL,
@@ -38,7 +44,7 @@ bool setup_gbm_priv_ops(void)
 		return true;
 	}
 
-	void *handle = dlopen("libgbm_mesa.so", RTLD_NOW);
+	void *handle = dlopen(GBM_BASEPATH "libgbm_mesa.so", RTLD_NOW);
 	if (!handle) {
 		ALOGE("Failed to open libgbm_mesa.so: %s", dlerror());
 		return false;
