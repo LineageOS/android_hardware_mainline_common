@@ -1,0 +1,56 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// AIDL audio effect HAL (IFactory/default) that serves legacy
+// hardware/audio_effect.h effect libraries from /vendor/lib/soundfx, driven
+// by the vendor's existing audio_effects.xml. See README.md.
+//
+// Installed to /vendor (not into an APEX) on purpose: the legacy libraries
+// and their private dependencies live in the vendor linker namespace.
+
+cc_binary {
+    name: "android.hardware.audio.effect.service-aidl.legacy",
+    relative_install_path: "hw",
+    vendor: true,
+    defaults: [
+        // Shared library set, libaudioeffectaidlcommon (EffectImpl & co),
+        // header libraries and BACKEND_NDK of the example effect HAL.
+        "aidlaudioeffectservice_defaults",
+        "latest_android_hardware_audio_common_ndk_shared",
+    ],
+    srcs: [
+        "main.cpp",
+        "LegacyEffect.cpp",
+        "LegacyEffectContext.cpp",
+        "LegacyFactory.cpp",
+        "LegacyLibrary.cpp",
+        "params/EqualizerTranslator.cpp",
+        "params/LegacyParam.cpp",
+        "params/ParameterTranslator.cpp",
+        "params/PreProcessingTranslators.cpp",
+        "params/ReverbTranslators.cpp",
+        "params/SimpleTranslators.cpp",
+        "params/StrengthTranslators.cpp",
+        "params/VisualizerTranslator.cpp",
+    ],
+    local_include_dirs: ["."],
+    shared_libs: [
+        "libaudio_aidl_conversion_effect_ndk",
+        "libeffectconfig",
+        "libmedia_helper",
+    ],
+    header_libs: [
+        "libhardware_headers",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wthread-safety",
+        "-DBACKEND_NDK",
+    ],
+    init_rc: ["android.hardware.audio.effect.service-aidl.legacy.rc"],
+    vintf_fragments: ["android.hardware.audio.effect.service-aidl.legacy.xml"],
+}
