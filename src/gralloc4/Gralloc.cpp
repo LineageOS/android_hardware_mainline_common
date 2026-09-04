@@ -18,6 +18,7 @@
 #include <hardware/gralloc.h>
 
 #include "gralloc_gbm_mesa.h"
+#include "gbm_mesa_loader.h"
 #include "log.h"
 
 struct gralloc_gbm_module_t {
@@ -48,7 +49,7 @@ static int gralloc_mod_gbm_init(gralloc_gbm_module_t* mod) {
             return -EINVAL;
         }
         mod->gbm_dev = std::shared_ptr<gbm_device>(dev, [](gbm_device* d) {
-            if (d) gbm_device_destroy(d);
+            if (d) gbm_priv_ops.gbm_device_destroy(d);
         });
         mod->initialized = true;
     }
@@ -66,7 +67,7 @@ static int gralloc_mod_gbm_perform(const struct gralloc_module_t* mod, int op, .
     switch (op) {
     case GRALLOC_MODULE_PERFORM_GET_DRM_FD: {
         int* fd = va_arg(args, int*);
-        *fd = gbm_device_get_fd(gbm_mod->gbm_dev.get());
+        *fd = gbm_priv_ops.gbm_device_get_fd(gbm_mod->gbm_dev.get());
         err = 0;
         break;
     }

@@ -6,6 +6,7 @@
  */
 
 #include "gralloc_gbm_mesa.h"
+#include "gbm_mesa_loader.h"
 
 #define LOG_TAG "libgralloc_gm"
 
@@ -42,6 +43,11 @@ int gralloc_gbm_device_init() {
     int fd = -1;
     char device_path[PROPERTY_VALUE_MAX];
     struct gbm_device *dev = nullptr;
+
+    if (!setup_gbm_priv_ops()) {
+        log_e("Failed to initialize GBM function pointers!");
+        return -EINVAL;
+    }
 
     __redirect_standard_outputs();
 
@@ -294,15 +300,15 @@ int gralloc_gbm_device_create(int fd, struct gbm_device **dev) {
         return -EINVAL;
     }
 
-    _gbm_dev = gbm_create_device(fd);
+    _gbm_dev = gbm_priv_ops.gbm_create_device(fd);
     if (!_gbm_dev) {
         log_e("Failed to create GBM device, fd=%d", fd);
         _gbm_dev_fd = -1;
         return -EINVAL;
     }
 
-    _gbm_dev_fd = gbm_device_get_fd(_gbm_dev);
-    log_i("Created the GBM device with backend '%s'.", gbm_device_get_backend_name(_gbm_dev));
+    _gbm_dev_fd = gbm_priv_ops.gbm_device_get_fd(_gbm_dev);
+    log_i("Created the GBM device with backend '%s'.", gbm_priv_ops.gbm_device_get_backend_name(_gbm_dev));
 
     *dev = _gbm_dev;
     return 0;
@@ -382,7 +388,7 @@ int32_t gralloc_allocate(const struct gralloc_buffer_desc *desc, int32_t *out_st
 
     log_v("trying to create BO, size=%dx%d, fmt(gbm)=%d, usage=%x",
           handle->width, handle->height, format, flags);
-    bo = gbm_bo_create(dev, width, height, format,
+    bo = gbm_priv_ops.gbm_bo_create(dev, width, height, format,
                flags);
     if (!bo) {
         log_e("Failed to create BO, size=%dx%d, fmt=%d, usage=%x",
@@ -391,10 +397,10 @@ int32_t gralloc_allocate(const struct gralloc_buffer_desc *desc, int32_t *out_st
         return -errno;
     }
 
-    handle->prime_fd = gbm_bo_get_fd(bo);
-	handle->stride = gbm_bo_get_stride(bo);
+    handle->prime_fd = gbm_priv_ops.gbm_bo_get_fd(bo);
+	handle->stride = gbm_priv_ops.gbm_bo_get_stride(bo);
 #ifdef GBM_BO_IMPORT_FD_MODIFIER
-    handle->modifier = gbm_bo_get_modifier(bo);
+    handle->modifier = gbm_priv_ops.gbm_bo_get_modifier(bo);
 #endif
 
     {
@@ -429,7 +435,7 @@ static int gralloc_gbm_map(buffer_handle_t handle, int enable_write, void **addr
     int err = 0;
     int flags = GBM_BO_TRANSFER_READ;
     struct gbm_bo *bo = gralloc_get_gbm_bo_from_handle(handle);
-    bo_data_t *bo_data = (bo_data_t *)gbm_bo_get_user_data(bo);
+    bo_data_t *bo_data = (bo_data_t *)gbm_priv_ops.gbm_bo_get_user_data(bo);
     uint32_t stride;
 
     if (bo_data->map_data)
@@ -438,22 +444,23 @@ static int gralloc_gbm_map(buffer_handle_t handle, int enable_write, void **addr
     if (enable_write)
         flags |= GBM_BO_TRANSFER_WRITE;
 
-    *addr = gbm_bo_map(bo, 0, 0, gbm_bo_get_width(bo), gbm_bo_get_height(bo),
+    *addr = gbm_priv_ops.gbm_bo_map(bo, 0, 0, gbm_priv_ops.gbm_bo_get_width(bo),
+                       gbm_priv_ops.gbm_bo_get_height(bo),
                        flags, &stride, &bo_data->map_data);
     log_v("mapped bo %p at %p", bo, *addr);
     if (*addr == NULL)
         return -ENOMEM;
 
-    assert(stride == gbm_bo_get_stride(bo));
+    assert(stride == gbm_priv_ops.gbm_bo_get_stride(bo));
 
     return err;
 }
 
 static void gralloc_gbm_unmap(struct gbm_bo *bo) {
-    bo_data_t *bo_data = (bo_data_t *)gbm_bo_get_user_data(bo);
+    bo_data_t *bo_data = (bo_data_t *)gbm_priv_ops.gbm_bo_get_user_data(bo);
 
     log_v("unmapped bo %p", bo);
-    gbm_bo_unmap(bo, bo_data->map_data);
+    gbm_priv_ops.gbm_bo_unmap(bo, bo_data->map_data);
     bo_data->map_data = NULL;
 }
 
@@ -480,10 +487,10 @@ int gralloc_gbm_bo_lock(buffer_handle_t handle,
         }
     }
 
-    bo_data = (bo_data_t *)gbm_bo_get_user_data(bo);
+    bo_data = (bo_data_t *)gbm_priv_ops.gbm_bo_get_user_data(bo);
     if (!bo_data) {
         bo_data = new struct bo_data();
-        gbm_bo_set_user_data(bo, bo_data, gralloc_gbm_destroy_user_data);
+        gbm_priv_ops.gbm_bo_set_user_data(bo, bo_data, gralloc_gbm_destroy_user_data);
     }
 
     log_v("lock bo %p, cnt=%d, usage=%x, prime_fd=%d", bo, bo_data->lock_count, usage, gbm_handle->prime_fd);
@@ -518,7 +525,7 @@ int gralloc_gbm_bo_unlock(buffer_handle_t handle) {
     if (!bo)
         return -EINVAL;
 
-    bo_data = (bo_data_t *)gbm_bo_get_user_data(bo);
+    bo_data = (bo_data_t *)gbm_priv_ops.gbm_bo_get_user_data(bo);
 
     int mapped = bo_data->locked_for &
         (GRALLOC_USAGE_SW_WRITE_MASK | GRALLOC_USAGE_SW_READ_MASK);
@@ -678,11 +685,11 @@ int gralloc_gm_buffer_import(buffer_handle_t buffer_handle) {
     data.fds[0] = handle->prime_fd;
     data.strides[0] = handle->stride;
     data.modifier = handle->modifier;
-    bo = gbm_bo_import(dev, GBM_BO_IMPORT_FD_MODIFIER, &data, 0);
+    bo = gbm_priv_ops.gbm_bo_import(dev, GBM_BO_IMPORT_FD_MODIFIER, &data, 0);
 #else
     data.fd = handle->prime_fd;
     data.stride = handle->stride;
-    bo = gbm_bo_import(dev, GBM_BO_IMPORT_FD, &data, 0);
+    bo = gbm_priv_ops.gbm_bo_import(dev, GBM_BO_IMPORT_FD, &data, 0);
 #endif
 
     if (!bo) {
@@ -733,7 +740,7 @@ int gralloc_gm_buffer_free(buffer_handle_t handle) {
         gbm_bo_handle_map.erase(it_bo);
     }
 
-    gbm_bo_destroy(bo);
+    gbm_priv_ops.gbm_bo_destroy(bo);
 
     log_v("freed buffer: prime_fd=%d, width=%d, height=%d, hnd->stride=%d",
         hnd->prime_fd, hnd->width, hnd->height, hnd->stride);
@@ -744,7 +751,7 @@ int gralloc_gm_buffer_free(buffer_handle_t handle) {
 __attribute__((destructor)) void _cleanup_all() {
     _gbm_dev_fd = -1;
     if (_gbm_dev) {
-        gbm_device_destroy(_gbm_dev);
+        gbm_priv_ops.gbm_device_destroy(_gbm_dev);
         _gbm_dev = nullptr;
     }
 }

@@ -26,6 +26,7 @@
 #include <unordered_map>
 
 #include "gralloc_gbm_mesa.h"
+#include "gbm_mesa_loader.h"
 #include "log.h"
 
 using aidl::android::hardware::graphics::common::BlendMode;
@@ -344,7 +345,7 @@ int32_t GbmMesaMapperV5::getStandardMetadata(buffer_handle_t handle, F&& provide
     if constexpr (metadataType == StandardMetadataType::ALLOCATION_SIZE) {
         size_t size = 0;
         struct gbm_bo* bo = gralloc_get_gbm_bo_from_handle(handle);
-        if (bo) size = gbm_bo_get_stride(bo) * gbm_bo_get_height(bo);
+        if (bo) size = gbm_priv_ops.gbm_bo_get_stride(bo) * gbm_priv_ops.gbm_bo_get_height(bo);
         return provide(static_cast<uint64_t>(size));
     }
     if constexpr (metadataType == StandardMetadataType::PROTECTED_CONTENT) {
