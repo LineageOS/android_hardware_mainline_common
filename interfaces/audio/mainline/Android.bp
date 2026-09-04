@@ -35,6 +35,7 @@ cc_defaults {
         "-Werror",
         "-Wthread-safety",
         "-DBACKEND_NDK",
+        "-include android-base/errno_restorer.h",
     ],
 }
 
