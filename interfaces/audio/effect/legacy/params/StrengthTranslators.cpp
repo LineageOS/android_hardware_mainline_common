@@ -47,7 +47,7 @@ class BassBoostTranslator final : public TypedTranslator<BassBoost, Parameter::S
         Range::BassBoostRange range;
         range.min.set<BassBoost::strengthPm>(kMinStrength);
         range.max.set<BassBoost::strengthPm>(kMaxStrength);
-        capability->range.set<Range::bassBoost>({range});
+        capability->range.set<Range::bassBoost>(std::vector<Range::BassBoostRange>{range});
     }
 
   protected:
@@ -77,7 +77,7 @@ class VirtualizerTranslator final
         Range::VirtualizerRange range;
         range.min.set<Virtualizer::strengthPm>(kMinStrength);
         range.max.set<Virtualizer::strengthPm>(kMaxStrength);
-        capability->range.set<Range::virtualizer>({range});
+        capability->range.set<Range::virtualizer>(std::vector<Range::VirtualizerRange>{range});
     }
 
   protected:

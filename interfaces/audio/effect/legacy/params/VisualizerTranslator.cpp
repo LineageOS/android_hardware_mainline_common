@@ -28,7 +28,7 @@ class VisualizerTranslator final
         Range::VisualizerRange range;
         range.min.set<Visualizer::captureSamples>(VISUALIZER_CAPTURE_SIZE_MIN);
         range.max.set<Visualizer::captureSamples>(VISUALIZER_CAPTURE_SIZE_MAX);
-        capability->range.set<Range::visualizer>({range});
+        capability->range.set<Range::visualizer>(std::vector<Range::VisualizerRange>{range});
     }
 
   protected:
