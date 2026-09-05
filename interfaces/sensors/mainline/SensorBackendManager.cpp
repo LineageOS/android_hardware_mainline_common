@@ -235,6 +235,7 @@ void SensorBackendManager::DeactivateHardwareDependency(int32_t global_handle) {
 }
 
 void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     std::lock_guard<std::mutex> lock(mutex_);
     post_events_callback_ = callback;
 
@@ -341,16 +342,27 @@ void SensorBackendManager::Initialize(const PostEventsCallback& callback) {
 }
 
 void SensorBackendManager::Deinitialize() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& composite : composite_sensors_) {
-        composite->Activate(false);
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    std::vector<ISensorBackend*> backends;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& composite : composite_sensors_) {
+            composite->Activate(false);
+        }
+        hardware_dependency_count_.clear();
+        directly_activated_.clear();
+        global_handle_to_backend_.clear();
+        composite_handle_to_index_.clear();
+        sensor_type_to_composite_.clear();
+        next_handle_ = 1;
+        for (auto& entry : backends_) {
+            entry.local_to_global_handles.clear();
+            entry.global_to_local_handles.clear();
+        }
+        post_events_callback_ = nullptr;
+        for (auto& entry : backends_) backends.push_back(entry.backend.get());
     }
-    hardware_dependency_count_.clear();
-    directly_activated_.clear();
-    for (auto& entry : backends_) {
-        entry.backend->Deinitialize();
-    }
-    post_events_callback_ = nullptr;
+    for (auto* backend : backends) backend->Deinitialize();
 }
 
 std::vector<SensorInfo> SensorBackendManager::GetSensorsList() {
@@ -385,25 +397,67 @@ int32_t SensorBackendManager::GetBackendIndex(int32_t global_handle) {
 }
 
 int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    struct DependencyAction {
+        ISensorBackend* backend;
+        int32_t local_handle;
+        bool enabled;
+    };
+    std::vector<DependencyAction> dependency_actions;
+    std::vector<int32_t> dependency_handles;
+    bool is_composite = false;
+    size_t composite_index = 0;
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto cs_it = composite_handle_to_index_.find(sensor_handle);
         if (cs_it != composite_handle_to_index_.end()) {
-            std::lock_guard<std::mutex> lock(mutex_);
+            is_composite = true;
             size_t ci = cs_it->second;
+            composite_index = ci;
             composite_sensors_[ci]->Activate(enabled);
 
             for (const auto& input_type : composite_sensors_[ci]->GetInputSensorTypes()) {
                 int32_t hw_handle = FindHardwareSensorHandle(input_type);
-                if (hw_handle >= 0) {
-                    if (enabled) {
-                        ActivateHardwareDependency(hw_handle);
-                    } else {
-                        DeactivateHardwareDependency(hw_handle);
-                    }
+                if (hw_handle < 0) continue;
+                const auto backend_it = global_handle_to_backend_.find(hw_handle);
+                if (backend_it == global_handle_to_backend_.end()) continue;
+                auto& entry = backends_[backend_it->second];
+                const auto local_it = entry.global_to_local_handles.find(hw_handle);
+                if (local_it == entry.global_to_local_handles.end()) continue;
+
+                int32_t& count = hardware_dependency_count_[hw_handle];
+                if (enabled) {
+                    dependency_handles.push_back(hw_handle);
+                    if (count++ == 0)
+                        dependency_actions.push_back({entry.backend.get(), local_it->second, true});
+                } else if (count > 0) {
+                    dependency_handles.push_back(hw_handle);
+                    if (--count == 0 && !directly_activated_.count(hw_handle))
+                        dependency_actions.push_back(
+                                {entry.backend.get(), local_it->second, false});
                 }
             }
-            return 0;
         }
+    }
+    if (is_composite) {
+        size_t completed = 0;
+        for (; completed < dependency_actions.size(); ++completed) {
+            const auto& action = dependency_actions[completed];
+            const int32_t result = action.backend->Activate(action.local_handle, action.enabled);
+            if (result == 0) continue;
+            while (completed > 0) {
+                const auto& previous = dependency_actions[--completed];
+                previous.backend->Activate(previous.local_handle, !previous.enabled);
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            composite_sensors_[composite_index]->Activate(!enabled);
+            for (int32_t handle : dependency_handles) {
+                int32_t& count = hardware_dependency_count_[handle];
+                count += enabled ? -1 : 1;
+            }
+            return result;
+        }
+        return 0;
     }
 
     ISensorBackend* backend = nullptr;
@@ -434,12 +488,22 @@ int32_t SensorBackendManager::Activate(int32_t sensor_handle, bool enabled) {
             }
         }
     }
-    return backend->Activate(local_handle, enabled);
+    const int32_t result = backend->Activate(local_handle, enabled);
+    if (result != 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (enabled)
+            directly_activated_.erase(sensor_handle);
+        else
+            directly_activated_.insert(sensor_handle);
+    }
+    return result;
 }
 
 int32_t SensorBackendManager::Batch(int32_t sensor_handle, int64_t sampling_period_ns,
                                     int64_t max_report_latency_ns) {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto cs_it = composite_handle_to_index_.find(sensor_handle);
         if (cs_it != composite_handle_to_index_.end()) {
             return 0;
@@ -466,10 +530,11 @@ int32_t SensorBackendManager::Batch(int32_t sensor_handle, int64_t sampling_peri
 }
 
 int32_t SensorBackendManager::Flush(int32_t sensor_handle) {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto cs_it = composite_handle_to_index_.find(sensor_handle);
         if (cs_it != composite_handle_to_index_.end()) {
-            std::lock_guard<std::mutex> lock(mutex_);
             size_t ci = cs_it->second;
             if (!composite_sensors_[ci]->IsActive()) {
                 return -EINVAL;
@@ -503,6 +568,7 @@ int32_t SensorBackendManager::Flush(int32_t sensor_handle) {
 }
 
 int32_t SensorBackendManager::SetOperationMode(OperationMode mode) {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     std::vector<ISensorBackend*> backends;
     {
         std::lock_guard<std::mutex> lock(mutex_);

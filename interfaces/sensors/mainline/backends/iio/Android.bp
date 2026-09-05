@@ -6,7 +6,10 @@
 cc_library_shared {
     name: "libsensors_iio",
     vendor: true,
-    srcs: ["IioBackend.cpp"],
+    srcs: [
+        "IioBackend.cpp",
+        "IioScan.cpp",
+    ],
     shared_libs: [
         "android.hardware.sensors-V3-ndk",
         "libbase",
@@ -23,4 +26,14 @@ cc_library_shared {
     cflags: [
         "-fvisibility=hidden",
     ],
+}
+
+cc_test {
+    name: "libsensors_iio_scan_test",
+    vendor: true,
+    srcs: [
+        "IioScan.cpp",
+        "tests/IioScanTest.cpp",
+    ],
+    local_include_dirs: ["."],
 }
