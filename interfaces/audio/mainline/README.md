@@ -106,7 +106,7 @@ starts.
 | `multichannel`            | bool   | `true`  | Expose a DIRECT "multichannel output" mix port when a device supports 6+ channels. |
 | `log.verbose`             | bool   | `false` | VERBOSE instead of DEBUG logging. |
 | `card.<selector>.rates`   | string | *(all)* | Comma separated list of sample rates to allow for the card matching `<selector>` (card id, index, or name with spaces replaced by underscores). Empty means all rates. |
-| `card.<selector>.bits`    | string | *(all)* | Comma separated list of bit depths (16, 24, 32) to allow for the card matching `<selector>`. Empty means all bit depths. |
+| `card.<selector>.bits`    | string | *(all)* | Comma separated list of sample widths (`8`, `16`, `24`, `32`) to allow for the card matching `<selector>`; a width keeps every format of that width, so `24` keeps both `S24_3LE` and `S24_LE` and `32` keeps `S32_LE` and `FLOAT_LE`. Empty means all. |
 
 ## Device model
 

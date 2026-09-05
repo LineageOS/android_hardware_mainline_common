@@ -110,6 +110,49 @@ void AugmentCapabilities(alsa::HwCapabilities* caps) {
     caps->max_channels = std::max(caps->max_channels, 2u);
 }
 
+// Applies the "card.<selector>.rates" / ".bits" properties of `card` to
+// `endpoint`. A restriction that would leave nothing is ignored, so that a
+// typo or a value the hardware does not have cannot make an endpoint unusable.
+void FilterEndpointCapabilities(const alsa::CardInfo& card, Endpoint* endpoint) {
+    const auto props = Properties::LoadCardProperties(card.id, card.index, card.name);
+    if (props.rates.empty() && props.bits.empty()) return;
+
+    if (!props.rates.empty()) {
+        std::set<unsigned int> kept;
+        for (const unsigned int rate : endpoint->caps.rates) {
+            if (props.rates.count(static_cast<int>(rate)) > 0) kept.insert(rate);
+        }
+        if (kept.empty()) {
+            LOG(WARNING) << __func__ << ": " << endpoint->pcm_name << " on card " << card.id
+                         << " supports none of the requested rates, keeping all of them";
+        } else if (kept.size() != endpoint->caps.rates.size()) {
+            LOG(INFO) << __func__ << ": " << endpoint->pcm_name << " on card " << card.id << ": "
+                      << kept.size() << " of " << endpoint->caps.rates.size() << " rates kept";
+            endpoint->caps.rates = std::move(kept);
+        }
+    }
+
+    if (!props.bits.empty()) {
+        // Match on the sample width reported by alsa-lib rather than on a
+        // table of formats: 24 bit audio is S24_3LE on most devices and
+        // S24_LE on others, and both 32 bit integer and float samples are
+        // 32 bit wide.
+        std::set<snd_pcm_format_t> kept;
+        for (const snd_pcm_format_t format : endpoint->caps.formats) {
+            const int width = snd_pcm_format_width(format);
+            if (width > 0 && props.bits.count(width) > 0) kept.insert(format);
+        }
+        if (kept.empty()) {
+            LOG(WARNING) << __func__ << ": " << endpoint->pcm_name << " on card " << card.id
+                         << " has no format of the requested bit depth, keeping all of them";
+        } else if (kept.size() != endpoint->caps.formats.size()) {
+            LOG(INFO) << __func__ << ": " << endpoint->pcm_name << " on card " << card.id << ": "
+                      << kept.size() << " of " << endpoint->caps.formats.size() << " formats kept";
+            endpoint->caps.formats = std::move(kept);
+        }
+    }
+}
+
 }  // namespace
 
 // --- Endpoint ----------------------------------------------------------------
@@ -342,85 +385,11 @@ void DeviceInventory::ProbeCapabilities() {
 void DeviceInventory::FilterCapabilities() {
     for (Endpoint& endpoint : endpoints_) {
         if (endpoint.IsNull()) continue;
-        const alsa::CardInfo* card_info = nullptr;
-        for (const auto& card : cards_) {
-            if (card.index == endpoint.card) {
-                card_info = &card;
-                break;
-            }
-        }
-        if (card_info == nullptr) continue;
-
-        auto card_props =
-                Properties::LoadCardProperties(card_info->id, card_info->index, card_info->name);
-        if (card_props.rates.empty() && card_props.bits.empty()) continue;
-
-        bool filtered = false;
-        if (!card_props.rates.empty()) {
-            std::set<unsigned int> new_rates;
-            for (unsigned int rate : endpoint.caps.rates) {
-                if (card_props.rates.count(static_cast<int>(rate)) > 0) {
-                    new_rates.insert(rate);
-                }
-            }
-            if (new_rates.empty()) {
-                LOG(WARNING) << __func__ << ": all rates filtered for " << endpoint.pcm_name
-                             << " on card " << card_info->id << ", keeping original rates";
-            } else {
-                if (new_rates.size() != endpoint.caps.rates.size()) {
-                    LOG(INFO) << __func__ << ": filtered rates for " << endpoint.pcm_name
-                              << " on card " << card_info->id << ": " << new_rates.size() << " of "
-                              << endpoint.caps.rates.size() << " rates remain";
-                    filtered = true;
-                }
-                endpoint.caps.rates = std::move(new_rates);
-            }
-        }
-
-        if (!card_props.bits.empty()) {
-            std::set<snd_pcm_format_t> allowed_formats;
-            for (int bits : card_props.bits) {
-                switch (bits) {
-                    case 16:
-                        allowed_formats.insert(SND_PCM_FORMAT_S16_LE);
-                        break;
-                    case 24:
-                        allowed_formats.insert(SND_PCM_FORMAT_S24_LE);
-                        break;
-                    case 32:
-                        allowed_formats.insert(SND_PCM_FORMAT_S32_LE);
-                        break;
-                    default:
-                        LOG(WARNING) << __func__ << ": unsupported bit depth " << bits
-                                     << " for card " << card_info->id;
-                        break;
-                }
-            }
-            std::set<snd_pcm_format_t> new_formats;
-            for (snd_pcm_format_t format : endpoint.caps.formats) {
-                if (allowed_formats.count(format) > 0) {
-                    new_formats.insert(format);
-                }
-            }
-            if (new_formats.empty()) {
-                LOG(WARNING) << __func__ << ": all formats filtered for " << endpoint.pcm_name
-                             << " on card " << card_info->id << ", keeping original formats";
-            } else {
-                if (new_formats.size() != endpoint.caps.formats.size()) {
-                    LOG(INFO) << __func__ << ": filtered formats for " << endpoint.pcm_name
-                              << " on card " << card_info->id << ": " << new_formats.size()
-                              << " of " << endpoint.caps.formats.size() << " formats remain";
-                    filtered = true;
-                }
-                endpoint.caps.formats = std::move(new_formats);
-            }
-        }
-
-        if (filtered && endpoint.caps.IsEmpty()) {
-            LOG(WARNING) << __func__ << ": capabilities empty after filtering for "
-                         << endpoint.pcm_name << ", using fallback";
-            endpoint.caps = alsa::FallbackCapabilities(endpoint.is_input);
-        }
+        const auto card = std::find_if(cards_.begin(), cards_.end(), [&endpoint](const auto& c) {
+            return c.index == endpoint.card;
+        });
+        if (card == cards_.end()) continue;
+        FilterEndpointCapabilities(*card, &endpoint);
     }
 }
 
@@ -640,6 +609,11 @@ std::optional<Endpoint> DeviceInventory::MakeUsbEndpoint(const AudioDevice& devi
         return std::nullopt;
     }
     e.caps = *caps;
+    // A card connected at run time never went through FilterCapabilities().
+    // `e.card_id` stays the card index: it is part of the port address.
+    if (const auto card = alsa::QueryCard(e.card); card.has_value()) {
+        FilterEndpointCapabilities(*card, &e);
+    }
     e.profiles = alsa::ProfilesFromCapabilities(e.caps, is_input);
     LOG(INFO) << __func__ << ": " << e.ToString();
     return e;
