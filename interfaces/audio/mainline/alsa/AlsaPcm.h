@@ -103,8 +103,4 @@ class Pcm {
 // Probes what the device supports without keeping it open.
 std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream);
 
-// Turns "hw:X,Y" into "plughw:X,Y". Other names are returned unchanged with
-// `false`.
-std::pair<std::string, bool> PlugName(const std::string& hw_name);
-
 }  // namespace aidl::android::hardware::audio::core::mainline::alsa

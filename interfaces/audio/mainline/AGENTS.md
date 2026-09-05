@@ -121,6 +121,19 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   stack stays in charge.
 * `UcmManager::EnableDevice` disables conflicting devices itself: alsa-lib does
   not.
+* A PCM name is not always a `hw:` name. With a use case profile alsa-lib
+  returns `_ucmXXXX.hw:card,N` and only `snd_pcm_open()` resolves that prefix,
+  against the private configuration of the use case manager. A plugin slave is
+  resolved against the global configuration, so anything that wraps a device
+  (`Pcm::Open`'s plug fallbacks) has to strip the prefix first. Never gate
+  behaviour on the name starting with `hw:`.
+* What a device answers to `hw_params_any()` / `test_rate()` is not what it
+  accepts in `hw_params()`. On a DPCM card (every Qualcomm QDSP6 one) the
+  front-end answers the queries alone and the back-end constraints only apply
+  on commit: the q6asm front-end announces 8 kHz - 192 kHz and 1 - 8 channels
+  while the back-end can refuse with `-EINVAL`. Hence the plug fallbacks, and
+  the pinned hardware rate for the case where the plug layer trusts the same
+  optimistic answers.
 * Initial (dynamic) port configs carry `gain = null`, and
   `ModuleMainline::setAudioPortConfig` strips a value-less gain for ports
   without gain controllers. `Hal2AidlMapper` reuses the device port config it
