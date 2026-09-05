@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <ctime>
 #include <sstream>
+#include <vector>
 
 #include <android-base/logging.h>
 #include <android-base/strings.h>
@@ -84,8 +85,24 @@ int ConfigureHwParams(snd_pcm_t* pcm, const PcmConfig& config, bool strict, PcmC
             return err;
         }
     }
-    snd_pcm_uframes_t buffer = config.buffer_frames;
-    if (buffer > 0) {
+    // Express the buffer as a number of periods rather than as a size of its
+    // own. Drivers constrain the period size (the Qualcomm q6asm front-end
+    // only accepts multiples of 480 frames) and require an integer number of
+    // periods, so a buffer size chosen independently of the period that was
+    // granted can fail to be a multiple of it and make hw_params() fail.
+    if (config.buffer_frames > 0 &&
+        snd_pcm_hw_params_get_period_size(params.get(), &period, nullptr) == 0 && period > 0) {
+        unsigned int periods =
+                static_cast<unsigned int>((config.buffer_frames + period / 2) / period);
+        if (periods < 2) periods = 2;
+        err = snd_pcm_hw_params_set_periods_near(pcm, params.get(), &periods, nullptr);
+        if (err < 0) {
+            LOG(WARNING) << __func__ << ": set_periods_near(" << periods
+                         << "): " << ErrorString(err);
+            return err;
+        }
+    } else if (config.buffer_frames > 0) {
+        snd_pcm_uframes_t buffer = config.buffer_frames;
         err = snd_pcm_hw_params_set_buffer_size_near(pcm, params.get(), &buffer);
         if (err < 0) {
             LOG(WARNING) << __func__ << ": set_buffer_size_near(" << config.buffer_frames
@@ -96,7 +113,8 @@ int ConfigureHwParams(snd_pcm_t* pcm, const PcmConfig& config, bool strict, PcmC
 
     err = snd_pcm_hw_params(pcm, params.get());
     if (err < 0) {
-        LOG(WARNING) << __func__ << ": snd_pcm_hw_params: " << ErrorString(err);
+        LOG(WARNING) << __func__ << ": snd_pcm_hw_params({" << config.ToString()
+                     << "}): " << ErrorString(err);
         return err;
     }
 
@@ -133,6 +151,44 @@ int ConfigureSwParams(snd_pcm_t* pcm, snd_pcm_stream_t stream, const PcmConfig& 
     return err;
 }
 
+std::string UnderlyingPcmName(const std::string& name) {
+    // alsa-lib hands out the devices of a use case as "_ucmXXXX.<name>" and
+    // resolves that prefix against the private configuration of the use case
+    // manager. The slave of a plugin is resolved against the global
+    // configuration instead, where the prefixed name does not exist, so the
+    // fallbacks have to name the underlying device. The mixer setup of the
+    // use case is applied by UcmManager and is not affected.
+    static constexpr char kUcmPrefix[] = "_ucm";
+    static constexpr size_t kUcmPrefixLength = 9;  // "_ucm" + 4 hex digits + '.'
+    if (name.size() > kUcmPrefixLength && ::android::base::StartsWith(name, kUcmPrefix) &&
+        name[kUcmPrefixLength - 1] == '.') {
+        return name.substr(kUcmPrefixLength);
+    }
+    return name;
+}
+
+// A "plug" PCM on top of `slave`: it converts the sample format, the channel
+// count and the sample rate to what the hardware accepts. A non-zero
+// `slave_rate` pins the rate used on the hardware side.
+std::string PlugName(const std::string& slave, unsigned int slave_rate) {
+    std::ostringstream os;
+    os << "plug:{SLAVE={pcm \"" << slave << "\"";
+    if (slave_rate != 0) os << " rate " << slave_rate;
+    os << "}}";
+    return os.str();
+}
+
+// Hardware rates to try when the device turns out to reject the rate the plug
+// layer picked, the most commonly implemented ones first.
+std::vector<unsigned int> SlaveRateCandidates(unsigned int rate) {
+    static constexpr unsigned int kPreferred[] = {48000, 44100, 96000, 192000};
+    std::vector<unsigned int> candidates;
+    for (const unsigned int candidate : kPreferred) {
+        if (candidate != rate) candidates.push_back(candidate);
+    }
+    return candidates;
+}
+
 }  // namespace
 
 // --- PcmConfig ---------------------------------------------------------------
@@ -145,13 +201,6 @@ std::string PcmConfig::ToString() const {
 }
 
 // --- Pcm ---------------------------------------------------------------------
-
-std::pair<std::string, bool> PlugName(const std::string& hw_name) {
-    if (::android::base::StartsWith(hw_name, "hw:")) {
-        return {"plughw:" + hw_name.substr(3), true};
-    }
-    return {hw_name, false};
-}
 
 Pcm::Pcm(PcmHandle handle, std::string name, snd_pcm_stream_t stream, PcmConfig config,
          bool is_plug, bool can_pause)
@@ -201,19 +250,35 @@ std::unique_ptr<Pcm> Pcm::Open(const std::string& name, snd_pcm_stream_t stream,
     if (auto pcm = TryOpen(name, stream, config, false /*is_plug*/); pcm != nullptr) {
         return pcm;
     }
-    const auto [plug_name, is_plug] = PlugName(name);
-    if (!is_plug) {
-        LOG(ERROR) << __func__ << ": failed to open " << name << " with {" << config.ToString()
-                   << "} and it is not a hw: device, giving up";
-        return nullptr;
-    }
+    // The device did not accept the configuration as it is. Retry through the
+    // plug layer, which converts the sample format, the channel count and the
+    // sample rate to something the hardware does accept.
+    const std::string slave = UnderlyingPcmName(name);
     LOG(INFO) << __func__ << ": " << name << " does not accept {" << config.ToString()
-              << "} natively, retrying through " << plug_name;
-    auto pcm = TryOpen(plug_name, stream, config, true /*is_plug*/);
-    if (pcm == nullptr) {
-        LOG(ERROR) << __func__ << ": failed to open " << plug_name << " as well";
+              << "} natively, retrying through the plug layer";
+    if (auto pcm = TryOpen(PlugName(slave, 0), stream, config, true /*is_plug*/); pcm != nullptr) {
+        return pcm;
     }
-    return pcm;
+
+    // Still refused. What a device answers to hw_params_any() is not
+    // necessarily what it accepts in hw_params(): on a DPCM card (every
+    // Qualcomm QDSP6 one) the front-end answers the queries on its own and the
+    // constraints of the back-end it is routed to are only applied on commit.
+    // The plug layer picks the hardware rate from those same answers, so it
+    // can pick one that the back-end rejects; pin it to a rate that is
+    // commonly implemented instead.
+    for (const unsigned int slave_rate : SlaveRateCandidates(config.rate)) {
+        if (auto pcm = TryOpen(PlugName(slave, slave_rate), stream, config, true /*is_plug*/);
+            pcm != nullptr) {
+            LOG(INFO) << __func__ << ": " << name << " runs at " << slave_rate
+                      << " Hz, converting from " << config.rate << " Hz in the plug layer";
+            return pcm;
+        }
+    }
+
+    LOG(ERROR) << __func__ << ": " << name << " does not accept {" << config.ToString()
+               << "} in any configuration, giving up";
+    return nullptr;
 }
 
 int Pcm::Recover(int err) {
