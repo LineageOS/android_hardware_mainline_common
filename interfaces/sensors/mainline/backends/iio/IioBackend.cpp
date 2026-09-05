@@ -37,6 +37,35 @@ static constexpr int32_t kDefaultMaxDelayUs = 10 * 1000 * 1000;
 static constexpr int64_t kNanosecondsPerSecond = 1000LL * 1000 * 1000;
 static constexpr int32_t kBufferLength = 128;
 
+static int GetChannelAxis(const IioChannelInfo& channel) {
+    if (channel.name.size() < 2 || channel.name[channel.name.size() - 2] != '_') {
+        return 3;
+    }
+
+    switch (channel.name.back()) {
+        case 'x':
+            return 0;
+        case 'y':
+            return 1;
+        case 'z':
+            return 2;
+        default:
+            return 3;
+    }
+}
+
+static bool OrderVectorChannels(std::vector<IioChannelInfo>* channels) {
+    std::stable_sort(channels->begin(), channels->end(),
+                     [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                         int a_axis = GetChannelAxis(a);
+                         int b_axis = GetChannelAxis(b);
+                         return a_axis != b_axis ? a_axis < b_axis : a.index < b.index;
+                     });
+
+    return channels->size() >= 3 && GetChannelAxis((*channels)[0]) == 0 &&
+           GetChannelAxis((*channels)[1]) == 1 && GetChannelAxis((*channels)[2]) == 2;
+}
+
 extern "C" __attribute__((visibility("default"))) ISensorBackend* CreateSensorBackend() {
     return new IioBackend();
 }
@@ -91,18 +120,18 @@ bool IioBackend::WriteSysfsInt(const std::string& path, int32_t value) {
     return ::android::base::WriteStringToFile(std::to_string(value), path);
 }
 
-void IioBackend::ParseMountMatrix(const std::string& sysfs_path, float matrix[9]) {
+void IioBackend::ParseMountMatrix(const std::string& sysfs_path, SensorType type, float matrix[9]) {
     for (int i = 0; i < 9; i++) {
         matrix[i] = (i % 4 == 0) ? 1.0f : 0.0f;
     }
 
-    std::vector<std::string> candidates = {
-            sysfs_path + "/mount_matrix",
-            sysfs_path + "/in_accel_mount_matrix",
-            sysfs_path + "/in_anglvel_mount_matrix",
-            sysfs_path + "/in_magn_mount_matrix",
-            sysfs_path + "/in_mount_matrix",
-    };
+    std::vector<std::string> candidates;
+    std::string type_prefix = GetIioTypePrefix(type);
+    if (!type_prefix.empty()) {
+        candidates.push_back(sysfs_path + "/in_" + type_prefix + "_mount_matrix");
+    }
+    candidates.push_back(sysfs_path + "/mount_matrix");
+    candidates.push_back(sysfs_path + "/in_mount_matrix");
 
     for (const auto& path : candidates) {
         std::string content = ReadSysfsString(path, "");
@@ -563,7 +592,8 @@ void IioBackend::ApplyHwdbProperties(IioSensorData* sensor) {
     }
 
     float hwdb_matrix[9];
-    if (sensor_hwdb_->GetMountMatrix(device_modalias, label, hwdb_matrix)) {
+    if (sensor->type == SensorType::ACCELEROMETER &&
+        sensor_hwdb_->GetMountMatrix(device_modalias, label, hwdb_matrix)) {
         std::copy(hwdb_matrix, hwdb_matrix + 9, sensor->mount_matrix);
         LOG(INFO) << "Applied hwdb mount matrix for sensor " << sensor->device_name;
     }
@@ -721,7 +751,7 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
     sensor->parent_modalias = parent_modalias;
     sensor->label = device_label;
 
-    ParseMountMatrix(sysfs_path, sensor->mount_matrix);
+    ParseMountMatrix(sysfs_path, sensor->type, sensor->mount_matrix);
 
     /*
      * Scan Elements Parsing
@@ -902,10 +932,19 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
                          << " has scan_elements but no device node, falling back to poll mode";
             sensor->is_poll_mode = true;
 
-            std::sort(sensor->channels.begin(), sensor->channels.end(),
-                      [](const IioChannelInfo& a, const IioChannelInfo& b) {
-                          return a.index < b.index;
-                      });
+            std::erase_if(sensor->channels, [this, sensor_type](const IioChannelInfo& channel) {
+                auto channel_type = ClassifyChannelByName(channel.name);
+                return !channel_type.has_value() || *channel_type != *sensor_type;
+            });
+            if (IsVec3Type(sensor->type) && !OrderVectorChannels(&sensor->channels)) {
+                LOG(WARNING) << "Missing X/Y/Z channels for sensor " << device_name;
+                return;
+            } else if (!IsVec3Type(sensor->type)) {
+                std::sort(sensor->channels.begin(), sensor->channels.end(),
+                          [](const IioChannelInfo& a, const IioChannelInfo& b) {
+                              return a.index < b.index;
+                          });
+            }
 
             sensor->sensor_info.sensorHandle = sensor->handle;
             sensor->sensor_info.name = device_name;
@@ -1029,17 +1068,17 @@ void IioBackend::DiscoverSensors(int dev_num, const std::string& sysfs_path) {
             new_sensor->label = device_label;
             new_sensor->device_state = device;
 
-            ParseMountMatrix(sysfs_path, new_sensor->mount_matrix);
+            ParseMountMatrix(sysfs_path, type, new_sensor->mount_matrix);
 
             new_sensor->channels = type_channels;
+            if (IsVec3Type(type) && !OrderVectorChannels(&new_sensor->channels)) {
+                LOG(WARNING) << "Missing X/Y/Z channels for sensor " << device_name
+                             << " type=" << static_cast<int32_t>(type);
+                continue;
+            }
             if (has_timestamp) {
                 new_sensor->channels.push_back(timestamp_channel);
             }
-
-            std::sort(new_sensor->channels.begin(), new_sensor->channels.end(),
-                      [](const IioChannelInfo& a, const IioChannelInfo& b) {
-                          return a.index < b.index;
-                      });
 
             new_sensor->sensor_info.sensorHandle = new_sensor->handle;
             new_sensor->sensor_info.name = device_name;
