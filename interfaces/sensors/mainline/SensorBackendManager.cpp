@@ -366,6 +366,7 @@ void SensorBackendManager::Deinitialize() {
 }
 
 std::vector<SensorInfo> SensorBackendManager::GetSensorsList() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<SensorInfo> all_sensors;
 
