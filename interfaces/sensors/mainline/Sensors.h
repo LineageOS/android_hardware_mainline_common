@@ -16,6 +16,7 @@
 #include <android-base/thread_annotations.h>
 
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -31,7 +32,7 @@ using ::android::status_t;
 using ::android::hardware::EventFlag;
 
 class Sensors : public BnSensors {
-    static constexpr const char* kWakeLockName = "SensorsMainline_WAKEUP";
+    static constexpr const char* kWakeLockName = "SensorsHAL_WAKEUP_Mainline";
     static constexpr const char* kWakeLockPath = "/sys/power/wake_lock";
     static constexpr const char* kWakeUnlockPath = "/sys/power/wake_unlock";
     static constexpr int32_t WAKE_LOCK_TIMEOUT_SECONDS = 1;
@@ -77,7 +78,9 @@ class Sensors : public BnSensors {
 
     static void StartReadWakeLockThread(Sensors* sensors);
     void ReadWakeLockFMQ();
-    void UpdateWakeLock(int32_t events_written, int32_t events_handled);
+    void UpdateWakeLock(uint64_t events_written, uint64_t events_handled);
+    void RefreshWakeLockTimeout();
+    void ResetWakeLock();
 
     bool AcquireWakeLock();
     bool ReleaseWakeLock();
@@ -94,7 +97,7 @@ class Sensors : public BnSensors {
     std::mutex wake_lock_mutex_;
     std::mutex initialize_mutex_;
 
-    uint32_t outstanding_wake_up_events_;
+    uint64_t outstanding_wake_up_events_;
     std::thread wake_lock_thread_;
     std::atomic_bool read_wake_lock_queue_run_;
     int64_t auto_release_wake_lock_time_;

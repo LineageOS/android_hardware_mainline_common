@@ -63,15 +63,12 @@ void MockBackend::CreateMockSensors() {
         LOG(INFO) << "Mock sensor created: " << name << " (handle=" << handle << ")";
     };
 
-    add_sensor(SensorType::ACCELEROMETER, "Mock Accelerometer", 78.4f, 0.001f, 0.13f, 10000,
-               static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION));
+    add_sensor(SensorType::ACCELEROMETER, "Mock Accelerometer", 78.4f, 0.001f, 0.13f, 10000, 0);
 
     add_sensor(SensorType::GYROSCOPE, "Mock Gyroscope", 1000.0f * static_cast<float>(M_PI) / 180.0f,
-               1000.0f * static_cast<float>(M_PI) / (180.0f * 32768.0f), 6.1f, 10000,
-               static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION));
+               1000.0f * static_cast<float>(M_PI) / (180.0f * 32768.0f), 6.1f, 10000, 0);
 
-    add_sensor(SensorType::MAGNETIC_FIELD, "Mock Magnetometer", 1300.0f, 0.01f, 0.35f, 10000,
-               static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION));
+    add_sensor(SensorType::MAGNETIC_FIELD, "Mock Magnetometer", 1300.0f, 0.01f, 0.35f, 10000, 0);
 
     add_sensor(SensorType::LIGHT, "Mock Light Sensor", 43000.0f, 10.0f, 0.175f, 0,
                static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_ON_CHANGE_MODE));

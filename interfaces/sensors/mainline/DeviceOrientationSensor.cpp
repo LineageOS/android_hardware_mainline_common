@@ -10,6 +10,7 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -96,25 +97,13 @@ void DeviceOrientationSensor::LoadOrientationProperties() {
             {0.0f, 0.0f, 1.0f},
     };
 
-    if (invert_x_) {
-        matrix[0][0] *= -1.0f;
-        matrix[1][0] *= -1.0f;
-        matrix[2][0] *= -1.0f;
-    }
-    if (invert_y_) {
-        matrix[0][1] *= -1.0f;
-        matrix[1][1] *= -1.0f;
-        matrix[2][1] *= -1.0f;
-    }
-    if (invert_z_) {
-        matrix[0][2] *= -1.0f;
-        matrix[1][2] *= -1.0f;
-        matrix[2][2] *= -1.0f;
-    }
+    if (invert_x_) matrix[0][0] *= -1.0f;
+    if (invert_y_) matrix[1][1] *= -1.0f;
+    if (invert_z_) matrix[2][2] *= -1.0f;
     if (swap_xy_) {
-        std::swap(matrix[0][0], matrix[0][1]);
-        std::swap(matrix[1][0], matrix[1][1]);
-        std::swap(matrix[2][0], matrix[2][1]);
+        for (size_t column = 0; column < 3; ++column) {
+            std::swap(matrix[0][column], matrix[1][column]);
+        }
     }
 
     LOG(INFO) << "DeviceOrientationSensor workaround config: "
@@ -171,13 +160,20 @@ CompositeEvent DeviceOrientationSensor::CreateFlushCompleteEvent() const {
 }
 
 int32_t DeviceOrientationSensor::ComputeOrientation(float x, float y, float z) {
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+        return -1;
+    }
+
     float gravity_magnitude = std::sqrt(x * x + y * y + z * z);
-    if (gravity_magnitude < kGravityThreshold) {
-        return has_last_orientation_ ? last_orientation_ : kRotation0;
+    if (!std::isfinite(gravity_magnitude) || gravity_magnitude < kGravityThreshold) {
+        return -1;
     }
 
     float abs_x = std::fabs(x);
     float abs_y = std::fabs(y);
+    if (std::fabs(z) >= std::max(abs_x, abs_y)) {
+        return -1;
+    }
 
     if (y > abs_x) {
         return kRotation0;
@@ -189,11 +185,7 @@ int32_t DeviceOrientationSensor::ComputeOrientation(float x, float y, float z) {
         return kRotation270;
     }
 
-    if (has_last_orientation_) {
-        return last_orientation_;
-    }
-
-    return kRotation0;
+    return -1;
 }
 
 std::vector<CompositeEvent> DeviceOrientationSensor::ProcessEvent(
@@ -222,6 +214,11 @@ std::vector<CompositeEvent> DeviceOrientationSensor::ProcessEvent(
     int64_t now = input_event.timestamp;
 
     int32_t predicted = ComputeOrientation(x, y, z);
+    if (predicted < 0) {
+        predicted_rotation_ = -1;
+        predicted_rotation_time_ = 0;
+        return output;
+    }
     predicted = ApplyRotationOffset(predicted);
 
     if (predicted != predicted_rotation_) {
