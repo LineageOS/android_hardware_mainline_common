@@ -119,6 +119,15 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   stack stays in charge.
 * `UcmManager::EnableDevice` disables conflicting devices itself: alsa-lib does
   not.
+* What a PCM device answers to `hw_params_any` / `test_rate` is not what it
+  accepts in `hw_params`. On a DPCM card (every Qualcomm QDSP6 one) the
+  front-end answers the queries alone, and the back-end constraints only apply
+  on commit: the q6asm front-end announces 8 kHz - 192 kHz while the
+  `msm8916-wcd-digital` back-end fails `hw_params` with `-EINVAL` for anything
+  but 8 / 16 / 32 / 48 kHz. `Pcm::Open` therefore retries with the hardware
+  rate pinned (`plug:{SLAVE={pcm "hw:X,Y" rate R}}`); plain `plughw:` cannot
+  help, it trusts the same optimistic answers. Never treat a `hw_params`
+  failure as fatal without going through that fallback.
 * Initial (dynamic) port configs carry `gain = null`, and
   `ModuleMainline::setAudioPortConfig` strips a value-less gain for ports
   without gain controllers. `Hal2AidlMapper` reuses the device port config it

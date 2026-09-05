@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <ctime>
 #include <sstream>
+#include <vector>
 
 #include <android-base/logging.h>
 #include <android-base/strings.h>
@@ -21,6 +22,8 @@ namespace aidl::android::hardware::audio::core::mainline::alsa {
 namespace {
 
 constexpr int kMaxRecoverAttempts = 5;
+// How many hardware rates to try when the device rejects the requested one.
+constexpr size_t kMaxSlaveRateAttempts = 4;
 constexpr unsigned int kSuspendRetryDelayUs = 10 * 1000;
 constexpr int64_t kNsPerSec = 1000000000LL;
 
@@ -38,6 +41,7 @@ int64_t NowMonotonicNs() {
 // actually accepted. `strict` requires the exact format / rate / channels.
 int ConfigureHwParams(snd_pcm_t* pcm, const PcmConfig& config, bool strict, PcmConfig* effective,
                       bool* can_pause) {
+    LOG(DEBUG) << __func__ << ": Begin";
     HwParamsPtr params = AllocHwParams();
     int err = snd_pcm_hw_params_any(pcm, params.get());
     if (err < 0) {
@@ -50,6 +54,7 @@ int ConfigureHwParams(snd_pcm_t* pcm, const PcmConfig& config, bool strict, PcmC
 
     err = snd_pcm_hw_params_set_access(pcm, params.get(), SND_PCM_ACCESS_RW_INTERLEAVED);
     if (err < 0) {
+        // We only ever transfer with snd_pcm_writei / readi.
         LOG(WARNING) << __func__ << ": set_access(RW_INTERLEAVED): " << ErrorString(err);
         return err;
     }
@@ -57,54 +62,87 @@ int ConfigureHwParams(snd_pcm_t* pcm, const PcmConfig& config, bool strict, PcmC
     if (err < 0) {
         LOG(DEBUG) << __func__ << ": set_format(" << snd_pcm_format_name(config.format)
                    << "): " << ErrorString(err);
-        return err;
+        if (strict) return err;
     }
     err = snd_pcm_hw_params_set_channels(pcm, params.get(), config.channels);
     if (err < 0) {
         LOG(DEBUG) << __func__ << ": set_channels(" << config.channels << "): " << ErrorString(err);
-        return err;
+        if (strict) return err;
     }
     unsigned int rate = config.rate;
     err = snd_pcm_hw_params_set_rate_near(pcm, params.get(), &rate, nullptr);
     if (err < 0) {
         LOG(DEBUG) << __func__ << ": set_rate_near(" << config.rate << "): " << ErrorString(err);
-        return err;
+        if (strict) return err;
     }
     if (strict && rate != config.rate) {
+        // Without the plug layer nothing would convert: refuse instead of
+        // playing back at the wrong speed.
         LOG(DEBUG) << __func__ << ": rate " << config.rate << " not supported, closest is " << rate;
         return -EINVAL;
     }
 
+    // The period is negotiated first and the buffer is then expressed as a
+    // number of periods. Drivers constrain the period size (the Qualcomm
+    // q6asm front-end for instance only accepts multiples of 480 frames) and
+    // require an integer number of periods, so a buffer size that is chosen
+    // independently of the granted period can end up not being a multiple of
+    // it, which makes snd_pcm_hw_params() fail.
     snd_pcm_uframes_t period = config.period_frames;
     if (period > 0) {
         err = snd_pcm_hw_params_set_period_size_near(pcm, params.get(), &period, nullptr);
         if (err < 0) {
             LOG(WARNING) << __func__ << ": set_period_size_near(" << config.period_frames
                          << "): " << ErrorString(err);
-            return err;
         }
     }
-    snd_pcm_uframes_t buffer = config.buffer_frames;
-    if (buffer > 0) {
+    if (snd_pcm_hw_params_get_period_size(params.get(), &period, nullptr) < 0) period = 0;
+    if (config.buffer_frames > 0 && period > 0) {
+        unsigned int periods =
+                static_cast<unsigned int>((config.buffer_frames + period / 2) / period);
+        if (periods < 2) periods = 2;
+        err = snd_pcm_hw_params_set_periods_near(pcm, params.get(), &periods, nullptr);
+        if (err < 0) {
+            LOG(WARNING) << __func__ << ": set_periods_near(" << periods
+                         << "): " << ErrorString(err);
+        }
+    } else if (config.buffer_frames > 0) {
+        snd_pcm_uframes_t buffer = config.buffer_frames;
         err = snd_pcm_hw_params_set_buffer_size_near(pcm, params.get(), &buffer);
         if (err < 0) {
             LOG(WARNING) << __func__ << ": set_buffer_size_near(" << config.buffer_frames
                          << "): " << ErrorString(err);
-            return err;
         }
     }
 
     err = snd_pcm_hw_params(pcm, params.get());
     if (err < 0) {
-        LOG(WARNING) << __func__ << ": snd_pcm_hw_params: " << ErrorString(err);
+        // On a DPCM card this is where a back-end constraint that is invisible
+        // to the front-end (and therefore to hw_params_any / test_rate) shows
+        // up, typically as -EINVAL for an unsupported rate.
+        LOG(WARNING) << __func__ << ": snd_pcm_hw_params({" << config.ToString()
+                     << "}): " << ErrorString(err);
         return err;
     }
 
+    // Report back what the driver actually granted, never what we asked for.
     *effective = config;
-    effective->rate = rate;
+    if (snd_pcm_format_t format; snd_pcm_hw_params_get_format(params.get(), &format) == 0) {
+        effective->format = format;
+    }
+    if (unsigned int channels = 0; snd_pcm_hw_params_get_channels(params.get(), &channels) == 0) {
+        effective->channels = channels;
+    }
+    if (unsigned int granted_rate = 0;
+        snd_pcm_hw_params_get_rate(params.get(), &granted_rate, nullptr) == 0) {
+        effective->rate = granted_rate;
+    } else {
+        effective->rate = rate;
+    }
     snd_pcm_hw_params_get_period_size(params.get(), &effective->period_frames, nullptr);
     snd_pcm_hw_params_get_buffer_size(params.get(), &effective->buffer_frames);
     *can_pause = snd_pcm_hw_params_can_pause(params.get()) != 0;
+    LOG(DEBUG) << __func__ << ": Finish";
     return 0;
 }
 
@@ -152,6 +190,35 @@ std::pair<std::string, bool> PlugName(const std::string& hw_name) {
     }
     return {hw_name, false};
 }
+
+namespace {
+
+std::string SlaveRatePlugName(const std::string& hw_name, unsigned int slave_rate) {
+    // "plughw:" derives the hardware rate from what the device reports as
+    // supported, which is exactly the information that is wrong on a DPCM
+    // card. Pin the hardware rate instead and let the plug layer convert
+    // between it and the rate the stream was opened with.
+    std::ostringstream os;
+    os << "plug:{SLAVE={pcm \"" << hw_name << "\" rate " << slave_rate << "}}";
+    return os.str();
+}
+
+// Hardware rates to try when the device rejects the requested one, most
+// likely to be supported first. 48 kHz is the rate essentially every codec
+// implements, and every candidate is a rate the plug layer can convert to.
+std::vector<unsigned int> SlaveRateCandidates(unsigned int rate) {
+    static constexpr unsigned int kPreferred[] = {48000,  96000, 192000, 88200, 44100,
+                                                  176400, 32000, 24000,  16000, 8000};
+    std::vector<unsigned int> candidates;
+    for (const unsigned int candidate : kPreferred) {
+        if (candidate == rate) continue;
+        candidates.push_back(candidate);
+        if (candidates.size() >= kMaxSlaveRateAttempts) break;
+    }
+    return candidates;
+}
+
+}  // namespace
 
 Pcm::Pcm(PcmHandle handle, std::string name, snd_pcm_stream_t stream, PcmConfig config,
          bool is_plug, bool can_pause)
@@ -207,8 +274,29 @@ std::unique_ptr<Pcm> Pcm::Open(const std::string& name, snd_pcm_stream_t stream,
                    << "} and it is not a hw: device, giving up";
         return nullptr;
     }
+
+    // A device can accept the configuration in hw_params_any / test_rate and
+    // still reject it in hw_params: on a DPCM card (all the Qualcomm QDSP6
+    // ones) the front-end PCM answers those queries on its own, while the
+    // constraints of the back-end it is routed to are only applied when the
+    // configuration is committed. The Qualcomm internal codec for example
+    // only does 8 / 16 / 32 / 48 kHz and fails hw_params with -EINVAL for
+    // everything else, even though the front-end announces 8 kHz - 192 kHz.
+    // Plain "plughw:" cannot help there, because it picks the hardware rate
+    // from the same optimistic answers; the rate has to be pinned explicitly.
+    for (const unsigned int slave_rate : SlaveRateCandidates(config.rate)) {
+        const std::string slave_name = SlaveRatePlugName(name, slave_rate);
+        LOG(INFO) << __func__ << ": " << name << " does not accept {" << config.ToString()
+                  << "} natively, retrying with the hardware at " << slave_rate << " Hz";
+        if (auto pcm = TryOpen(slave_name, stream, config, true /*is_plug*/); pcm != nullptr) {
+            LOG(INFO) << __func__ << ": " << name << " runs at " << slave_rate
+                      << " Hz, converting from " << config.rate << " Hz in the plug layer";
+            return pcm;
+        }
+    }
+
     LOG(INFO) << __func__ << ": " << name << " does not accept {" << config.ToString()
-              << "} natively, retrying through " << plug_name;
+              << "} at any hardware rate, retrying through " << plug_name;
     auto pcm = TryOpen(plug_name, stream, config, true /*is_plug*/);
     if (pcm == nullptr) {
         LOG(ERROR) << __func__ << ": failed to open " << plug_name << " as well";
