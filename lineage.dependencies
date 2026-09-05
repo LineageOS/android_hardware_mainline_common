@@ -1,0 +1,10 @@
+[
+  {
+    "repository": "android_external_alsa-lib",
+    "target_path": "external/alsa-lib"
+  },
+  {
+    "repository": "android_external_alsa-ucm-conf",
+    "target_path": "external/alsa-ucm-conf"
+  }
+]
