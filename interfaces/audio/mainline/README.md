@@ -94,6 +94,8 @@ starts.
 | `latency_ms`              | int    | `20`    | Nominal stream latency; drives the buffer size negotiated with the framework (5..500). |
 | `multichannel`            | bool   | `true`  | Expose a DIRECT "multichannel output" mix port when a device supports 6+ channels. |
 | `log.verbose`             | bool   | `false` | VERBOSE instead of DEBUG logging. |
+| `card.<selector>.rates`   | string | *(all)* | Comma separated list of sample rates to allow for the card matching `<selector>` (card id, index, or name with spaces replaced by underscores). Empty means all rates. |
+| `card.<selector>.bits`    | string | *(all)* | Comma separated list of bit depths (16, 24, 32) to allow for the card matching `<selector>`. Empty means all bit depths. |
 
 ## Device model
 

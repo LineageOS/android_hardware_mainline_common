@@ -8,9 +8,11 @@
 #include "Properties.h"
 
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
 
@@ -33,6 +35,17 @@ std::vector<std::string> SplitList(const std::string& value) {
 
 int ClampPercent(int value) {
     return std::clamp(value, 0, 100);
+}
+
+std::set<int> ParseIntSet(const std::string& value) {
+    std::set<int> result;
+    for (const auto& item : ::android::base::Split(value, ",")) {
+        int v;
+        if (::android::base::ParseInt(::android::base::Trim(item), &v)) {
+            result.insert(v);
+        }
+    }
+    return result;
 }
 
 }  // namespace
@@ -73,6 +86,26 @@ std::string Properties::ToString() const {
        << " mixer.capture_percent=" << mixer_capture_percent << " latency_ms=" << latency_ms
        << " multichannel=" << multichannel << " log.verbose=" << verbose_logging;
     return os.str();
+}
+
+Properties::CardProperties Properties::LoadCardProperties(const std::string& card_id,
+                                                          int card_index,
+                                                          const std::string& card_name) {
+    using ::android::base::GetProperty;
+
+    CardProperties merged;
+    std::string name_with_underscores = card_name;
+    std::replace(name_with_underscores.begin(), name_with_underscores.end(), ' ', '_');
+
+    for (const std::string& selector :
+         {card_id, std::to_string(card_index), name_with_underscores}) {
+        const std::string prefix = std::string(kPrefix) + "card." + selector + ".";
+        auto rates = ParseIntSet(GetProperty(prefix + "rates", ""));
+        merged.rates.insert(rates.begin(), rates.end());
+        auto bits = ParseIntSet(GetProperty(prefix + "bits", ""));
+        merged.bits.insert(bits.begin(), bits.end());
+    }
+    return merged;
 }
 
 }  // namespace aidl::android::hardware::audio::core::mainline

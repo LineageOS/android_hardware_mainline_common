@@ -61,6 +61,7 @@ class DeviceInventory {
     void CollectFromUcm(const alsa::CardInfo& card, ucm::UcmManager& ucm);
     void CollectFromPcmDevices(const alsa::CardInfo& card);
     void ProbeCapabilities();
+    void FilterCapabilities();
     void AssignRoles();
     void AddNullEndpointsIfNeeded();
     void FinalizeEndpoints();

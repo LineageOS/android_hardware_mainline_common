@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -61,8 +62,22 @@ struct Properties {
     // Log verbosely (sets the minimum severity to VERBOSE instead of DEBUG).
     bool verbose_logging = false;
 
+    // Per-card properties: sample rates and bit depths to allow for each card.
+    // Empty sets mean "use all rates/bits supported by the hardware".
+    // Read at enumeration time using card id, index, or name (with spaces
+    // replaced by underscores) as the selector.
+    struct CardProperties {
+        std::set<int> rates;
+        std::set<int> bits;
+    };
+
     static Properties Load();
     std::string ToString() const;
+
+    // Reads per-card properties for a card, merging across all matching
+    // selectors (id, index, name with spaces as underscores).
+    static CardProperties LoadCardProperties(const std::string& card_id, int card_index,
+                                             const std::string& card_name);
 
     static constexpr const char* kPrefix = "vendor.audio.mainline.";
 };
