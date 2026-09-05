@@ -181,8 +181,7 @@ void InputBackend::DiscoverDevices() {
                 sensor->sensor_info.power = 0.13f;
                 sensor->sensor_info.minDelayUs = 10000;
                 sensor->sensor_info.maxDelayUs = kDefaultMaxDelayUs;
-                sensor->sensor_info.flags =
-                        static_cast<int32_t>(SensorInfo::SENSOR_FLAG_BITS_DATA_INJECTION);
+                sensor->sensor_info.flags = 0;
                 break;
             case SensorType::PROXIMITY:
                 sensor->sensor_info.maxRange = 5.0f;
