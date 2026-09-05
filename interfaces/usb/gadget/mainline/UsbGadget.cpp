@@ -27,6 +27,7 @@ namespace usb {
 namespace gadget {
 
 using ::android::base::GetBoolProperty;
+using ::android::base::GetProperty;
 using ::android::hardware::google::pixel::usb::kUvcEnabled;
 
 UsbGadget::UsbGadget() {
@@ -112,84 +113,67 @@ Status UsbGadget::tearDownGadget() {
 
 static Status validateAndSetVidPid(int64_t functions) {
     Status ret;
-    const char *vid, *pid;
+    std::string vid, pid;
+
+    vid = "0x" + GetProperty("ro.vendor.usb.vid", "18d1");
 
     switch (functions) {
         case GadgetFunction::MTP:
-            vid = "0x18d1";
-            pid = "0x4ee1";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.mtp", "4ee1");
             break;
         case GadgetFunction::ADB | GadgetFunction::MTP:
-            vid = "0x18d1";
-            pid = "0x4ee2";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.mtp.adb", "4ee2");
             break;
         case GadgetFunction::RNDIS:
-            vid = "0x18d1";
-            pid = "0x4ee3";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.rndis", "4ee3");
             break;
         case GadgetFunction::ADB | GadgetFunction::RNDIS:
-            vid = "0x18d1";
-            pid = "0x4ee4";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.rndis.adb", "4ee4");
             break;
         case GadgetFunction::PTP:
-            vid = "0x18d1";
-            pid = "0x4ee5";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.ptp", "4ee5");
             break;
         case GadgetFunction::ADB | GadgetFunction::PTP:
-            vid = "0x18d1";
-            pid = "0x4ee6";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.ptp.adb", "4ee6");
             break;
         case GadgetFunction::ADB:
-            vid = "0x18d1";
-            pid = "0x4ee7";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.adb", "4ee7");
             break;
         case GadgetFunction::MIDI:
-            vid = "0x18d1";
-            pid = "0x4ee8";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.midi", "4ee8");
             break;
         case GadgetFunction::ADB | GadgetFunction::MIDI:
-            vid = "0x18d1";
-            pid = "0x4ee9";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.midi.adb", "4ee9");
             break;
         case GadgetFunction::ACCESSORY:
-            vid = "0x18d1";
-            pid = "0x2d00";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.accessory", "2d00");
             break;
         case GadgetFunction::ADB | GadgetFunction::ACCESSORY:
-            vid = "0x18d1";
-            pid = "0x2d01";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.accessory.adb", "2d01");
             break;
         case GadgetFunction::AUDIO_SOURCE:
-            vid = "0x18d1";
-            pid = "0x2d02";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.audio_source", "2d02");
             break;
         case GadgetFunction::ADB | GadgetFunction::AUDIO_SOURCE:
-            vid = "0x18d1";
-            pid = "0x2d03";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.audio_source.adb", "2d03");
             break;
         case GadgetFunction::ACCESSORY | GadgetFunction::AUDIO_SOURCE:
-            vid = "0x18d1";
-            pid = "0x2d04";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.accessory.audio_source", "2d04");
             break;
         case GadgetFunction::ADB | GadgetFunction::ACCESSORY | GadgetFunction::AUDIO_SOURCE:
-            vid = "0x18d1";
-            pid = "0x2d05";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.accessory.audio_source.adb", "2d05");
             break;
         case GadgetFunction::NCM:
-            vid = "0x18d1";
-            pid = "0x4eeb";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.ncm", "4eeb");
             break;
         case GadgetFunction::ADB | GadgetFunction::NCM:
-            vid = "0x18d1";
-            pid = "0x4eec";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.ncm.adb", "4eec");
             break;
         case GadgetFunction::UVC:
-            vid = "0x18d1";
-            pid = "0x4eed";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.uvc", "4eed");
             break;
         case GadgetFunction::ADB | GadgetFunction::UVC:
-            vid = "0x18d1";
-            pid = "0x4eee";
+            pid = "0x" + GetProperty("ro.vendor.usb.pid.uvc.adb", "4eee");
             break;
         default:
             ALOGE("Combination not supported");
@@ -197,7 +181,7 @@ static Status validateAndSetVidPid(int64_t functions) {
             goto error;
     }
 
-    ret = Status(setVidPid(vid, pid));
+    ret = Status(setVidPid(vid.c_str(), pid.c_str()));
     if (ret != Status::SUCCESS) {
         ALOGE("Failed to update vid/pid");
         goto error;
