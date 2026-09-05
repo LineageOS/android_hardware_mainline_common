@@ -57,8 +57,13 @@ Mount matrix is resolved using a priority chain (highest priority wins):
 
 1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
 2. `60-sensor.hwdb` `ACCEL_MOUNT_MATRIX` (via `libsensors_hwdb`, matched by device modalias and label)
-3. Sysfs attributes (`mount_matrix`, `in_accel_mount_matrix`, `in_*_mount_matrix`, `in_mount_matrix`)
+3. Type-specific sysfs attribute (`in_accel_mount_matrix`, `in_anglvel_mount_matrix`, or
+   `in_magn_mount_matrix`), then generic `mount_matrix` / `in_mount_matrix`
 4. Identity matrix (default)
+
+The matrix is parsed in row-major order and applied as `device_vector = matrix * sensor_vector`,
+as defined by the IIO mount-matrix ABI. Buffered channels are reordered by axis name before this
+operation; scan indices only determine their byte locations in the IIO buffer.
 
 The hwdb lookup uses the device's parent modalias (from `../modalias` sysfs) and optional
 sensor label (from `label` sysfs) to match entries in `/vendor/etc/hwdb.d/60-sensor.hwdb`.
