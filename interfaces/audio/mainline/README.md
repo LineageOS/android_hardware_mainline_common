@@ -83,6 +83,7 @@ starts.
 | Key                       | Type   | Default | Meaning |
 |---------------------------|--------|---------|---------|
 | `cards`                   | string | *(all non-USB cards)* | Comma separated list of cards to use: index (`0`), id (`PCH`) or name (`HDA Intel PCH`). |
+| `wait_for_cards_ms`       | int    | `0`     | Maximum time in milliseconds to wait for the cards listed in `cards` to appear before proceeding (0 = no wait, max 60000). Only effective when `cards` is set. |
 | `primary_card`            | string | *(auto)* | Card that provides "Speaker" and "Built-In Mic". Auto: first card with an analog output. |
 | `include_usb_cards`       | bool   | `false` | Treat USB cards present at boot as static cards instead of leaving them to the framework's USB handling. |
 | `ucm.enabled`             | bool   | `true`  | Use UCM profiles when available. |

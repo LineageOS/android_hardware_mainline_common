@@ -44,6 +44,8 @@ Properties Properties::Load() {
 
     Properties props;
     props.cards = SplitList(GetProperty(Key("cards"), ""));
+    props.wait_for_cards_ms =
+            std::clamp(GetIntProperty(Key("wait_for_cards_ms"), props.wait_for_cards_ms), 0, 60000);
     props.primary_card = ::android::base::Trim(GetProperty(Key("primary_card"), ""));
     props.include_usb_cards = GetBoolProperty(Key("include_usb_cards"), props.include_usb_cards);
     props.ucm_enabled = GetBoolProperty(Key("ucm.enabled"), props.ucm_enabled);
@@ -64,7 +66,7 @@ Properties Properties::Load() {
 std::string Properties::ToString() const {
     std::ostringstream os;
     os << "cards=[" << ::android::base::Join(cards, ",") << "]"
-       << " primary_card=\"" << primary_card << "\""
+       << " wait_for_cards_ms=" << wait_for_cards_ms << " primary_card=\"" << primary_card << "\""
        << " include_usb_cards=" << include_usb_cards << " ucm.enabled=" << ucm_enabled
        << " ucm.verb=\"" << ucm_verb << "\""
        << " mixer.init=" << mixer_init << " mixer.playback_percent=" << mixer_playback_percent

@@ -21,6 +21,11 @@ struct Properties {
     // list means "every card except USB ones".
     std::vector<std::string> cards;
 
+    // Maximum time in milliseconds to wait for the cards listed in `cards` to
+    // appear before proceeding with enumeration. 0 means no waiting (use
+    // whatever is present). Only effective when `cards` is non-empty.
+    int wait_for_cards_ms = 0;
+
     // Card providing the built-in "Speaker" and "Built-In Mic" device ports.
     // Same syntax as a single entry of `cards`. Empty means "pick the first
     // card that has an analog playback device".

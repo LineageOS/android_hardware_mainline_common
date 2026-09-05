@@ -8,9 +8,11 @@
 #include "routing/DeviceInventory.h"
 
 #include <algorithm>
+#include <chrono>
 #include <initializer_list>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include <aidl/android/media/audio/common/AudioDeviceDescription.h>
 #include <aidl/android/media/audio/common/AudioDeviceType.h>
@@ -145,7 +147,36 @@ std::shared_ptr<DeviceInventory> DeviceInventory::Discover(const Properties& pro
 }
 
 void DeviceInventory::SelectCards(const Properties& properties) {
-    std::vector<alsa::CardInfo> all = alsa::EnumerateCards();
+    std::vector<alsa::CardInfo> all;
+    if (properties.wait_for_cards_ms > 0 && !properties.cards.empty()) {
+        using namespace std::chrono;
+        const auto deadline = steady_clock::now() + milliseconds(properties.wait_for_cards_ms);
+        constexpr auto kPollInterval = milliseconds(100);
+        LOG(INFO) << __func__ << ": waiting up to " << properties.wait_for_cards_ms << " ms for "
+                  << properties.cards.size() << " requested card(s)";
+        while (true) {
+            all = alsa::EnumerateCards();
+            const bool all_found =
+                    std::all_of(properties.cards.begin(), properties.cards.end(),
+                                [&all](const std::string& selector) {
+                                    return std::any_of(all.begin(), all.end(),
+                                                       [&selector](const alsa::CardInfo& c) {
+                                                           return c.Matches(selector);
+                                                       });
+                                });
+            if (all_found) {
+                LOG(INFO) << __func__ << ": all requested cards found";
+                break;
+            }
+            if (steady_clock::now() + kPollInterval > deadline) {
+                LOG(WARNING) << __func__ << ": timed out waiting for requested cards, proceeding";
+                break;
+            }
+            std::this_thread::sleep_for(kPollInterval);
+        }
+    } else {
+        all = alsa::EnumerateCards();
+    }
     for (auto& card : all) {
         bool selected;
         if (!properties.cards.empty()) {
