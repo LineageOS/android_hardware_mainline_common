@@ -110,6 +110,8 @@ void MockBackend::Deinitialize() {
         }
     }
     post_events_callback_ = nullptr;
+    sensors_.clear();
+    next_handle_ = 1;
     LOG(INFO) << "Mock backend deinitialized";
 }
 
