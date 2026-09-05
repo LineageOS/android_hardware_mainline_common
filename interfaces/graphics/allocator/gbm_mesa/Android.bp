@@ -1,0 +1,211 @@
+cc_library_headers {
+    name: "libgralloc_gm_headers",
+    host_supported: true,
+    vendor_available: true,
+    export_include_dirs: ["src/include"],
+}
+
+cc_library_shared {
+    name: "libgralloc_gm",
+    vendor: true,
+    header_libs: [
+        "libhardware_headers",
+        "libnativebase_headers",
+        "libsystem_headers",
+        "libgralloc_gm_headers",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libdl",
+        "libdmabufheap",
+        "libdrm",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+    ],
+    static_libs: [
+        "libarect",
+        "libaidlcommonsupport",
+    ],
+    srcs: [
+        "src/gralloc_gbm_mesa.cpp",
+        "src/gbm_mesa_loader.cpp",
+    ],
+    cflags: [
+        "-D_GNU_SOURCE=1",
+        "-D_FILE_OFFSET_BITS=64",
+        "-Wall",
+        "-Wsign-compare",
+        "-Wpointer-arith",
+        "-Wcast-qual",
+        "-Wcast-align",
+        "-Wno-unused-parameter",
+    ],
+    product_variables: {
+        platform_sdk_version: {
+            cflags: ["-DANDROID_API_LEVEL=%d"],
+        },
+    },
+}
+
+cc_library_shared {
+    name: "gralloc.gm",
+    relative_install_path: "hw",
+    vendor: true,
+    header_libs: [
+        "libhardware_headers",
+        "libnativebase_headers",
+        "libsystem_headers",
+        "libgralloc_gm_headers",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libdmabufheap",
+        "libdrm",
+        "libgralloc_gm",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+    ],
+    static_libs: [
+        "libarect",
+        "libaidlcommonsupport",
+    ],
+    srcs: [
+        "src/gralloc4/Gralloc.cpp",
+    ],
+    cflags: [
+        "-D_GNU_SOURCE=1",
+        "-D_FILE_OFFSET_BITS=64",
+        "-Wall",
+        "-Wsign-compare",
+        "-Wpointer-arith",
+        "-Wcast-qual",
+        "-Wcast-align",
+        "-Wno-unused-parameter",
+    ],
+    product_variables: {
+        platform_sdk_version: {
+            cflags: ["-DANDROID_API_LEVEL=%d"],
+        },
+    },
+}
+
+cc_library_shared {
+    name: "mapper.gm",
+    relative_install_path: "hw",
+    vintf_fragments: ["src/mapper_stablec/mapper.gm.xml"],
+    vendor: true,
+    header_libs: [
+        "libbase_headers",
+        "libgralloc_gm_headers",
+        "libhardware_headers",
+        "libimapper_stablec",
+        "libimapper_providerutils",
+        "libnativebase_headers",
+        "libsystem_headers",
+    ],
+    shared_libs: [
+        "android.hardware.graphics.allocator-V2-ndk",
+        "android.hardware.graphics.mapper@4.0",
+        "libbase",
+        "libcutils",
+        "libdmabufheap",
+        "libdrm",
+        "libgralloc_gm",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+        "libutils",
+    ],
+    static_libs: [
+        "libarect",
+        "libaidlcommonsupport",
+    ],
+    srcs: [
+        "src/mapper_stablec/Mapper.cpp",
+    ],
+    cpp_std: "c++20",
+    cflags: ["-Wno-sign-compare"],
+}
+
+cc_binary {
+    name: "android.hardware.graphics.allocator-service.gm",
+    relative_install_path: "hw",
+    init_rc: [":android.hardware.graphics.allocator-service.gm.rc"],
+    vintf_fragments: ["src/aidl/android.hardware.graphics.allocator-service.gm.xml"],
+    vendor: true,
+    header_libs: [
+        "libhardware_headers",
+        "libnativebase_headers",
+        "libsystem_headers",
+        "libgralloc_gm_headers",
+    ],
+    shared_libs: [
+        "android.hardware.graphics.allocator-V2-ndk",
+        "android.hardware.graphics.mapper@4.0",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libdmabufheap",
+        "libdrm",
+        "libgralloc_gm",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+    ],
+    static_libs: [
+        "libarect",
+        "libaidlcommonsupport",
+    ],
+    srcs: [
+        "src/aidl/Allocator.cpp",
+        "src/aidl/Main.cpp",
+    ],
+    cflags: [
+        "-D_GNU_SOURCE=1",
+        "-D_FILE_OFFSET_BITS=64",
+        "-Wall",
+        "-Wsign-compare",
+        "-Wpointer-arith",
+        "-Wcast-qual",
+        "-Wcast-align",
+        "-Wno-unused-parameter",
+    ],
+    product_variables: {
+        platform_sdk_version: {
+            cflags: ["-DANDROID_API_LEVEL=%d"],
+        },
+    },
+}
+
+filegroup {
+    name: "android.hardware.graphics.allocator-service.gm.rc",
+    srcs: ["src/aidl/android.hardware.graphics.allocator-service.gm.rc"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.graphics.allocator-service.gm.xml",
+    src: "src/aidl/android.hardware.graphics.allocator-service.gm.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "mapper.gm.xml",
+    src: "src/mapper_stablec/mapper.gm.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
