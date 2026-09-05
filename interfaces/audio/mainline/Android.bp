@@ -11,11 +11,13 @@
 //                             Bluetooth audio provider HAL bundled with it)
 //                             out of the APEX. Set it when the device ships
 //                             its own IBluetoothAudioProviderFactory.
-//   bool external_effects   - leave the effect HAL (IFactory/default: the
+//   bool internal_effects   - bundle an effect HAL (IFactory/default: the
 //                             example effect service, its plug-ins and
-//                             configuration) out of the APEX. Set it when the
-//                             device provides its own AIDL effect HAL, e.g.
-//                             the legacy library wrapper in ../effect/legacy.
+//                             configuration) into the APEX. Unset by default:
+//                             the device is expected to provide its own AIDL
+//                             effect HAL, e.g. the legacy library wrapper in
+//                             ../effect/legacy. Exactly one IFactory/default
+//                             may be installed on a device.
 
 cc_defaults {
     name: "android.hardware.audio.service-aidl.mainline_defaults",
@@ -175,16 +177,15 @@ apex {
 
     binaries: [
         "android.hardware.audio.service-aidl.mainline",
-    ] + select(soong_config_variable("mainline_audio", "external_effects"), {
-        true: [],
-        default: [
+    ] + select(soong_config_variable("mainline_audio", "internal_effects"), {
+        true: [
             // Effects: the unmodified example effect service with its plug-ins.
             "android.hardware.audio.effect.service-aidl.example",
         ],
+        default: [],
     }),
-    native_shared_libs: select(soong_config_variable("mainline_audio", "external_effects"), {
-        true: [],
-        default: [
+    native_shared_libs: select(soong_config_variable("mainline_audio", "internal_effects"), {
+        true: [
             "libaecsw",
             "libagc1sw",
             "libagc2sw",
@@ -207,6 +208,7 @@ apex {
             "libvisualizeraidl",
             "libvolumesw",
         ],
+        default: [],
     }),
     prebuilts: [
         "android.hardware.audio.service-aidl.mainline.rc",
@@ -215,15 +217,15 @@ apex {
         "audio_policy_engine_product_strategies.mainline.xml",
         "audio_policy_engine_stream_volumes.mainline.xml",
         "audio_policy_engine_default_stream_volumes.mainline.xml",
-    ] + select(soong_config_variable("mainline_audio", "external_effects"), {
-        true: [],
-        default: [
+    ] + select(soong_config_variable("mainline_audio", "internal_effects"), {
+        true: [
             "android.hardware.audio.service-aidl.mainline-effects.rc",
             "android.hardware.audio.service-aidl.mainline-effects.xml",
             "audio_effects_config.mainline.xml",
             "audio_eraser_classifier_model",
             "audio_eraser_separator_model",
         ],
+        default: [],
     }) + select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
         true: [],
         default: [
