@@ -1,89 +1,63 @@
 # IIO Backend
 
-Linux Industrial I/O subsystem backend for the Mainline Sensors HAL.
+Linux Industrial I/O backend for the Mainline Sensors HAL. Devices are discovered in
+`/sys/bus/iio/devices` in numeric device order. Sensor types are collected from scan-channel and
+sysfs attribute names, with IIO `name`, device-tree `compatible`, and device-tree `name` as
+fallbacks. One physical IIO device may therefore publish multiple Android sensors.
 
-## Overview
+## Data Paths
 
-Discovers and reads sensors from the Linux IIO subsystem at `/sys/bus/iio/devices/`.
+Buffered devices have one character-device fd and one reader thread per physical IIO device. Only
+channels needed by active sensor types plus timestamp are enabled. The resulting `_en` values are
+read back before offsets and stride are calculated. Layout follows `iio_compute_scan_bytes()`:
+data-channel scan-index order, timestamp last, alignment to the complete storage width including
+`Xrepeat`, and final alignment to the largest element. Scan types support little/big endian,
+signed/unsigned values, real bits, storage bits through 64, repeat, and shift.
 
-## Sensor Type Detection
+An already assigned trigger is preferred and never detached by this HAL. Otherwise a matching
+device trigger is tried, followed by a triggerless push buffer (including qcom-smgr), then an owned
+configfs hrtimer. Triggers attached or created by the HAL are tracked and released on shutdown.
+The fastest active sensor period controls shared device and hrtimer frequency; decimal frequencies
+are retained in sysfs writes.
 
-Sensor type is determined using a 5-layer fallback chain:
+Every complete scan from each read is processed and incomplete trailing bytes are retained. A
+plausible 64-bit kernel boottime timestamp is used when present. Other timestamps, including the
+qcom-smgr 32-bit counter, are replaced with monotonic `CLOCK_BOOTTIME` timestamps backfilled over
+the received scans.
 
-1. `name` attribute (e.g., `bmc150_accel`, `qcom-smgr-prox`)
-2. `of_node/compatible` from device tree (e.g., `bosch,bmc150_magn`)
-3. `of_node/name` from device tree (e.g., `magnetometer`)
-4. Scan elements prefixes (e.g., `in_accel_x_en` → accelerometer)
-5. Sysfs attribute filenames (e.g., presence of `in_illuminance_raw` → light sensor)
+If buffering is unavailable, devices with real direct attributes use periodic sysfs reads. `_raw`
+values receive `(raw + offset) * scale`; `_input` values are already scaled. This fallback is only
+advertised when all required scalar or XYZ files actually exist, covering non-buffered BMI160,
+AK09918, and HID sensor configurations.
 
-Common name patterns recognized: `accel`, `gyro`/`anglvel`, `magn`, `light`/`illuminance`/
-`intensity`, `proximity`/`prox`, `temp`, `pressure`/`baro`, `humidity`.
+## Android Semantics
 
-## Data Access Modes
+IIO values and metadata use the same unit conversion: accelerometer and angular velocity unchanged,
+magnetic field Gauss to microtesla (`x100`), pressure kPa to hPa (`x10`), relative humidity and
+temperature divided by 1000, and proximity meters to centimeters (`x100`). When hwdb supplies
+`PROXIMITY_NEAR_LEVEL`, raw proximity is mapped to Android near/far values instead.
 
-- **Buffer mode**: Reads from the IIO character device (`/dev/iio:deviceN`) ring buffer
-  - **Triggered buffers**: Uses an hrtimer trigger for periodic sampling
-  - **Push-based buffers**: Receives data via driver push callbacks (no trigger needed)
-- **Poll mode**: Reads sysfs attributes (e.g., `in_accel_x_raw`) periodically
+Accelerometer, gyroscope, magnetic field, and pressure are continuous. Light, proximity,
+temperature, and humidity are on-change and suppress duplicate values. FIFO counts are zero, so
+report latency is accepted but does not change buffering. Data injection is not advertised and
+physical output stops while the backend is in data-injection mode.
 
-Buffer mode is preferred and used for all devices with scan_elements. Poll mode is only
-used as fallback for devices that expose `_raw` attributes but lack scan_elements.
-Buffer-only devices (those without `_raw` attributes) are fully supported.
+Flush requests for buffered sensors are queued to the device reader, after samples already returned
+by the fd as practically possible. Direct sensors complete flush immediately.
 
-## Sensor Info Derivation
+## Calibration And Overrides
 
-Sensor metadata is derived from sysfs rather than hardcoded:
+Vector scan channels are ordered X/Y/Z by channel name before applying the row-major IIO mount
+matrix. Matrix priority is:
 
-- `maxRange` and `resolution` are computed from `in_*_scale` and channel `realbits`
-- `minDelayUs` and `maxDelayUs` are derived from `sampling_frequency_available`
-- `flags` are determined by sensor type (continuous vs on-change)
+1. `vendor.sensors.iio.<device_name>.mount_matrix`
+2. hwdb `ACCEL_MOUNT_MATRIX` for accelerometers, matched by parent modalias and optional label
+3. Type-specific `in_*_mount_matrix`, then `mount_matrix` and `in_mount_matrix`
+4. Identity
 
-Scale and offset attributes are looked up with fallback: first per-axis attributes
-(e.g., `in_accel_x_scale`), then shared-by-type attributes (e.g., `in_accel_scale`).
-Sampling frequency is similarly looked up at device level first, then per-channel.
+Other Android properties are `vendor`, `power`, `max_range`, and `resolution` under the same device
+prefix. Device names replace `-`, spaces, and `/` with `_` in property keys. Vendor is otherwise
+derived from the device-tree compatible string.
 
-## Channel Discovery and Buffer Layout
-
-Channels are discovered from `scan_elements/` directory regardless of their enable state.
-The `_type` and `_index` files are read to determine channel format and position.
-
-For buffer mode, channel byte offsets are calculated sequentially with proper alignment
-based on storage size. This handles mixed-size channels correctly (e.g., 32-bit data
-channels followed by a 64-bit timestamp).
-
-## Mount Matrix
-
-Mount matrix is resolved using a priority chain (highest priority wins):
-
-1. Android property override (`vendor.sensors.iio.<device_name>.mount_matrix`)
-2. `60-sensor.hwdb` `ACCEL_MOUNT_MATRIX` (via `libsensors_hwdb`, matched by device modalias and label)
-3. Type-specific sysfs attribute (`in_accel_mount_matrix`, `in_anglvel_mount_matrix`, or
-   `in_magn_mount_matrix`), then generic `mount_matrix` / `in_mount_matrix`
-4. Identity matrix (default)
-
-The matrix is parsed in row-major order and applied as `device_vector = matrix * sensor_vector`,
-as defined by the IIO mount-matrix ABI. Buffered channels are reordered by axis name before this
-operation; scan indices only determine their byte locations in the IIO buffer.
-
-The hwdb lookup uses the device's parent modalias (from `../modalias` sysfs) and optional
-sensor label (from `label` sysfs) to match entries in `/vendor/etc/hwdb.d/60-sensor.hwdb`.
-
-## Property Overrides
-
-Hardware-specific properties that cannot be auto-detected can be overridden via android properties:
-
-```
-vendor.sensors.iio.<device_name>.vendor = Vendor Name
-vendor.sensors.iio.<device_name>.power = 0.13
-vendor.sensors.iio.<device_name>.max_range = 78.4
-vendor.sensors.iio.<device_name>.resolution = 0.001
-vendor.sensors.iio.<device_name>.mount_matrix = 1,0,0;0,-1,0;0,0,1
-```
-
-Where `<device_name>` is the IIO device `name` attribute with `-`, ` `, `/` replaced by `_`.
-
-## Dependencies
-
-- `libsensors_hwdb` - Sensor hwdb utility library (provides mount matrix from `60-sensor.hwdb`)
-- `libhwdb` - Generic hwdb file parser
-- `libsmbios_parser` - SMBIOS parser (fallback for DMI modalias construction)
+Pure scan parsing, layout, decoding, and unit conversion live in `IioScan.*` and are covered by the
+`libsensors_iio_scan_test` cc_test.

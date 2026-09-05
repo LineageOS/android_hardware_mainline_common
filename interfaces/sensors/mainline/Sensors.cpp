@@ -95,6 +95,7 @@ Sensors::~Sensors() {
         const MQDescriptor<int32_t, SynchronizedReadWrite>& in_wakeLockDescriptor,
         const std::shared_ptr<::aidl::android::hardware::sensors::ISensorsCallback>&
                 in_sensorsCallback) {
+    std::lock_guard<std::mutex> initialize_lock(initialize_mutex_);
     LOG(INFO) << "Sensors::initialize() called";
     ::ndk::ScopedAStatus result = ::ndk::ScopedAStatus::ok();
 

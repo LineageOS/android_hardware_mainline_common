@@ -92,6 +92,7 @@ class Sensors : public BnSensors {
 
     std::mutex write_lock_;
     std::mutex wake_lock_mutex_;
+    std::mutex initialize_mutex_;
 
     uint32_t outstanding_wake_up_events_;
     std::thread wake_lock_thread_;
