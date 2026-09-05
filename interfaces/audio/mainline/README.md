@@ -10,16 +10,20 @@ builds on the standard Linux audio user space:
   routing knowledge ("Speaker", "Headphones", "HDMI1", ... and the mixer
   sequences that switch between them).
 
-The HAL is packaged as a vendor APEX (`com.android.hardware.audio.mainline`)
-together with the unmodified AIDL effect service of the AOSP example HAL.
+The HAL is packaged as a vendor APEX (`com.android.hardware.audio.mainline`).
+It provides the core HAL only; the effect HAL (`IFactory/default`) is expected
+to come from the device, for instance the legacy effect library wrapper in
+[`../effect/legacy`](../effect/legacy/README.md). The unmodified AIDL effect
+service of the AOSP example HAL can be bundled instead, see `internal_effects`
+below.
 
 | Item                   | Value                                                       |
 |------------------------|-------------------------------------------------------------|
 | APEX module            | `com.android.hardware.audio.mainline`                       |
 | APEX manifest name     | `com.android.hardware.audio` (multi-install with the example) |
 | Core HAL binary        | `/apex/com.android.hardware.audio/bin/hw/android.hardware.audio.service-aidl.mainline` |
-| Init services          | `vendor.audio-hal-aidl-mainline`, `vendor.audio-effect-hal-aidl-mainline` (unless `external_effects`) |
-| AIDL instances         | `IConfig/default`, `IModule/default`, `IModule/r_submix`, `IModule/bluetooth` (optional), `IFactory/default` (effects) |
+| Init services          | `vendor.audio-hal-aidl-mainline`, `vendor.audio-effect-hal-aidl-mainline` (only with `internal_effects`) |
+| AIDL instances         | `IConfig/default`, `IModule/default`, `IModule/r_submix`, `IModule/bluetooth` (optional), `IFactory/default` (only with `internal_effects`) |
 | Log tags               | `MainlineAudio_*`                                           |
 
 ## Product integration
@@ -29,6 +33,11 @@ together with the unmodified AIDL effect service of the AOSP example HAL.
 PRODUCT_SOONG_NAMESPACES += hardware/mainline/common
 
 PRODUCT_PACKAGES += com.android.hardware.audio.mainline
+
+# An effect HAL, since the APEX does not carry one by default. Either the
+# wrapper for the device's legacy effect libraries ...
+PRODUCT_PACKAGES += android.hardware.audio.effect.service-aidl.legacy
+# ... or the bundled example one, by setting internal_effects below.
 
 # UCM profiles: install everything (generic images) ...
 PRODUCT_PACKAGES += alsa-ucm-conf-all
@@ -48,10 +57,12 @@ Optional build time switches (Soong config namespace `mainline_audio`):
 # out of the APEX, e.g. because the device ships its own Bluetooth audio HAL.
 $(call soong_config_set_bool,mainline_audio,disable_bluetooth,true)
 
-# Leave the effect HAL (IFactory/default, the example effect service and its
-# plug-ins) out of the APEX, e.g. to use the legacy effect library wrapper in
-# ../effect/legacy instead. Exactly one IFactory/default may be installed.
-$(call soong_config_set_bool,mainline_audio,external_effects,true)
+# Bundle an effect HAL (IFactory/default, the example effect service and its
+# plug-ins) into the APEX. Off by default: the device is expected to provide
+# its own, e.g. the legacy effect library wrapper in ../effect/legacy. Set this
+# only when the device has no effect HAL of its own, and never together with
+# one: exactly one IFactory/default may be installed.
+$(call soong_config_set_bool,mainline_audio,internal_effects,true)
 ```
 
 ### Things the device still has to provide

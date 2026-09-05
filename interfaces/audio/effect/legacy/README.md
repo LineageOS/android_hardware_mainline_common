@@ -36,8 +36,9 @@ PRODUCT_PACKAGES += android.hardware.audio.effect.service-aidl.legacy
 PRODUCT_COPY_FILES += $(LOCAL_PATH)/audio/audio_effects.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects.xml
 PRODUCT_PACKAGES += libqcompostprocbundle libvolumelistener ...   # or prebuilts
 
-# Make sure no other IFactory/default is installed (e.g. drop the effect
-# service from the mainline audio APEX with its Soong config switch).
+# Make sure no other IFactory/default is installed. The mainline audio APEX
+# carries none unless mainline_audio.internal_effects is set, so nothing to do
+# there; check any other audio HAL the device installs.
 ```
 
 Properties (read at start-up):
