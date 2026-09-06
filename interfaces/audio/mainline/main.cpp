@@ -55,7 +55,11 @@ bool RegisterModule(const std::shared_ptr<Module>& module, const std::string& in
 // bluetooth). These have no hardware dependency.
 void RegisterExampleModule(Module::Type type, const std::string& instance,
                            std::vector<ChildInterface<Module>>* keep_alive) {
-    std::shared_ptr<Module> module = Module::createInstance(type);
+    // Passing no configuration at all, rather than an empty one: Module only
+    // falls back to the built-in configuration of its type when it is null.
+    // The single argument createInstance() hands out an empty one instead,
+    // which leaves the module without a single port.
+    std::shared_ptr<Module> module = Module::createInstance(type, nullptr);
     if (module == nullptr) {
         LOG(ERROR) << "failed to create the " << instance << " module";
         return;

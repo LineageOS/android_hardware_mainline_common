@@ -81,7 +81,10 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   `hardware/interfaces/audio/aidl/android/hardware/audio/core/StreamDescriptor.aidl`
   before touching `StreamMainline.cpp`; note that a `burst` may arrive in
   STANDBY without a prior `start()`.
-* `Module::createInstance(R_SUBMIX / BLUETOOTH)` for the software modules.
+* `Module::createInstance(R_SUBMIX / BLUETOOTH)` for the software modules. Pass
+  a null configuration: `Module` only falls back to the built-in one of its
+  type when `mConfig` is null, and the single argument overload passes an empty
+  configuration, which silently leaves the module with no ports at all.
 * The APEX carries the core HAL only. Setting the `mainline_audio.internal_effects`
   Soong config variable adds the effect service binary and its plug-in
   libraries unmodified, together with their rc and VINTF fragment; their
