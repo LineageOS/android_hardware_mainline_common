@@ -24,8 +24,8 @@ namespace aidl::android::hardware::sensors::mainline {
  * and the DMI modalias of the machine, to properties such as
  * ACCEL_MOUNT_MATRIX, ACCEL_LOCATION and PROXIMITY_NEAR_LEVEL. It is maintained
  * by the Linux community and can be shipped unmodified on the device in one of:
- *   /odm/etc/sensors/hwdb.d/*.hwdb
- *   /vendor/etc/sensors/hwdb.d/*.hwdb
+ *   /odm/etc/sensors/hwdb.d/<name>.hwdb
+ *   /vendor/etc/sensors/hwdb.d/<name>.hwdb
  *   /odm/etc/hwdb.d/60-sensor.hwdb      (legacy location)
  *   /vendor/etc/hwdb.d/60-sensor.hwdb   (legacy location)
  *

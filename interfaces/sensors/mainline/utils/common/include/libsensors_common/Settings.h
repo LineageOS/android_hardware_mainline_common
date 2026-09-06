@@ -19,8 +19,8 @@ namespace aidl::android::hardware::sensors::mainline {
  * Every setting is identified by a dotted key such as "iio.bmi160.mount_matrix".
  * A lookup tries, in order:
  *   1. the Android property "vendor.sensors.<key>",
- *   2. the configuration files "/odm/etc/sensors/*.conf" (highest priority)
- *      and "/vendor/etc/sensors/*.conf".
+ *   2. the configuration files "/odm/etc/sensors/<name>.conf" (highest priority)
+ *      and "/vendor/etc/sensors/<name>.conf".
  *
  * Configuration file format (INI-like):
  *   # comment
