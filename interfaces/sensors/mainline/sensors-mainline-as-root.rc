@@ -1,0 +1,8 @@
+service vendor.sensors-mainline /apex/com.android.hardware.sensors/bin/hw/android.hardware.sensors-service.mainline
+    class hal
+    user root
+    group root system input
+    rlimit rtprio 10 10
+
+on property:apex.com.android.hardware.sensors.ready=true
+    start vendor.sensors-mainline

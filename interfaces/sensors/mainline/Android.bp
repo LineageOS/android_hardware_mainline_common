@@ -3,6 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+// Generic Android Sensors HAL for devices running a mainline Linux kernel.
+// See README.md.
+//
+// Soong config variables (namespace "sensors_hal_mainline"):
+//   string load_custom_backends       - default backend list when the
+//                                       "vendor.sensors.backends" property /
+//                                       "backends" setting is not set, e.g.
+//                                       "libssc,iio,input,mock".
+//   string_list include_custom_backends - additional backend modules to bundle
+//                                       into the APEX, e.g.
+//                                       "//hardware/mainline/qcom:libsensors_libssc".
+//   bool run_as_root                  - run the service as root (development).
+//   bool include_all_permission_xmls  - ship the feature XMLs of every sensor
+//                                       type the HAL can provide.
+
 // Interface between the frontend and the backends. Out-of-tree backends depend
 // on this module as "//hardware/mainline/common:libsensors_mainline_headers".
 cc_library_headers {
@@ -16,4 +31,136 @@ cc_library_headers {
         "android.hardware.sensors-V3-ndk",
     ],
     visibility: ["//visibility:public"],
+}
+
+cc_defaults {
+    name: "libsensors_mainline_frontend_defaults",
+    vendor: true,
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    shared_libs: [
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
+        "android.hardware.sensors-V3-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libdl",
+        "libfmq",
+        "liblog",
+        "libutils",
+    ],
+    static_libs: [
+        "android.system.suspend-V1-ndk",
+        "libpower",
+        "libsensors_common",
+    ],
+    header_libs: [
+        "libsensors_mainline_headers",
+    ],
+}
+
+cc_library_static {
+    name: "libsensors_mainline_frontend",
+    defaults: ["libsensors_mainline_frontend_defaults"],
+    srcs: [
+        "BackendLoader.cpp",
+        "EventDispatcher.cpp",
+        "SensorManager.cpp",
+        "Sensors.cpp",
+        "composite/DeviceOrientationSensor.cpp",
+    ],
+    local_include_dirs: ["."],
+    cflags: select(soong_config_variable("sensors_hal_mainline", "load_custom_backends"), {
+        any @ flag_val: ["-DLOAD_CUSTOM_BACKENDS=\"" + flag_val + "\""],
+        default: ["-DLOAD_CUSTOM_BACKENDS=\"\""],
+    }),
+    visibility: [":__subpackages__"],
+}
+
+cc_binary {
+    name: "android.hardware.sensors-service.mainline",
+    defaults: ["libsensors_mainline_frontend_defaults"],
+    relative_install_path: "hw",
+    installable: false, // installed through the APEX
+    srcs: ["main.cpp"],
+    static_libs: [
+        "libsensors_mainline_frontend",
+    ],
+    visibility: [":__subpackages__"],
+}
+
+linker_config {
+    name: "com.android.hardware.sensors.mainline-linker-config",
+    src: "apex_linkerconfig.json",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "sensors-mainline.rc",
+    vendor: true,
+    src: "sensors-mainline.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "sensors-mainline-as-root.rc",
+    vendor: true,
+    src: "sensors-mainline-as-root.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "sensors-mainline.xml",
+    vendor: true,
+    src: "sensors-mainline.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+// The APEX manifest keeps the name "com.android.hardware.sensors" so that this
+// module can be installed as an alternative implementation of the default
+// sensors APEX (multi-install APEX).
+apex {
+    name: "com.android.hardware.sensors.mainline",
+    manifest: "apex_manifest.json",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    file_contexts: "file_contexts",
+    updatable: false,
+    vendor: true,
+
+    binaries: ["android.hardware.sensors-service.mainline"],
+    prebuilts: [
+        "com.android.hardware.sensors.mainline-linker-config",
+        "sensors-mainline.xml",
+    ] + select(soong_config_variable("sensors_hal_mainline", "run_as_root"), {
+        true: ["sensors-mainline-as-root.rc"],
+        default: ["sensors-mainline.rc"],
+    }) + select(soong_config_variable("sensors_hal_mainline", "include_all_permission_xmls"), {
+        true: [
+            "android.hardware.sensor.accelerometer.prebuilt.xml",
+            "android.hardware.sensor.ambient_temperature.prebuilt.xml",
+            "android.hardware.sensor.barometer.prebuilt.xml",
+            "android.hardware.sensor.compass.prebuilt.xml",
+            "android.hardware.sensor.gyroscope.prebuilt.xml",
+            "android.hardware.sensor.hinge_angle.prebuilt.xml",
+            "android.hardware.sensor.light.prebuilt.xml",
+            "android.hardware.sensor.proximity.prebuilt.xml",
+            "android.hardware.sensor.relative_humidity.prebuilt.xml",
+        ],
+        default: [],
+    }),
+
+    native_shared_libs: [
+        "libsensors_iio",
+        "libsensors_input",
+        "libsensors_mock",
+    ] + select(soong_config_variable("sensors_hal_mainline", "include_custom_backends"), {
+        any @ flag_val: flag_val,
+        default: [],
+    }),
 }
