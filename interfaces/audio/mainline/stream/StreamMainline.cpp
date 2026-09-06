@@ -143,7 +143,7 @@ bool StreamMainline::OpenPcms() {
             LOG(ERROR) << Tag() << __func__ << ": failed to open " << endpoint.ToString();
             continue;
         }
-        pcm->Prepare();
+        // Pcm::Open() hands out a prepared device.
         pcms_.push_back(std::move(pcm));
         if (is_input_) break;  // A capture stream reads from one device only.
     }
