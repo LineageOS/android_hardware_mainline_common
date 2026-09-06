@@ -29,11 +29,21 @@ namespace aidl::android::hardware::sensors::mainline {
  *   /odm/etc/hwdb.d/60-sensor.hwdb      (legacy location)
  *   /vendor/etc/hwdb.d/60-sensor.hwdb   (legacy location)
  *
- * Lookups are performed with the following match strings, mirroring the udev
- * rules of systemd:
+ * Lookups are performed with the following match strings, built like the
+ * IMPORT{builtin}="hwdb ..." rules of systemd's 60-sensor.rules:
  *   sensor:<label>:modalias:<modalias>:<dmi modalias>    (only with a label)
  *   sensor:modalias:<modalias>:<dmi modalias>
- *   sensor:modalias:<modalias>
+ *
+ * The DMI part is always appended, so the string ends with ':' on machines
+ * without DMI; device tree entries rely on this, their patterns end in ':*'.
+ * The modalias, the label and the DMI modalias are sanitized the way udev
+ * sanitizes "$attr{...}" substitutions, which for instance turns the device
+ * tree modalias "of:NaccelerometerT(null)C..." into "of:NaccelerometerT_null_C...".
+ *
+ * Unlike systemd, which stops after the label match string, a device with a
+ * label also falls back to the match string without it, so that generic
+ * entries still apply to labelled sensors. Properties of the label specific
+ * entry take precedence.
  */
 class SensorHwdb {
   public:

@@ -58,6 +58,19 @@ bool ReadRawTables(std::vector<uint8_t>* buffer) {
     return true;
 }
 
+// Mirrors dmi_save_release() in the kernel's drivers/firmware/dmi_scan.c:
+// "<major>.<minor>", not reported when the BIOS says 0xff/0xff.
+void AppendRelease(std::string* out, const char* prefix, uint8_t major, uint8_t minor) {
+    if (major == 0xff && minor == 0xff) {
+        return;
+    }
+    *out += prefix;
+    *out += std::to_string(major);
+    *out += '.';
+    *out += std::to_string(minor);
+    *out += ':';
+}
+
 }  // namespace
 
 std::string BuildDmiModaliasFromSmbios() {
@@ -74,8 +87,8 @@ std::string BuildDmiModaliasFromSmbios() {
         return "";
     }
 
-    std::string bios_vendor, bios_version, bios_date;
-    std::string sys_vendor, product_name, product_version;
+    std::string bios_vendor, bios_version, bios_date, bios_release, ec_release;
+    std::string sys_vendor, product_name, product_version, product_sku, product_family;
     std::string board_vendor, board_name, board_version;
     std::string chassis_vendor, chassis_version;
     int chassis_type = -1;
@@ -87,11 +100,28 @@ std::string BuildDmiModaliasFromSmbios() {
                 AppendFiltered(&bios_vendor, "bvn", entry->data.bios_info.Vendor);
                 AppendFiltered(&bios_version, "bvr", entry->data.bios_info.BIOSVersion);
                 AppendFiltered(&bios_date, "bd", entry->data.bios_info.BIOSReleaseDate);
+                // The kernel only reports these when the structure is long
+                // enough to hold them.
+                if (entry->length >= 21) {
+                    AppendRelease(&bios_release, "br", entry->data.bios_info.SystemBIOSMajorRelease,
+                                  entry->data.bios_info.SystemBIOSMinorRelease);
+                }
+                if (entry->length >= 23) {
+                    AppendRelease(&ec_release, "efr",
+                                  entry->data.bios_info.EmbeddedControlerFirmwareMajorRelease,
+                                  entry->data.bios_info.EmbeddedControlerFirmwareMinorRelease);
+                }
                 break;
             case TYPE_SYSTEM_INFO:
                 AppendFiltered(&sys_vendor, "svn", entry->data.system_info.Manufacturer);
                 AppendFiltered(&product_name, "pn", entry->data.system_info.ProductName);
                 AppendFiltered(&product_version, "pvr", entry->data.system_info.Version);
+                if (entry->length > 25) {
+                    AppendFiltered(&product_sku, "sku", entry->data.system_info.SKUNumber);
+                }
+                if (entry->length > 26) {
+                    AppendFiltered(&product_family, "pfa", entry->data.system_info.Family);
+                }
                 break;
             case TYPE_BASEBOARD_INFO:
                 AppendFiltered(&board_vendor, "rvn", entry->data.baseboard_info.Manufacturer);
@@ -108,8 +138,9 @@ std::string BuildDmiModaliasFromSmbios() {
         }
     }
 
+    // Field order of get_modalias() in the kernel's drivers/firmware/dmi-id.c.
     std::string modalias = "dmi:";
-    modalias += bios_vendor + bios_version + bios_date;
+    modalias += bios_vendor + bios_version + bios_date + bios_release + ec_release;
     modalias += sys_vendor + product_name + product_version;
     modalias += board_vendor + board_name + board_version;
     modalias += chassis_vendor;
@@ -117,6 +148,7 @@ std::string BuildDmiModaliasFromSmbios() {
         modalias += "ct" + std::to_string(chassis_type) + ":";
     }
     modalias += chassis_version;
+    modalias += product_sku + product_family;
     return modalias;
 }
 
