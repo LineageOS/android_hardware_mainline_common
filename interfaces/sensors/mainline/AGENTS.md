@@ -43,7 +43,9 @@ Build modules: `android.hardware.sensors-service.mainline` (binary),
 
 * **Do not change the `ISensorBackend` virtual method layout** (order, number,
   signatures) in `SensorBackend.h`: out-of-tree backends such as
-  `hardware/mainline/qcom/libraries/libsensors_libssc` are built against it.
+  `hardware/mainline/qcom/libraries/libsensors_libssc` are built against it
+  (that backend also links `libsensors_common`, so keep that library's API
+  stable or update the backend along with it).
   Add new functionality through new optional exported C symbols (see
   `GetSensorBackendFlags`) and bump `kSensorBackendInterfaceVersion` only for
   incompatible changes.

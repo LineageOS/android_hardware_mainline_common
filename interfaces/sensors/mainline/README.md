@@ -52,8 +52,9 @@ Backends are loaded in the order `iio, input, mock` by default. The mock
 backend is *fallback only*: its sensors are dropped for every type a real
 backend already provides.
 
-Out-of-tree backends (for example `libsensors_libssc` for Qualcomm SSC
-sensors) implement the same interface, are built against
+Out-of-tree backends (for example `libsensors_libssc` for Qualcomm Sensor
+Core sensors, see `hardware/mainline/qcom/libraries/libsensors_libssc/README.md`)
+implement the same interface, may link `libsensors_common` statically, are built against
 `//hardware/mainline/common:libsensors_mainline_headers` and can either be
 bundled into the APEX (`include_custom_backends`) or installed in
 `/vendor/lib{,64}{/hw,}`; the APEX linker configuration permits loading from
