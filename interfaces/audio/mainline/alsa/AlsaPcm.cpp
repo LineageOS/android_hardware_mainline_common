@@ -12,7 +12,6 @@
 #include <cerrno>
 #include <ctime>
 #include <sstream>
-#include <vector>
 
 #include <android-base/logging.h>
 #include <android-base/strings.h>
@@ -168,25 +167,11 @@ std::string UnderlyingPcmName(const std::string& name) {
 }
 
 // A "plug" PCM on top of `slave`: it converts the sample format, the channel
-// count and the sample rate to what the hardware accepts. A non-zero
-// `slave_rate` pins the rate used on the hardware side.
-std::string PlugName(const std::string& slave, unsigned int slave_rate) {
-    std::ostringstream os;
-    os << "plug:{SLAVE={pcm \"" << slave << "\"";
-    if (slave_rate != 0) os << " rate " << slave_rate;
-    os << "}}";
-    return os.str();
-}
-
-// Hardware rates to try when the device turns out to reject the rate the plug
-// layer picked, the most commonly implemented ones first.
-std::vector<unsigned int> SlaveRateCandidates(unsigned int rate) {
-    static constexpr unsigned int kPreferred[] = {48000, 44100, 96000, 192000};
-    std::vector<unsigned int> candidates;
-    for (const unsigned int candidate : kPreferred) {
-        if (candidate != rate) candidates.push_back(candidate);
-    }
-    return candidates;
+// count and the sample rate to what the hardware accepts. SLAVE is declared
+// as a string by "pcm.plug" in alsa.conf (it ends up as "slave.pcm"), so it
+// takes the name of the slave device and nothing else.
+std::string PlugName(const std::string& slave) {
+    return "plug:{SLAVE=\"" + slave + "\"}";
 }
 
 }  // namespace
@@ -238,6 +223,15 @@ std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stre
     if (ConfigureSwParams(raw, stream, effective) < 0) {
         return nullptr;
     }
+    // Commit the configuration. On a DPCM card the back-end constraints are
+    // applied here rather than in hw_params(), so this is where a device can
+    // still refuse what it accepted a moment ago. Preparing as part of the
+    // open lets Open() move on to the next candidate instead of handing out a
+    // PCM that can never play.
+    if (const int err = snd_pcm_prepare(raw); err < 0) {
+        LOG(WARNING) << __func__ << ": snd_pcm_prepare(" << name << "): " << ErrorString(err);
+        return nullptr;
+    }
     LOG(INFO) << __func__ << ": opened " << name << " (" << snd_pcm_stream_name(stream)
               << ") requested={" << config.ToString() << "} effective={" << effective.ToString()
               << "} can_pause=" << can_pause;
@@ -253,27 +247,11 @@ std::unique_ptr<Pcm> Pcm::Open(const std::string& name, snd_pcm_stream_t stream,
     // The device did not accept the configuration as it is. Retry through the
     // plug layer, which converts the sample format, the channel count and the
     // sample rate to something the hardware does accept.
-    const std::string slave = UnderlyingPcmName(name);
+    const std::string plug_name = PlugName(UnderlyingPcmName(name));
     LOG(INFO) << __func__ << ": " << name << " does not accept {" << config.ToString()
-              << "} natively, retrying through the plug layer";
-    if (auto pcm = TryOpen(PlugName(slave, 0), stream, config, true /*is_plug*/); pcm != nullptr) {
+              << "} natively, retrying through " << plug_name;
+    if (auto pcm = TryOpen(plug_name, stream, config, true /*is_plug*/); pcm != nullptr) {
         return pcm;
-    }
-
-    // Still refused. What a device answers to hw_params_any() is not
-    // necessarily what it accepts in hw_params(): on a DPCM card (every
-    // Qualcomm QDSP6 one) the front-end answers the queries on its own and the
-    // constraints of the back-end it is routed to are only applied on commit.
-    // The plug layer picks the hardware rate from those same answers, so it
-    // can pick one that the back-end rejects; pin it to a rate that is
-    // commonly implemented instead.
-    for (const unsigned int slave_rate : SlaveRateCandidates(config.rate)) {
-        if (auto pcm = TryOpen(PlugName(slave, slave_rate), stream, config, true /*is_plug*/);
-            pcm != nullptr) {
-            LOG(INFO) << __func__ << ": " << name << " runs at " << slave_rate
-                      << " Hz, converting from " << config.rate << " Hz in the plug layer";
-            return pcm;
-        }
     }
 
     LOG(ERROR) << __func__ << ": " << name << " does not accept {" << config.ToString()
