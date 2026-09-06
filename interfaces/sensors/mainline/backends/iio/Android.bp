@@ -1,0 +1,35 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library_shared {
+    name: "libsensors_iio",
+    vendor: true,
+    srcs: [
+        "IioBackend.cpp",
+        "IioChannel.cpp",
+        "IioDevice.cpp",
+        "IioSensor.cpp",
+        "IioTrigger.cpp",
+        "IioTypes.cpp",
+    ],
+    header_libs: ["libsensors_mainline_headers"],
+    static_libs: [
+        "libhwdb",
+        "libsensors_common",
+        "libsensors_hwdb",
+        "libsmbios_parser",
+    ],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+        "libbase",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fvisibility=hidden",
+    ],
+}
