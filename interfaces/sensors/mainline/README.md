@@ -122,6 +122,9 @@ becomes `_` (`qcom-smgr-accel` â†’ `qcom_smgr_accel`, `ADXL34x accelerometer` â†
 | Key                                     | Default          | Meaning                                                    |
 |-----------------------------------------|------------------|------------------------------------------------------------|
 | `backends`                              | build default or `iio,input,mock` | Comma separated backend list (short names, library names or paths) |
+| `wait_for_sensors`                      | `0`              | Number of hardware sensors to wait for at start-up (0 disables the wait) |
+| `wait_for_sensors_timeout_ms`           | `10000`          | How long to wait for them before giving up                 |
+| `wait_for_sensors_interval_ms`          | `500`            | Delay between two discovery attempts                       |
 | `composite.device_orientation.enabled`  | `false`          | Register the composite `DEVICE_ORIENTATION` sensor         |
 | `composite.device_orientation.invert_x` / `invert_y` / `invert_z` | `false` | Device orientation workaround: negate an axis              |
 | `composite.device_orientation.rotation_offset` | `0`       | Device orientation workaround: add 90/180/270 degrees      |
@@ -134,6 +137,43 @@ activated, so they can be tuned live:
 ```
 setprop vendor.sensors.composite.device_orientation.rotation_offset 180
 ```
+
+### Waiting for late sensors
+
+The framework reads the sensor list once, shortly after boot, and a sensor
+missing from it stays missing until the framework restarts. Sensors can however
+show up late: IIO devices probe asynchronously (regulators, deferred probe) and
+the Qualcomm sensor DSP only answers once its firmware and the QMI plumbing are
+up.
+
+Set `wait_for_sensors` to the number of hardware sensors the device is expected
+to expose (composite sensors are not counted). Discovery is then repeated every
+`wait_for_sensors_interval_ms` until that many sensors are found or
+`wait_for_sensors_timeout_ms` has elapsed, and only then is the HAL service
+registered. Each attempt starts from scratch, so handles are the same as they
+would be without the wait, and a timeout is logged as a warning and leaves the
+HAL running with whatever was found.
+
+```ini
+# Global settings, i.e. before any [section] line
+wait_for_sensors = 5
+wait_for_sensors_timeout_ms = 15000
+```
+
+or, for a quick test on the device (before the framework starts):
+
+```
+setprop vendor.sensors.wait_for_sensors 5
+```
+
+Count the sensors of a working boot with `dumpsys sensorservice` or from the
+`Exposed sensor:` lines of the HAL log. Keep the timeout below the point where
+waiting for the sensor service becomes worse than missing a sensor; the wait
+delays the registration of the HAL service.
+
+The backends additionally have their own knobs for the same problem
+(`iio.discovery_wait_ms`, `ssc.discovery_wait_ms`), which wait *inside* one
+discovery pass instead of repeating it.
 
 Backend specific keys are documented in the backend READMEs.
 

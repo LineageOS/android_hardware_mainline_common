@@ -14,13 +14,24 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
+#include <thread>
 
 namespace aidl::android::hardware::sensors::mainline {
 
 namespace {
+
 // Rate used when the framework activates a sensor without calling batch()
 // first.
 constexpr int64_t kDefaultPeriodNs = 66666667;  // 15 Hz
+
+// Settings controlling how long discovery waits for late sensors.
+constexpr const char* kWaitForSensorsKey = "wait_for_sensors";
+constexpr const char* kWaitTimeoutKey = "wait_for_sensors_timeout_ms";
+constexpr const char* kWaitIntervalKey = "wait_for_sensors_interval_ms";
+constexpr int64_t kDefaultWaitTimeoutMs = 10000;
+constexpr int64_t kDefaultWaitIntervalMs = 500;
+
 }  // namespace
 
 SensorManager::SensorManager() = default;
@@ -51,6 +62,41 @@ void SensorManager::RegisterCompositeSensor(std::unique_ptr<ICompositeSensor> se
     pending_composites_.push_back(std::move(sensor));
 }
 
+void SensorManager::InitializeBackends() {
+    for (size_t i = 0; i < backends_.size(); i++) {
+        BackendEntry& entry = backends_[i];
+        if (entry.initialized) {
+            continue;
+        }
+        ISensorBackend* backend = entry.loaded.backend.get();
+        PostEventsCallback callback = [this, i](const std::vector<Event>& events, bool wakeup) {
+            OnBackendEvents(i, events, wakeup);
+        };
+        int32_t ret = backend->Initialize(callback);
+        if (ret != 0) {
+            LOG(ERROR) << "Backend '" << backend->GetName() << "' failed to initialize: " << ret;
+            // Drop whatever it set up so that a later attempt starts clean.
+            backend->Deinitialize();
+            continue;
+        }
+        entry.initialized = true;
+    }
+}
+
+void SensorManager::ShutdownBackends() {
+    for (auto& entry : backends_) {
+        if (!entry.initialized) {
+            continue;
+        }
+        entry.loaded.backend->Deinitialize();
+        entry.initialized = false;
+        entry.local_to_global.clear();
+    }
+    std::lock_guard<std::mutex> state(state_mutex_);
+    hardware_.clear();
+    next_handle_ = 1;
+}
+
 void SensorManager::Initialize() {
     std::lock_guard<std::mutex> lock(control_mutex_);
     if (initialized_) {
@@ -67,21 +113,56 @@ void SensorManager::Initialize() {
         backends_.push_back(std::move(entry));
     }
 
-    for (size_t i = 0; i < backends_.size(); i++) {
-        BackendEntry& entry = backends_[i];
-        ISensorBackend* backend = entry.loaded.backend.get();
-        PostEventsCallback callback = [this, i](const std::vector<Event>& events, bool wakeup) {
-            OnBackendEvents(i, events, wakeup);
-        };
-        int32_t ret = backend->Initialize(callback);
-        if (ret != 0) {
-            LOG(ERROR) << "Backend '" << backend->GetName() << "' failed to initialize: " << ret;
-            continue;
+    /*
+     * Sensors can show up late: IIO devices probe asynchronously and the
+     * Qualcomm sensor DSP needs its firmware and the QMI plumbing to be up.
+     * The sensor list must be complete before the framework reads it, so
+     * discovery is repeated until the expected number of hardware sensors is
+     * reached or the timeout expires.
+     */
+    Settings& settings = Settings::Get();
+    const int64_t expected = settings.GetInt(kWaitForSensorsKey, 0);
+    const int64_t timeout_ms = settings.GetInt(kWaitTimeoutKey, kDefaultWaitTimeoutMs);
+    const int64_t interval_ms =
+            std::max<int64_t>(settings.GetInt(kWaitIntervalKey, kDefaultWaitIntervalMs), 1);
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::milliseconds(timeout_ms);
+
+    for (int attempt = 1;; attempt++) {
+        InitializeBackends();
+        RegisterHardwareSensors();
+
+        size_t found;
+        {
+            std::lock_guard<std::mutex> state(state_mutex_);
+            found = hardware_.size();
         }
-        entry.initialized = true;
+        if (expected <= 0 || found >= static_cast<size_t>(expected)) {
+            if (expected > 0) {
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - start);
+                LOG(INFO) << "Found the " << expected << " expected hardware sensor(s) after "
+                          << elapsed.count() << " ms (" << attempt << " attempt(s))";
+            }
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            LOG(WARNING) << "Only " << found << " of the " << expected
+                         << " expected hardware sensor(s) showed up within " << timeout_ms
+                         << " ms, continuing with an incomplete sensor list. Check "
+                         << Settings::kPropertyPrefix << kWaitForSensorsKey << ".";
+            break;
+        }
+        LOG(INFO) << "Found " << found << " of the " << expected
+                  << " expected hardware sensor(s), retrying discovery in " << interval_ms
+                  << " ms (attempt " << attempt << ")";
+        // Discovery is repeated from scratch so that handles stay the same as
+        // they would be without the wait. Nothing can observe the sensors yet:
+        // the service is only registered once this returns.
+        ShutdownBackends();
+        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
     }
 
-    RegisterHardwareSensors();
     RegisterComposites();
 
     LOG(INFO) << "Sensor manager initialized: " << backends_.size() << " backend(s), "
@@ -91,6 +172,12 @@ void SensorManager::Initialize() {
 
 void SensorManager::RegisterHardwareSensors() {
     std::lock_guard<std::mutex> state(state_mutex_);
+    // Discovery may be repeated while waiting for late sensors.
+    hardware_.clear();
+    next_handle_ = 1;
+    for (auto& entry : backends_) {
+        entry.local_to_global.clear();
+    }
     std::set<SensorType> provided_types;
     std::set<std::pair<SensorType, std::string>> used_names;
 

@@ -104,6 +104,8 @@ class SensorManager {
         std::vector<int32_t> input_handles;
     };
 
+    void InitializeBackends();
+    void ShutdownBackends();
     void RegisterHardwareSensors();
     void RegisterComposites();
     void OnBackendEvents(size_t backend_index, const std::vector<Event>& events, bool wakeup);

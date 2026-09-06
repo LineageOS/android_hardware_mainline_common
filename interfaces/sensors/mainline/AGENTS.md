@@ -96,6 +96,11 @@ Build modules: `android.hardware.sensors-service.mainline` (binary),
   `SensorManager::Initialize()`, only when enabled by a setting, and only
   survive registration if no backend provides their type and all their input
   types exist.
+* `SensorManager::Initialize()` may run discovery several times while waiting
+  for late sensors (`wait_for_sensors`). A backend's `Deinitialize()` must
+  therefore leave it in the state it had before `Initialize()`: drop the
+  discovered sensors and reset the local handle counter, so that a second
+  `Initialize()` neither duplicates sensors nor shifts handles.
 
 ## IIO backend specifics
 

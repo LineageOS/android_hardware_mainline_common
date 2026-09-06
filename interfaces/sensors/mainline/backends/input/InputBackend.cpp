@@ -74,6 +74,11 @@ void InputBackend::Deinitialize() {
         device->Shutdown();
         device->SetCallback(nullptr);
     }
+    // Leave a clean slate: Initialize() may be called again to retry
+    // discovery while the frontend waits for late sensors.
+    devices_.clear();
+    hwdb_.reset();
+    next_handle_ = 1;
     LOG(INFO) << "Input backend deinitialized";
 }
 
