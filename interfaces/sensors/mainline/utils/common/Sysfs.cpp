@@ -14,6 +14,9 @@
 #include <android-base/strings.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <system_error>
 

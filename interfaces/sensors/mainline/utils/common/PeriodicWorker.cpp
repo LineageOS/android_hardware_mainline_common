@@ -11,6 +11,7 @@
 
 #include <pthread.h>
 
+#include <algorithm>
 #include <chrono>
 
 namespace aidl::android::hardware::sensors::mainline {
