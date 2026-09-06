@@ -13,6 +13,7 @@
 #include <libsensors_common/Settings.h>
 
 #include <cmath>
+#include <string>
 #include <utility>
 
 namespace aidl::android::hardware::sensors::mainline {
@@ -28,11 +29,9 @@ constexpr float kFlatThreshold = 0.35f * 9.80665f;
 // angle of the candidate's centre (45 degrees would be the bare boundary).
 constexpr float kAcceptAngleDeg = 30.0f;
 
-constexpr const char* kPropSwapXy = "orientation.swap_xy";
-constexpr const char* kPropInvertX = "orientation.invert_x";
-constexpr const char* kPropInvertY = "orientation.invert_y";
-constexpr const char* kPropInvertZ = "orientation.invert_z";
-constexpr const char* kPropRotationOffset = "orientation.rotation_offset";
+std::string SettingKey(const std::string& name) {
+    return std::string(DeviceOrientationSensor::kSettingPrefix) + "." + name;
+}
 
 }  // namespace
 
@@ -58,17 +57,18 @@ int64_t DeviceOrientationSensor::GetInputSamplingPeriodNs() const {
 
 void DeviceOrientationSensor::LoadWorkarounds() {
     Settings& settings = Settings::Get();
-    const bool swap_xy = settings.GetBool(kPropSwapXy, false);
-    const bool invert_x = settings.GetBool(kPropInvertX, false);
-    const bool invert_y = settings.GetBool(kPropInvertY, false);
-    const bool invert_z = settings.GetBool(kPropInvertZ, false);
-    const int64_t offset_deg = settings.GetInt(kPropRotationOffset, 0);
+    const bool swap_xy = settings.GetBool(SettingKey("swap_xy"), false);
+    const bool invert_x = settings.GetBool(SettingKey("invert_x"), false);
+    const bool invert_y = settings.GetBool(SettingKey("invert_y"), false);
+    const bool invert_z = settings.GetBool(SettingKey("invert_z"), false);
+    const int64_t offset_deg = settings.GetInt(SettingKey("rotation_offset"), 0);
 
     rotation_offset_ = 0;
     if (offset_deg == 90 || offset_deg == 180 || offset_deg == 270) {
         rotation_offset_ = static_cast<int32_t>(offset_deg / 90);
     } else if (offset_deg != 0) {
-        LOG(WARNING) << kPropRotationOffset << " must be 0, 90, 180 or 270; got " << offset_deg;
+        LOG(WARNING) << SettingKey("rotation_offset") << " must be 0, 90, 180 or 270; got "
+                     << offset_deg;
     }
 
     // Build the transformation as a matrix: out = M * in.

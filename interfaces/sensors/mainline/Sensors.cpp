@@ -12,6 +12,7 @@
 #include <libsensors_common/Settings.h>
 
 #include <cerrno>
+#include <string>
 
 #include "composite/DeviceOrientationSensor.h"
 
@@ -33,7 +34,8 @@ void Sensors::Initialize() {
         LOG(INFO) << "Configuration file: " << file;
     }
 
-    if (Settings::Get().GetBool("composite.device_orientation.enabled", false)) {
+    if (Settings::Get().GetBool(std::string(DeviceOrientationSensor::kSettingPrefix) + ".enabled",
+                                false)) {
         LOG(INFO) << "Composite device orientation sensor enabled";
         manager_.RegisterCompositeSensor(std::make_unique<DeviceOrientationSensor>());
     }

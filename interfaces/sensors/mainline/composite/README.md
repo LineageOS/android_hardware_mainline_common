@@ -27,13 +27,13 @@ time and no change while the device lies flat.
 Workarounds for boards whose accelerometer mount matrix is wrong, re-read at
 every activation:
 
-| Key                             | Effect                                     |
-|---------------------------------|--------------------------------------------|
-| `orientation.swap_xy`           | Swap the X and Y axes                      |
-| `orientation.invert_x`          | Negate X                                   |
-| `orientation.invert_y`          | Negate Y                                   |
-| `orientation.invert_z`          | Negate Z                                   |
-| `orientation.rotation_offset`   | Add 90, 180 or 270 degrees to the result   |
+| Key                                            | Effect                                     |
+|------------------------------------------------|--------------------------------------------|
+| `composite.device_orientation.swap_xy`         | Swap the X and Y axes                      |
+| `composite.device_orientation.invert_x`        | Negate X                                   |
+| `composite.device_orientation.invert_y`        | Negate Y                                   |
+| `composite.device_orientation.invert_z`        | Negate Z                                   |
+| `composite.device_orientation.rotation_offset` | Add 90, 180 or 270 degrees to the result   |
 
 The effective transformation matrix is logged on activation. Prefer fixing
 the mount matrix (device tree, hwdb or `iio.<device>.mount_matrix`) so that

@@ -123,16 +123,16 @@ becomes `_` (`qcom-smgr-accel` â†’ `qcom_smgr_accel`, `ADXL34x accelerometer` â†
 |-----------------------------------------|------------------|------------------------------------------------------------|
 | `backends`                              | build default or `iio,input,mock` | Comma separated backend list (short names, library names or paths) |
 | `composite.device_orientation.enabled`  | `false`          | Register the composite `DEVICE_ORIENTATION` sensor         |
-| `orientation.swap_xy`                   | `false`          | Device orientation workaround: swap X and Y                |
-| `orientation.invert_x` / `invert_y` / `invert_z` | `false` | Device orientation workaround: negate an axis              |
-| `orientation.rotation_offset`           | `0`              | Device orientation workaround: add 90/180/270 degrees      |
+| `composite.device_orientation.invert_x` / `invert_y` / `invert_z` | `false` | Device orientation workaround: negate an axis              |
+| `composite.device_orientation.rotation_offset` | `0`       | Device orientation workaround: add 90/180/270 degrees      |
+| `composite.device_orientation.swap_xy`  | `false`          | Device orientation workaround: swap X and Y                |
 | `debug.log_events`                      | `false`          | Log every event at INFO level                              |
 
 The orientation workarounds are read each time the composite sensor is
 activated, so they can be tuned live:
 
 ```
-setprop vendor.sensors.orientation.rotation_offset 180
+setprop vendor.sensors.composite.device_orientation.rotation_offset 180
 ```
 
 Backend specific keys are documented in the backend READMEs.

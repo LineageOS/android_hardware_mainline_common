@@ -24,14 +24,18 @@ namespace aidl::android::hardware::sensors::mainline {
  * "composite.device_orientation.enabled".
  *
  * Workarounds for devices whose accelerometer mount matrix is wrong can be
- * applied through the "orientation.*" settings, which are re-read on every
- * activation:
- *   orientation.swap_xy, orientation.invert_x, orientation.invert_y,
- *   orientation.invert_z: axis transformation applied to the accelerometer
- *   orientation.rotation_offset: 0/90/180/270 degrees added to the result
+ * applied through the other "composite.device_orientation.*" settings, which
+ * are re-read on every activation:
+ *   .swap_xy, .invert_x, .invert_y, .invert_z: axis transformation applied to
+ *       the accelerometer data
+ *   .rotation_offset: 0/90/180/270 degrees added to the result
  */
 class DeviceOrientationSensor : public CompositeSensorBase {
   public:
+    // Prefix of every setting of this sensor, including ".enabled" which is
+    // read by the frontend.
+    static constexpr const char* kSettingPrefix = "composite.device_orientation";
+
     DeviceOrientationSensor();
 
     std::vector<SensorType> GetInputSensorTypes() const override;
