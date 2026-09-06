@@ -13,6 +13,8 @@
 
 #include <fnmatch.h>
 
+#include <cctype>
+
 namespace libhwdb {
 
 std::unique_ptr<Hwdb> Hwdb::FromFile(const std::string& path) {
@@ -40,62 +42,146 @@ std::unique_ptr<Hwdb> Hwdb::FromContent(const std::string& content) {
     return hwdb;
 }
 
+namespace {
+
+// systemd strips trailing whitespace with isspace(3).
+void StripTrailingWhitespace(std::string* line) {
+    while (!line->empty() && std::isspace(static_cast<unsigned char>(line->back()))) {
+        line->pop_back();
+    }
+}
+
+bool IsBlank(char c) {
+    return c == ' ' || c == '\t';
+}
+
+}  // namespace
+
+/*
+ * Port of import_file() in systemd's src/shared/hwdb-util.c.
+ *
+ * A record is a group of match patterns (unindented lines) followed by
+ * properties (lines starting with a single space), terminated by an empty
+ * line. A '#' in the first column marks a comment line; anywhere else it
+ * starts a trailing comment which is stripped from every line, including
+ * property lines. Only ' ' marks a property, not '\t'.
+ *
+ * The quirks of this state machine are reproduced on purpose: hwdb files are
+ * authored and validated against systemd, so parsing them any differently
+ * would apply properties systemd would not (or the other way round).
+ */
 bool Hwdb::Parse(const std::string& content) {
     entries_.clear();
 
-    Entry current_entry;
-    bool collecting_properties = false;
+    enum class State { kNone, kMatch, kData };
+    State state = State::kNone;
+    Entry entry;
+    size_t line_number = 0;
 
-    auto lines = ::android::base::Split(content, "\n");
-    for (auto& raw_line : lines) {
-        std::string line = ::android::base::Trim(raw_line);
+    auto finish_record = [&]() {
+        if (!entry.match_patterns.empty() && !entry.properties.empty()) {
+            entries_.push_back(std::move(entry));
+        }
+        entry = Entry{};
+    };
 
-        if (line.empty()) {
-            continue;
+    /*
+     * Adds one "<blank><key>=<value>" property line to the record being
+     * parsed. Port of insert_data(): the key is everything between the
+     * leading blanks and the first '=', the value is the remainder of the
+     * line taken verbatim (trailing whitespace has already been removed from
+     * the whole line).
+     */
+    auto insert_property = [&](const std::string& line) {
+        const size_t equals = line.find('=');
+        if (equals == std::string::npos) {
+            LOG(WARNING) << "hwdb:" << line_number << ": key-value pair expected but got \"" << line
+                         << "\", ignoring";
+            return;
         }
 
-        if (line[0] == '#') {
-            continue;
+        // Replace multiple leading blanks by a single one, then drop that one:
+        // it is the marker that distinguishes properties from match patterns.
+        size_t key_start = 0;
+        while (key_start + 1 < equals && IsBlank(line[key_start]) && IsBlank(line[key_start + 1])) {
+            key_start++;
+        }
+        key_start++;
+        if (key_start >= equals) {
+            LOG(WARNING) << "hwdb:" << line_number << ": empty key in \"" << line << "\", ignoring";
+            return;
         }
 
-        if (::android::base::StartsWith(raw_line, " ") ||
-            ::android::base::StartsWith(raw_line, "\t")) {
-            size_t eq_pos = line.find('=');
-            if (eq_pos == std::string::npos) {
-                continue;
-            }
+        entry.properties[line.substr(key_start, equals - key_start)] = line.substr(equals + 1);
+    };
 
-            std::string key = ::android::base::Trim(line.substr(0, eq_pos));
-            std::string value = ::android::base::Trim(line.substr(eq_pos + 1));
+    for (const auto& raw_line : ::android::base::Split(content, "\n")) {
+        line_number++;
 
-            if (key.empty()) {
-                continue;
-            }
+        if (::android::base::StartsWith(raw_line, "#")) {
+            continue;
+        }
+        std::string line = raw_line.substr(0, raw_line.find('#'));
+        StripTrailingWhitespace(&line);
 
-            current_entry.properties[key] = value;
-            collecting_properties = true;
-        } else {
-            if (collecting_properties) {
-                if (!current_entry.match_patterns.empty() && !current_entry.properties.empty()) {
-                    entries_.push_back(std::move(current_entry));
+        switch (state) {
+            case State::kNone:
+                if (line.empty()) {
+                    break;
                 }
-                current_entry = Entry{};
-                collecting_properties = false;
-            }
+                if (line[0] == ' ') {
+                    LOG(WARNING) << "hwdb:" << line_number
+                                 << ": match expected but got indented property \"" << line
+                                 << "\", ignoring line";
+                    break;
+                }
+                // Start of a record, first match pattern.
+                state = State::kMatch;
+                entry.match_patterns.push_back(line);
+                break;
 
-            size_t comment_pos = line.find('#');
-            if (comment_pos != std::string::npos) {
-                line = ::android::base::Trim(line.substr(0, comment_pos));
-            }
+            case State::kMatch:
+                if (line.empty()) {
+                    LOG(WARNING) << "hwdb:" << line_number
+                                 << ": property expected, ignoring record with no properties";
+                    entry = Entry{};
+                    state = State::kNone;
+                    break;
+                }
+                if (line[0] != ' ') {
+                    // Another match pattern for the same record.
+                    entry.match_patterns.push_back(line);
+                    break;
+                }
+                state = State::kData;
+                insert_property(line);
+                break;
 
-            if (!line.empty()) {
-                current_entry.match_patterns.push_back(line);
-            }
+            case State::kData:
+                if (line.empty()) {
+                    // End of the record.
+                    finish_record();
+                    state = State::kNone;
+                    break;
+                }
+                if (line[0] != ' ') {
+                    LOG(WARNING) << "hwdb:" << line_number
+                                 << ": property or empty line expected, got \"" << line
+                                 << "\", ignoring the rest of the record";
+                    // Properties seen so far are kept, like systemd does.
+                    finish_record();
+                    state = State::kNone;
+                    break;
+                }
+                insert_property(line);
+                break;
         }
     }
 
-    if (!current_entry.match_patterns.empty() && !current_entry.properties.empty()) {
-        entries_.push_back(std::move(current_entry));
+    if (state == State::kMatch) {
+        LOG(WARNING) << "hwdb: property expected, ignoring last record with no properties";
+    } else if (state == State::kData) {
+        finish_record();
     }
 
     return true;
