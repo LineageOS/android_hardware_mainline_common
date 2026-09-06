@@ -1,0 +1,19 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Interface between the frontend and the backends. Out-of-tree backends depend
+// on this module as "//hardware/mainline/common:libsensors_mainline_headers".
+cc_library_headers {
+    name: "libsensors_mainline_headers",
+    vendor: true,
+    export_include_dirs: ["include"],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+    ],
+    export_shared_lib_headers: [
+        "android.hardware.sensors-V3-ndk",
+    ],
+    visibility: ["//visibility:public"],
+}

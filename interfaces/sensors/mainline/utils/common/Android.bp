@@ -1,0 +1,32 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Helpers shared by the frontend and the backends of the mainline Sensors HAL.
+// Linked statically so that out-of-tree backends living in /vendor do not
+// depend on a library inside the APEX.
+cc_library_static {
+    name: "libsensors_common",
+    vendor: true,
+    srcs: [
+        "MountMatrix.cpp",
+        "PeriodicWorker.cpp",
+        "SensorEvents.cpp",
+        "SensorTypes.cpp",
+        "Settings.cpp",
+        "Sysfs.cpp",
+    ],
+    export_include_dirs: ["include"],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+        "libbase",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    visibility: ["//visibility:public"],
+}

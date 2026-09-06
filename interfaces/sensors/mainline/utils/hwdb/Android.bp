@@ -1,0 +1,31 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Sensor hardware database (systemd 60-sensor.hwdb compatible) lookups.
+cc_library_static {
+    name: "libsensors_hwdb",
+    vendor: true,
+    srcs: [
+        "DmiModalias.cpp",
+        "SensorHwdb.cpp",
+    ],
+    export_include_dirs: ["include"],
+    static_libs: [
+        "libhwdb",
+        "libsensors_common",
+        "libsmbios_parser",
+    ],
+    shared_libs: [
+        "android.hardware.sensors-V3-ndk",
+        "libbase",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    visibility: ["//visibility:public"],
+}
