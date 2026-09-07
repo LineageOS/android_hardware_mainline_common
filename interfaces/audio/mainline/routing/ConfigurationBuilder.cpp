@@ -117,17 +117,28 @@ AudioRoute MakeRoute(const std::vector<int32_t>& sources, int32_t sink) {
     return route;
 }
 
-// Union of the capabilities of a set of endpoints, restricted to a channel
-// count window.
-alsa::HwCapabilities UnionCapabilities(const std::vector<const Endpoint*>& endpoints,
-                                       unsigned int min_channels, unsigned int max_channels) {
+// Intersection of the capabilities of a set of endpoints, restricted to a
+// channel count window.
+alsa::HwCapabilities IntersectCapabilities(const std::vector<const Endpoint*>& endpoints,
+                                           unsigned int min_channels, unsigned int max_channels) {
     alsa::HwCapabilities caps;
-    for (const Endpoint* e : endpoints) {
-        caps.formats.insert(e->caps.formats.begin(), e->caps.formats.end());
-        caps.rates.insert(e->caps.rates.begin(), e->caps.rates.end());
-    }
     caps.min_channels = min_channels;
     caps.max_channels = max_channels;
+
+    if (endpoints.empty() || endpoints.front()->caps.formats.empty() ||
+        endpoints.front()->caps.rates.empty())
+        return caps;
+
+    caps.formats = endpoints.front()->caps.formats;
+    caps.rates = endpoints.front()->caps.rates;
+
+    for (size_t i = 1; i < endpoints.size(); ++i) {
+        std::erase_if(caps.formats,
+                      [&](const auto& f) { return endpoints[i]->caps.formats.count(f) == 0; });
+        std::erase_if(caps.rates,
+                      [&](const auto& r) { return endpoints[i]->caps.rates.count(r) == 0; });
+    }
+
     return caps;
 }
 
@@ -208,7 +219,7 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
     AudioPort primary_out = MakeMixPort(
             c->nextPortId++, kPrimaryOutputMixPort, false,
             makeBitPositionFlagMask(AudioOutputFlags::PRIMARY), 1, 1,
-            alsa::ProfilesFromCapabilities(UnionCapabilities(output_endpoints, 1, 2), false));
+            alsa::ProfilesFromCapabilities(IntersectCapabilities(output_endpoints, 1, 2), false));
     for (const int32_t sink : output_device_ports) {
         c->routes.push_back(MakeRoute({primary_out.id}, sink));
     }
@@ -219,7 +230,7 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
                 MakeMixPort(c->nextPortId++, kMultichannelOutputMixPort, false,
                             makeBitPositionFlagMask(AudioOutputFlags::DIRECT), 1, 1,
                             alsa::ProfilesFromCapabilities(
-                                    UnionCapabilities(multichannel_endpoints, 3, 8), false));
+                                    IntersectCapabilities(multichannel_endpoints, 3, 8), false));
         LOG(INFO) << __func__ << ": exposing \"" << kMultichannelOutputMixPort << "\" for "
                   << multichannel_endpoints.size() << " device port(s)";
         for (const int32_t sink : multichannel_device_ports) {
@@ -230,7 +241,7 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
 
     AudioPort primary_in = MakeMixPort(
             c->nextPortId++, kPrimaryInputMixPort, true, 0, 0, 1,
-            alsa::ProfilesFromCapabilities(UnionCapabilities(input_endpoints, 1, 2), true));
+            alsa::ProfilesFromCapabilities(IntersectCapabilities(input_endpoints, 1, 2), true));
     c->routes.push_back(MakeRoute(input_device_ports, primary_in.id));
     c->ports.push_back(std::move(primary_in));
 
