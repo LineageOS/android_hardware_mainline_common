@@ -29,9 +29,6 @@ namespace libgrub_boot_control {
 
 namespace {
 
-const int INVALID_SLOT = -1;
-const int COMMAND_FAILED = -2;
-
 // Unused for GRUB by default
 const string kItemGlobalSnapshotMergeStatus =
         "snapshot_merge_status";  // whatever string, boot control HAL should take care of validity
