@@ -24,6 +24,11 @@ class GrubBootControl {
 
     void PrintGrubVars();
 
+    // Takes back one of the boot attempts that GRUB has counted for the
+    // current slot. Meant for the boots that should not be held against it,
+    // like the ones into recovery.
+    void DecreaseRetryCountForCurrentSlot();
+
     // android.hardware.boot
     int getActiveBootSlot();
     int getCurrentSlot();
@@ -66,8 +71,6 @@ class GrubBootControl {
 
     void InitGrubVars();
     bool CommitGrubVars();
-
-    void DecreaseRetryCountForCurrentSlot();
 
     // The following ones expect mMapMutex to be held by the caller
     std::string GetItemValueLocked(const std::string& key);

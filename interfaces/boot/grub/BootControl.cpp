@@ -46,6 +46,8 @@ BootControl::BootControl() {
 #if defined(__ANDROID_RECOVERY__)
     mBackend = std::make_unique<libgrub_boot_control::GrubBootControl>(
             "/mnt/vendor/_persist/grubenv_abootctrl");
+    // Booting into recovery is not an attempt to boot the slot itself
+    mBackend->DecreaseRetryCountForCurrentSlot();
 #else
     mBackend = std::make_unique<libgrub_boot_control::GrubBootControl>();
 #endif
