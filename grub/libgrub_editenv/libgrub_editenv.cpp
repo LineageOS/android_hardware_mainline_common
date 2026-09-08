@@ -95,8 +95,16 @@ bool LoadFileToMap(string path, GrubEnvMap* key_value_map) {
 void TrimOverflowVarsFromString(string* content) {
     while (content->size() > kGrubenvFileSize) {
         if (content->ends_with('\n')) content->pop_back();
-        auto pos = content->find_last_of('\n') + 1;
-        content->resize(pos);
+
+        auto pos = content->find_last_of('\n');
+        if (pos == string::npos) {
+            // There is no variable left to drop, so there is nothing that
+            // could ever make this content fit
+            content->clear();
+            return;
+        }
+
+        content->resize(pos + 1);
     }
 }
 
@@ -113,11 +121,13 @@ string GenerateStringFromMap(const GrubEnvMap& key_value_map, bool trim) {
 
     // Check content size
     if (content.size() > kGrubenvFileSize) {
-        if (trim) {
-            TrimOverflowVarsFromString(&content);
-        } else {
-            return "";
-        }
+        if (!trim) return "";
+
+        TrimOverflowVarsFromString(&content);
+
+        // Trimming may have eaten the header away, and an environment block
+        // without a header is worse than no environment block at all
+        if (!ValidateHeader(content)) return "";
     }
 
     // Fill the tail with '#'
