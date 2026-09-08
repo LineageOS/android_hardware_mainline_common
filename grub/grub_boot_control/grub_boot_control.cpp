@@ -8,25 +8,28 @@
 #include <map>
 #include <string>
 
+#include <android-base/parseint.h>
+
 #include <GrubBootControl.h>
 
-#define CHECK_AND_PROVIDE_SLOT_NUMBER                              \
-    if (argc != 4) {                                               \
-        cout << "Please specify slot" << endl;                     \
-        return EXIT_FAILURE;                                       \
-    }                                                              \
-    int slot = stoi(string(argv[3]));                              \
-    if (slot < 0) {                                                \
-        cout << "Invalid slot number " << to_string(slot) << endl; \
-        return EXIT_FAILURE;                                       \
+#define CHECK_AND_PROVIDE_SLOT_NUMBER                          \
+    if (argc != 4) {                                           \
+        cout << "Please specify slot" << endl;                 \
+        return EXIT_FAILURE;                                   \
+    }                                                          \
+    int slot;                                                  \
+    if (!ParseInt(argv[3], &slot, 0)) {                        \
+        cout << "Invalid slot number " << argv[3] << endl;     \
+        return EXIT_FAILURE;                                   \
     }
 
 using namespace libgrub_boot_control;
 
+using android::base::ParseInt;
+
 using std::cout;
 using std::endl;
 using std::map;
-using std::stoi;
 using std::string;
 using std::to_string;
 
