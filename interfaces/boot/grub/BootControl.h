@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <aidl/android/hardware/boot/BnBootControl.h>
 
 #include <GrubBootControl.h>
@@ -29,7 +31,7 @@ class BootControl final : public BnBootControl {
             ::aidl::android::hardware::boot::MergeStatus in_status) override;
 
   private:
-    ::libgrub_boot_control::GrubBootControl* mBackend;
+    std::unique_ptr<::libgrub_boot_control::GrubBootControl> mBackend;
 };
 
 }  // namespace aidl::android::hardware::boot
