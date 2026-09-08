@@ -21,6 +21,7 @@
 using namespace libgrub_editenv;
 
 using android::base::unique_fd;
+using std::lock_guard;
 using std::mutex;
 using std::string;
 using std::to_string;
@@ -59,27 +60,30 @@ GrubBootControl::~GrubBootControl() {
 }
 
 bool GrubBootControl::CommitGrubVars() {
-    mMapMutex.lock();
+    lock_guard<mutex> lock(mMapMutex);
+    return CommitGrubVarsLocked();
+}
+
+bool GrubBootControl::CommitGrubVarsLocked() {
     if (lseek(mFd, 0, SEEK_SET) == -1) LOG(FATAL) << "lseek error";
-    if (!TEMP_FAILURE_RETRY(WriteFdFromMap(mFd, mMap))) {
-        RemoveUnusedElementsFromMap();
-        if (!TEMP_FAILURE_RETRY(WriteFdFromMap(mFd, mMap))) {
-            mMapMutex.unlock();
-            LOG(ERROR) << "Failed to commit grub vars";
-            return false;
-        }
-    }
-    mMapMutex.unlock();
-    return true;
+
+    if (TEMP_FAILURE_RETRY(WriteFdFromMap(mFd, mMap))) return true;
+
+    // The environment block is likely full because of variables that are not
+    // ours, drop them and try again
+    RemoveUnusedElementsFromMapLocked();
+    if (TEMP_FAILURE_RETRY(WriteFdFromMap(mFd, mMap))) return true;
+
+    LOG(ERROR) << "Failed to commit grub vars";
+    return false;
 }
 
 void GrubBootControl::PrintGrubVars() {
-    mMapMutex.lock();
+    lock_guard<mutex> lock(mMapMutex);
     LOG(DEBUG) << "Print GRUB variables:";
     for (const auto& [key, value] : mMap) {
         LOG(DEBUG) << key << "=" << value;
     }
-    mMapMutex.unlock();
 }
 
 bool GrubBootControl::IsValidSlot(int slot) {
@@ -90,25 +94,30 @@ bool GrubBootControl::IsValidSlot(int slot) {
     return true;
 }
 
+string GrubBootControl::GetItemValueLocked(const string& key) {
+    const auto it = mMap.find(key);
+    return (it == mMap.end()) ? string() : it->second;
+}
+
+void GrubBootControl::SetItemValueLocked(const string& key, const string& value) {
+    mMap.insert_or_assign(key, value);
+}
+
 string GrubBootControl::GetItemKeyForGlobal(string item) {
     return mVarKeyPrefix + "global_" + item;
 }
 
 string GrubBootControl::GetItemValueForGlobal(string item) {
     const string key = GetItemKeyForGlobal(item);
-    mMapMutex.lock();
-    const auto it = mMap.find(key);
-    string ret = (it == mMap.end()) ? string() : it->second;
-    mMapMutex.unlock();
-    return ret;
+    lock_guard<mutex> lock(mMapMutex);
+    return GetItemValueLocked(key);
 }
 
 bool GrubBootControl::SetItemValueForGlobal(string item, string value, bool commit) {
-    mMapMutex.lock();
-    mMap.insert_or_assign(GetItemKeyForGlobal(item), value);
-    mMapMutex.unlock();
-    if (commit && !CommitGrubVars()) return false;
-    return true;
+    const string key = GetItemKeyForGlobal(item);
+    lock_guard<mutex> lock(mMapMutex);
+    SetItemValueLocked(key, value);
+    return commit ? CommitGrubVarsLocked() : true;
 }
 
 string GrubBootControl::GetItemKeyForSlot(int slot, string item) {
@@ -123,28 +132,23 @@ string GrubBootControl::GetItemKeyForSlot(int slot, string item) {
 
 string GrubBootControl::GetItemValueForSlot(int slot, string item) {
     const string key = GetItemKeyForSlot(slot, item);
-    mMapMutex.lock();
-    const auto it = mMap.find(key);
-    string ret = (it == mMap.end()) ? string() : it->second;
-    mMapMutex.unlock();
-    return ret;
+    lock_guard<mutex> lock(mMapMutex);
+    return GetItemValueLocked(key);
 }
 
 bool GrubBootControl::SetItemValueForSlot(int slot, string item, string value, bool commit) {
-    mMapMutex.lock();
-    mMap.insert_or_assign(GetItemKeyForSlot(slot, item), value);
-    mMapMutex.unlock();
-    if (commit && !CommitGrubVars()) return false;
-    return true;
+    const string key = GetItemKeyForSlot(slot, item);
+    lock_guard<mutex> lock(mMapMutex);
+    SetItemValueLocked(key, value);
+    return commit ? CommitGrubVarsLocked() : true;
 }
 
 bool GrubBootControl::SetItemValueForAllSlots(string item, string value, bool commit) {
-    int ret = true;
+    lock_guard<mutex> lock(mMapMutex);
     for (int i = 0; i < getNumberSlots(); i++) {
-        ret &= SetItemValueForSlot(i, item, value, false);
+        SetItemValueLocked(GetItemKeyForSlot(i, item), value);
     }
-    if (commit && !CommitGrubVars()) return false;
-    return ret;
+    return commit ? CommitGrubVarsLocked() : true;
 }
 
 string GrubBootControl::GetStringFromSlotNumber(int slot) {
