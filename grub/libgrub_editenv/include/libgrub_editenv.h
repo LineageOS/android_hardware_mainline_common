@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#pragma once
+
 #include <map>
 #include <string>
 #include <string_view>
 
 #include <android-base/unique_fd.h>
-
-#pragma once
 
 namespace libgrub_editenv {
 
