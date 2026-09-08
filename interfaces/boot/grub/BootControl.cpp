@@ -44,10 +44,10 @@ MergeStatus ConvertGrubStringToMergeStatus(std::string str) {
 
 BootControl::BootControl() {
 #if defined(__ANDROID_RECOVERY__)
-    mBackend =
-            new libgrub_boot_control::GrubBootControl("/mnt/vendor/_persist/grubenv_abootctrl");
+    mBackend = std::make_unique<libgrub_boot_control::GrubBootControl>(
+            "/mnt/vendor/_persist/grubenv_abootctrl");
 #else
-    mBackend = new libgrub_boot_control::GrubBootControl();
+    mBackend = std::make_unique<libgrub_boot_control::GrubBootControl>();
 #endif
 }
 
