@@ -54,12 +54,22 @@ BootControl::BootControl() {
 }
 
 ScopedAStatus BootControl::getActiveBootSlot(int32_t* _aidl_return) {
-    *_aidl_return = mBackend->getActiveBootSlot();
+    int32_t val = mBackend->getActiveBootSlot();
+    if (val == COMMAND_FAILED) {
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(COMMAND_FAILED,
+                                                                  "Operation failed");
+    }
+    *_aidl_return = val;
     return ScopedAStatus::ok();
 }
 
 ScopedAStatus BootControl::getCurrentSlot(int32_t* _aidl_return) {
-    *_aidl_return = mBackend->getCurrentSlot();
+    int32_t val = mBackend->getCurrentSlot();
+    if (val == COMMAND_FAILED) {
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(COMMAND_FAILED,
+                                                                  "Operation failed");
+    }
+    *_aidl_return = val;
     return ScopedAStatus::ok();
 }
 
