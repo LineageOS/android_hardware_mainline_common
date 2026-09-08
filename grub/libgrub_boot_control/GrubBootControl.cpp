@@ -52,6 +52,7 @@ const string kItemGlobalNoAutoSlotSwitch = "no_auto_slot_switch";  // "true" for
 const vector<const string*> kAllGlobalItems = {
         &kItemGlobalActiveSlot,
         &kItemGlobalCurrentSlot,
+        &kItemGlobalNoAutoSlotSwitch,
         &kItemGlobalSnapshotMergeStatus,
 };
 
