@@ -95,8 +95,10 @@ string GrubBootControl::GetItemKeyForGlobal(string item) {
 }
 
 string GrubBootControl::GetItemValueForGlobal(string item) {
+    const string key = GetItemKeyForGlobal(item);
     mMapMutex.lock();
-    string ret = mMap[GetItemKeyForGlobal(item)];
+    const auto it = mMap.find(key);
+    string ret = (it == mMap.end()) ? string() : it->second;
     mMapMutex.unlock();
     return ret;
 }
@@ -120,8 +122,10 @@ string GrubBootControl::GetItemKeyForSlot(int slot, string item) {
 }
 
 string GrubBootControl::GetItemValueForSlot(int slot, string item) {
+    const string key = GetItemKeyForSlot(slot, item);
     mMapMutex.lock();
-    string ret = mMap[GetItemKeyForSlot(slot, item)];
+    const auto it = mMap.find(key);
+    string ret = (it == mMap.end()) ? string() : it->second;
     mMapMutex.unlock();
     return ret;
 }
