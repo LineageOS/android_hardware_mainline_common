@@ -30,8 +30,6 @@ using std::stoi;
 using std::string;
 using std::to_string;
 
-const int INVALID_SLOT = -1;
-const int COMMAND_FAILED = -2;
 const string kHelpText = "Usage: grub_boot_control <path> [command] [parameters ...]\n";
 
 GrubBootControl* g;
