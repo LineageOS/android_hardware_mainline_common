@@ -29,13 +29,6 @@ using std::vector;
 
 namespace libgrub_boot_control {
 
-namespace {
-
-const int INVALID_SLOT = -1;
-const int COMMAND_FAILED = -2;
-
-}  // namespace
-
 GrubBootControl::GrubBootControl(string grubenv_path, vector<string> slots, string var_key_prefix)
     : mSlots(slots), mVarKeyPrefix(var_key_prefix) {
     CHECK(!mSlots.empty()) << "No slot";

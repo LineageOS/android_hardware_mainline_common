@@ -15,6 +15,10 @@
 
 namespace libgrub_boot_control {
 
+// Mirror the error codes of android.hardware.boot.IBootControl
+constexpr int INVALID_SLOT = -1;
+constexpr int COMMAND_FAILED = -2;
+
 class GrubBootControl {
   public:
     GrubBootControl(std::string grubenv_path = "/mnt/vendor/persist/grubenv_abootctrl",
