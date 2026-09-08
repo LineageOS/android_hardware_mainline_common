@@ -190,6 +190,9 @@ int GrubBootControl::setActiveBootSlot(int slot) {
 int GrubBootControl::setSlotAsUnbootable(int slot) {
     if (!IsValidSlot(slot)) return INVALID_SLOT;
 
+    // A slot that we know is bad cannot be a successful one anymore
+    SetItemValueForSlot(slot, kItemSlotIsSuccessful, "false", false);
+
     if (!SetItemValueForSlot(slot, kItemSlotIsBootable, "false")) return COMMAND_FAILED;
 
     return 0;
