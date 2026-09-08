@@ -66,7 +66,12 @@ class GrubBootControl {
     bool CommitGrubVars();
 
     void DecreaseRetryCountForCurrentSlot();
-    void RemoveUnusedElementsFromMap();
+
+    // The following ones expect mMapMutex to be held by the caller
+    std::string GetItemValueLocked(const std::string& key);
+    void SetItemValueLocked(const std::string& key, const std::string& value);
+    bool CommitGrubVarsLocked();
+    void RemoveUnusedElementsFromMapLocked();
 };
 
 }  // namespace libgrub_boot_control

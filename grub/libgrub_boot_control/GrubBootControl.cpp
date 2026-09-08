@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,8 @@ using android::base::GetProperty;
 
 using libgrub_editenv::GrubEnvMap;
 
+using std::lock_guard;
+using std::mutex;
 using std::string;
 using std::vector;
 
@@ -60,16 +63,18 @@ const vector<const string*> kAllSlotItems = {
 
 }  // namespace
 
-void GrubBootControl::RemoveUnusedElementsFromMap() {
+void GrubBootControl::RemoveUnusedElementsFromMapLocked() {
     GrubEnvMap new_map;
 
     for (const string* item : kAllGlobalItems) {
-        new_map.insert({GetItemKeyForGlobal(*item), GetItemValueForGlobal(*item)});
+        const string key = GetItemKeyForGlobal(*item);
+        new_map.insert({key, GetItemValueLocked(key)});
     }
 
     for (int i = 0; i < getNumberSlots(); i++) {
         for (const string* item : kAllSlotItems) {
-            new_map.insert({GetItemKeyForSlot(i, *item), GetItemValueForSlot(i, *item)});
+            const string key = GetItemKeyForSlot(i, *item);
+            new_map.insert({key, GetItemValueLocked(key)});
         }
     }
 
@@ -125,10 +130,8 @@ int GrubBootControl::getNumberSlots() {
 }
 
 string GrubBootControl::getSnapshotMergeStatus() {
-    mSnapshotMergeStatusMutex.lock();
-    string ret = GetItemValueForGlobal(kItemGlobalSnapshotMergeStatus);
-    mSnapshotMergeStatusMutex.unlock();
-    return ret;
+    lock_guard<mutex> lock(mSnapshotMergeStatusMutex);
+    return GetItemValueForGlobal(kItemGlobalSnapshotMergeStatus);
 }
 
 string GrubBootControl::getSuffix(int slot) {
@@ -192,11 +195,9 @@ int GrubBootControl::setSlotAsUnbootable(int slot) {
 }
 
 int GrubBootControl::setSnapshotMergeStatus(string status) {
-    mSnapshotMergeStatusMutex.lock();
+    lock_guard<mutex> lock(mSnapshotMergeStatusMutex);
 
     if (!SetItemValueForGlobal(kItemGlobalSnapshotMergeStatus, status)) return COMMAND_FAILED;
-
-    mSnapshotMergeStatusMutex.unlock();
 
     return 0;
 }
