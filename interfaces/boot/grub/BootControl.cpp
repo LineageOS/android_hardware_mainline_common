@@ -27,11 +27,14 @@ std::string ConvertMergeStatusToGrubString(MergeStatus merge_status) {
         case MergeStatus::CANCELLED:
             return "cancelled";
         default:
-            return "invalid_merge_status";
+            return "";
     }
 }
 
 MergeStatus ConvertGrubStringToMergeStatus(std::string str) {
+    // Nothing has ever been recorded, which simply means that there is no
+    // snapshot around rather than that we failed to figure it out
+    if (str.empty()) return MergeStatus::NONE;
     if (str == "none") return MergeStatus::NONE;
     if (str == "unknown") return MergeStatus::UNKNOWN;
     if (str == "snapshotted") return MergeStatus::SNAPSHOTTED;
@@ -148,7 +151,13 @@ ScopedAStatus BootControl::setSlotAsUnbootable(int32_t in_slot) {
 }
 
 ScopedAStatus BootControl::setSnapshotMergeStatus(MergeStatus in_status) {
-    int32_t ret = mBackend->setSnapshotMergeStatus(ConvertMergeStatusToGrubString(in_status));
+    const std::string status_str = ConvertMergeStatusToGrubString(in_status);
+    if (status_str.empty()) {
+        return ScopedAStatus::fromServiceSpecificErrorWithMessage(COMMAND_FAILED,
+                                                                  "Unknown merge status");
+    }
+
+    int32_t ret = mBackend->setSnapshotMergeStatus(status_str);
     if (ret == COMMAND_FAILED) {
         return ScopedAStatus::fromServiceSpecificErrorWithMessage(COMMAND_FAILED,
                                                                   "Operation failed");
