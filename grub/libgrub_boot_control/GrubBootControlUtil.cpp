@@ -57,10 +57,6 @@ GrubBootControl::GrubBootControl(string grubenv_path, vector<string> slots, stri
         InitGrubVars();
         if (!CommitGrubVars()) LOG(ERROR) << "Failed to initialize " << grubenv_path;
     }
-
-#if defined(__ANDROID_RECOVERY__)
-    DecreaseRetryCountForCurrentSlot();
-#endif
 }
 
 GrubBootControl::~GrubBootControl() {
