@@ -40,14 +40,22 @@ GrubBootControl::GrubBootControl(string grubenv_path, vector<string> slots, stri
     : mSlots(slots), mVarKeyPrefix(var_key_prefix) {
     CHECK(!mSlots.empty()) << "No slot";
 
+    bool loaded = false;
+
     mFd = unique_fd(TEMP_FAILURE_RETRY(open(grubenv_path.c_str(), O_RDWR)));
     if (mFd.ok()) {
-        CHECK(LoadFdToMap(mFd, &mMap)) << "Failed to parse " << grubenv_path;
+        loaded = LoadFdToMap(mFd, &mMap);
+        // Starting over is still better than leaving the slots unmanaged, and
+        // GRUB would not be able to make sense of the block either
+        if (!loaded) LOG(ERROR) << "Failed to parse " << grubenv_path << ", reinitializing it";
     } else {
-        mFd = unique_fd(TEMP_FAILURE_RETRY(open(grubenv_path.c_str(), O_WRONLY | O_CREAT, 0644)));
-        CHECK(mFd.ok()) << "Failed to open or create " << grubenv_path;
+        mFd = unique_fd(TEMP_FAILURE_RETRY(open(grubenv_path.c_str(), O_RDWR | O_CREAT, 0644)));
+        if (!mFd.ok()) PLOG(ERROR) << "Failed to open or create " << grubenv_path;
+    }
+
+    if (!loaded) {
         InitGrubVars();
-        CHECK(CommitGrubVars());
+        if (!CommitGrubVars()) LOG(ERROR) << "Failed to initialize " << grubenv_path;
     }
 
 #if defined(__ANDROID_RECOVERY__)
@@ -65,7 +73,10 @@ bool GrubBootControl::CommitGrubVars() {
 }
 
 bool GrubBootControl::CommitGrubVarsLocked() {
-    if (lseek(mFd, 0, SEEK_SET) == -1) LOG(FATAL) << "lseek error";
+    if (lseek(mFd, 0, SEEK_SET) == -1) {
+        PLOG(ERROR) << "Failed to seek to the beginning of the environment block";
+        return false;
+    }
 
     if (TEMP_FAILURE_RETRY(WriteFdFromMap(mFd, mMap))) return true;
 
