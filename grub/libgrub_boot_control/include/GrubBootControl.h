@@ -52,6 +52,8 @@ class GrubBootControl {
     std::string GetStringFromSlotNumber(int slot);
     int GetSlotNumberFromString(std::string str);
 
+    std::string GetCurrentSlotFromProperty();
+
   private:
     std::vector<std::string> mSlots;
     std::string mVarKeyPrefix;

@@ -82,16 +82,27 @@ void GrubBootControl::RemoveUnusedElementsFromMapLocked() {
     mMap = std::move(new_map);
 }
 
+string GrubBootControl::GetCurrentSlotFromProperty() {
+#if defined(__ANDROID_VENDOR__) || defined(__ANDROID_RECOVERY__) || defined(__ANDROID_APEX__)
+    // The bootloader hands us the suffix of the slot we have booted from,
+    // which is the slot name prefixed by an underscore
+    const string slot_suffix = GetProperty("ro.boot.slot_suffix", "");
+    if (slot_suffix.length() > 1 && slot_suffix.front() == '_') {
+        const string slot_str = slot_suffix.substr(1);
+        if (GetSlotNumberFromString(slot_str) != INVALID_SLOT) return slot_str;
+    }
+    if (!slot_suffix.empty()) LOG(WARNING) << "Unknown slot suffix: " << slot_suffix;
+#endif
+    return "";
+}
+
 void GrubBootControl::InitGrubVars() {
     // Global
     SetItemValueForGlobal(kItemGlobalNoAutoSlotSwitch, "false", false);
     SetItemValueForGlobal(kItemGlobalSnapshotMergeStatus, "none", false);
 
     // Global: Active slot and Current slot
-    string current_slot;
-#if defined(__ANDROID_VENDOR__) || defined(__ANDROID_RECOVERY__) || defined(__ANDROID_APEX__)
-    current_slot = GetProperty("ro.boot.slot_suffix", "_" + mSlots.front())[1];
-#endif
+    string current_slot = GetCurrentSlotFromProperty();
     if (current_slot.empty()) current_slot = mSlots.front();
     SetItemValueForGlobal(kItemGlobalActiveSlot, current_slot, false);
     SetItemValueForGlobal(kItemGlobalCurrentSlot, current_slot, false);
@@ -121,6 +132,12 @@ int GrubBootControl::getActiveBootSlot() {
 }
 
 int GrubBootControl::getCurrentSlot() {
+    // The bootloader is the authoritative source here, as the value we return
+    // has to match the suffix it passed to us
+    const string slot_str_from_property = GetCurrentSlotFromProperty();
+    if (!slot_str_from_property.empty()) return GetSlotNumberFromString(slot_str_from_property);
+
+    // Otherwise trust what GRUB recorded right before booting the slot
     string current_slot_str = GetItemValueForGlobal(kItemGlobalCurrentSlot);
     int ret = GetSlotNumberFromString(current_slot_str);
     return ret == INVALID_SLOT ? COMMAND_FAILED : ret;
