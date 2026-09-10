@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "98a3ac82_7cc1d96a",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 32245
+      },
+      "writtenOn": "2026-09-10T08:32:35Z",
+      "side": 1,
+      "message": "intended; otherwise it\u0027ll continue with non-working functionality",
+      "revId": "706bedcb5d5ae2f362e91eeca2b12dcd34159f76",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
