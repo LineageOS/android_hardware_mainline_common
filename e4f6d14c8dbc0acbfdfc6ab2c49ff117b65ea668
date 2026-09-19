@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "ceae683b_5aeec93e",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 2
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-09-19T21:14:12Z",
+      "side": 1,
+      "message": "Verified on tegra and ayn.",
+      "revId": "e4f6d14c8dbc0acbfdfc6ab2c49ff117b65ea668",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
