@@ -476,8 +476,8 @@ void DeviceInventory::AssignRoles() {
     };
     if (!have_speaker) {
         have_speaker = promote(false, DeviceRole::kSpeaker,
-                               {DeviceRole::kLineOut, DeviceRole::kHeadphones,
-                                DeviceRole::kHeadset, DeviceRole::kSpdif});
+                               {DeviceRole::kLineOut, DeviceRole::kHeadphones, DeviceRole::kHeadset,
+                                DeviceRole::kSpdif});
     }
     if (!have_mic) {
         have_mic = promote(true, DeviceRole::kMic, {DeviceRole::kBusIn, DeviceRole::kHeadsetMic});
