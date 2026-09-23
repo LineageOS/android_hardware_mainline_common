@@ -124,6 +124,10 @@ alsa::HwCapabilities IntersectCapabilities(const std::vector<const Endpoint*>& e
     alsa::HwCapabilities caps;
     caps.min_channels = min_channels;
     caps.max_channels = max_channels;
+    for (const Endpoint* e : endpoints) {
+        caps.min_channels = std::max(caps.min_channels, e->caps.min_channels);
+        caps.max_channels = std::min(caps.max_channels, e->caps.max_channels);
+    }
 
     if (endpoints.empty() || endpoints.front()->caps.formats.empty() ||
         endpoints.front()->caps.rates.empty())

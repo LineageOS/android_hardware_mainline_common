@@ -178,8 +178,10 @@ Mix ports:
 The formats and sample rates of the `primary output`, `hra output`,
 `multichannel output` and `primary input` profiles are the *intersection* of
 those of the device ports the mix port is routed to, so that the framework
-never picks a configuration one of them does not support. The channel counts
-are not intersected: they are fixed per mix port (1..2, 1..2, 3..8 and 1..2).
+never picks a configuration one of them does not support. The same goes for
+the channel count range, within a window per mix port (1..2, 1..2, 3..8 and
+1..2): a 5.1 and a 7.1 capable output together get a `multichannel output`
+of at most six channels.
 16-bit / 44.1 / 48 kHz is added to every probed device (the plug layer can
 always serve it), which normally keeps the intersection of the primary ports
 non-empty. Should `card.<selector>.rates` / `.bits` leave the device ports of
