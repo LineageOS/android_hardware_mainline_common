@@ -146,14 +146,14 @@ Rules applied on top:
   highest priority template of each kind is kept; the others become bus ports.
 * A module must have a default output and input. When the primary card has
   no speaker / mic, the best remaining path is promoted, primary card first,
-  then the other cards. Outputs: line out, headphones, headset, S/PDIF.
-  Inputs: a bus input, then the headset mic. This is how a desktop codec with
-  only a line out still gets a working default output.
-* HDMI and bus outputs are never promoted (secondary HDMI / DisplayPort heads
-  end up as bus outputs). A set top box or devkit with HDMI only therefore
-  gets a *null* speaker as its default output and plays through the HDMI
-  template once the framework reports the sink as connected (see "Jack
-  detection" above).
+  then the other cards. Outputs: line out, a bus output, headphones, headset,
+  S/PDIF. Inputs: a bus input, then the headset mic. This is how a desktop
+  codec with only a line out still gets a working default output.
+* HDMI / DisplayPort is never promoted: neither the HDMI template nor the
+  additional HDMI / DisplayPort heads, which end up as bus outputs, are
+  candidates. A set top box or devkit with HDMI only therefore gets a *null*
+  speaker as its default output and plays through the HDMI template once the
+  framework reports the sink as connected (see "Jack detection" above).
 * Without any sound card, **null** endpoints are created so that the HAL keeps
   answering the framework: playback is discarded, capture is silence.
 * USB sound cards are *not* enumerated statically. They arrive through

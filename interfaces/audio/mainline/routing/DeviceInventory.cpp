@@ -408,6 +408,9 @@ void DeviceInventory::AssignRoles() {
     bool have_earpiece = false;
     bool have_mic = false;
     std::set<DeviceRole> used_templates;
+    // HDMI / DisplayPort heads beyond the first one become bus outputs; they
+    // must not be promoted to the speaker below any more than the first one.
+    std::set<const Endpoint*> extra_hdmi_heads;
 
     for (Endpoint& e : endpoints_) {
         const bool on_primary = e.card == primary_card_;
@@ -442,6 +445,7 @@ void DeviceInventory::AssignRoles() {
                 // The framework can only connect one external device per type,
                 // so only the first template of each kind is useful.
                 if (!used_templates.insert(e.role).second) {
+                    if (e.role == DeviceRole::kHdmi) extra_hdmi_heads.insert(&e);
                     e.role = e.is_input ? DeviceRole::kBusIn : DeviceRole::kBusOut;
                 }
                 break;
@@ -453,16 +457,19 @@ void DeviceInventory::AssignRoles() {
 
     // Every module needs an attached default output and input. Promote the
     // most suitable path when the card has no dedicated speaker / microphone,
-    // e.g. desktop codecs with line out only. HDMI and bus outputs (which
-    // include extra HDMI / DP heads) are never promoted: HDMI-only devices
-    // get a null speaker and use the HDMI template once it is connected.
-    auto promote = [this, &used_templates](bool is_input, DeviceRole target,
-                                           std::initializer_list<DeviceRole> preference) {
+    // e.g. desktop codecs with line out only. HDMI / DP is never promoted,
+    // neither the template nor the extra heads that became bus outputs: the
+    // framework switches to HDMI itself once the sink is reported, so
+    // HDMI-only devices get a null speaker instead.
+    auto promote = [this, &used_templates, &extra_hdmi_heads](
+                           bool is_input, DeviceRole target,
+                           std::initializer_list<DeviceRole> preference) {
         for (const bool primary_only : {true, false}) {
             for (const DeviceRole wanted : preference) {
                 for (Endpoint& e : endpoints_) {
                     if (e.is_input != is_input || e.role != wanted) continue;
                     if (primary_only && e.card != primary_card_) continue;
+                    if (extra_hdmi_heads.count(&e) > 0) continue;
                     LOG(INFO) << __func__ << ": promoting \"" << e.name << "\" (" << e.pcm_name
                               << ", " << routing::ToString(e.role) << ") to "
                               << routing::ToString(target);
@@ -476,8 +483,8 @@ void DeviceInventory::AssignRoles() {
     };
     if (!have_speaker) {
         have_speaker = promote(false, DeviceRole::kSpeaker,
-                               {DeviceRole::kLineOut, DeviceRole::kHeadphones, DeviceRole::kHeadset,
-                                DeviceRole::kSpdif});
+                               {DeviceRole::kLineOut, DeviceRole::kBusOut, DeviceRole::kHeadphones,
+                                DeviceRole::kHeadset, DeviceRole::kSpdif});
     }
     if (!have_mic) {
         have_mic = promote(true, DeviceRole::kMic, {DeviceRole::kBusIn, DeviceRole::kHeadsetMic});

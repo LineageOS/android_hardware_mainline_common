@@ -136,10 +136,12 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   The policy manager never opens a direct output for a linear PCM stereo
   stream up to 192 kHz unless the client asks for one, so normal playback
   always mixes on the primary port.
-* Default output promotion (`DeviceInventory::AssignRoles`) never picks HDMI
-  or bus outputs: HDMI must stay a template that `WiredAccessoryManager`
-  connects, and extra HDMI / DP heads are bus outputs. Without a promotable
-  path a null speaker is added.
+* Default output promotion (`DeviceInventory::AssignRoles`) never picks HDMI:
+  it must stay a template that `WiredAccessoryManager` connects. Extra HDMI /
+  DP heads are demoted to bus outputs, so `AssignRoles` remembers them
+  (`extra_hdmi_heads`) and skips them when promoting a bus output. Other bus
+  outputs (unrecognised UCM devices, a speaker on a secondary card, ...) stay
+  promotable. Without a promotable path a null speaker is added.
 * Master volume / mute are unsupported on purpose (framework does it
   digitally); mic mute is done by zeroing captured data.
 * USB is handled the AOSP way (templates + `connectExternalDevice` with an
