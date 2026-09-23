@@ -4,6 +4,10 @@ Guidance for AI coding agents working in this directory. Read `README.md` and
 the backend READMEs for the functional description; this file is about how the
 code is organised and the rules to follow when changing it.
 
+> See the repository root `AGENTS.md` (`hardware/mainline/common/AGENTS.md`)
+> and `docs/` for shared code style, formatting, workflow, and commit
+> conventions. This file only covers what's specific to this directory.
+
 ## What this is
 
 `android.hardware.sensors` (AIDL V3) HAL for devices running a mainline Linux
@@ -62,23 +66,13 @@ Build modules: `android.hardware.sensors-service.mainline` (binary),
   Backends unlock before joining worker threads.
 * Event timestamps are `CLOCK_BOOTTIME` nanoseconds; use `GetBootTimeNs()`.
 * Event handles inside a backend are backend-local; the frontend re-maps them.
-* No exceptions (`try`/`catch` is forbidden; use `android::base::Parse*` and
-  `std::optional`). Prefer C++ standard library and `libbase`
-  (`system/libbase/include/android-base`) over raw C.
-* Every source file starts with the SPDX header (see existing files) and a
+* Every source file starts with the SPDX header and a
   `#define LOG_TAG "MainlineSensors..."` before the includes in `.cpp` files.
-* Google C++ style: `CamelCase` types and functions, `snake_case_` members,
-  `kCamelCase` constants. Keep files focused; split rather than grow.
-* Run clang-format before committing:
-  `prebuilts/clang/host/linux-x86/clang-r584948b/bin/clang-format -i --style=file <files>`
-  (the repository `.clang-format` is `build/soong/scripts/system-clang-format`).
-* Commit messages start with `mainline/common: interfaces/sensors/mainline: `
-  and end with the trailers:
-  ```
-  Assisted-by: LLM
-  Assisted-by: <Agent>:<Model ID>
-  ```
-* Do not build or run tests yourself; the maintainer compiles and reports.
+  See root `AGENTS.md` → `docs/CODE_STYLE.md` for general style, error
+  handling, and formatting rules.
+* Commit subject prefix: `mainline/common: interfaces/sensors/mainline: `.
+  See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
+  message format.
 
 ## Conventions worth knowing
 

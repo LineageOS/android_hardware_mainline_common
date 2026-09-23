@@ -1,5 +1,9 @@
 # Agent Notes
 
+> See the repository root `AGENTS.md` (`hardware/mainline/common/AGENTS.md`)
+> and `docs/` for shared code style, formatting, workflow, and commit
+> conventions. This file only covers what's specific to this directory.
+
 This directory is a self-contained software allocator, Stable-C mapper V5, and
 client-composition-only Composer3 V5 stack for legacy fbdev systems.
 
@@ -65,9 +69,6 @@ policy and framebuffer device labels live outside this directory.
 
 ## Commit Conventions
 
-Commit messages start with `mainline/common: interfaces/graphics/allocator/fb: `
-and end with the trailers:
-```
-Assisted-by: LLM
-Assisted-by: <Agent>:<Model ID>
-```
+Commit subject prefix: `mainline/common: interfaces/graphics/allocator/fb: `.
+See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
+message format.

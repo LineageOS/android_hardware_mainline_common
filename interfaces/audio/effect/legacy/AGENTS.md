@@ -1,24 +1,22 @@
 # Notes for AI agents working on the legacy effect wrapper
 
+> See the repository root `AGENTS.md` (`hardware/mainline/common/AGENTS.md`)
+> and `docs/` for shared code style, formatting, workflow, and commit
+> conventions. This file only covers what's specific to this directory.
+
 Read `README.md` first. This directory is independent from
 `../../mainline` (the core audio HAL); do not create a build dependency between
 the two.
 
 ## Rules
 
-* C++, Google style with `hardware/mainline/common/.clang-format`; run
-  `clang-format -i` on touched files. Our own identifiers use Google naming
-  (`CamelCase()`, `snake_case_`), overrides of AIDL / example HAL methods keep
-  their `camelCase` names.
-* No `try` / `catch`. Failures are `ndk::ScopedAStatus`, `RetCode`,
-  `std::optional` or legacy `int32_t` statuses.
-* Do not compile or deploy; the human does.
-* Commit subject `mainline/common: interfaces/audio/effect/legacy: ...`,
-  detailed body, trailers:
-  ```
-  Assisted-by: LLM
-  Assisted-by: <Agent>:<Model ID>
-  ```
+* Our own identifiers use Google naming (`CamelCase()`, `snake_case_`);
+  overrides of AIDL / example HAL methods keep their `camelCase` names.
+* Failures are `ndk::ScopedAStatus`, `RetCode`, `std::optional`, or legacy
+  `int32_t` statuses.
+* Commit subject prefix: `mainline/common: interfaces/audio/effect/legacy: `.
+  See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
+  message format.
 
 ## Map
 

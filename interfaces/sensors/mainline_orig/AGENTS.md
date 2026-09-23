@@ -1,5 +1,9 @@
 # AGENTS.md - Mainline Sensors HAL
 
+> See the repository root `AGENTS.md` (`hardware/mainline/common/AGENTS.md`)
+> and `docs/` for shared code style, formatting, workflow, and commit
+> conventions. This file only covers what's specific to this directory.
+
 ## Project Overview
 
 This is the Android Sensors HAL (`android.hardware.sensors`) implementation for
@@ -161,11 +165,6 @@ setprop vendor.sensors.orientation.invert_x true
 
 The effective mount matrix (after applying transformations) is logged on activation.
 
-## Code Style
-
-Follow Google C++ Style Guide. Member variables use `snake_case_` with trailing underscore.
-Function and class names use `CamelCase`.
-
 ## Important Notes
 
 - Do NOT rename the HAL interface (keep `ISensors/default`)
@@ -173,14 +172,9 @@ Function and class names use `CamelCase`.
 - Backend shared libraries must export `extern "C" ISensorBackend* CreateSensorBackend()`
 - The frontend has no special behavior for specific backends
 - Mock backend is least preferred (loaded last by default)
-- Do NOT try to compile; the user will compile and report issues
-- Do NOT browse outside the AOSP source tree for reference
 
 ## Commit Conventions
 
-Commit messages start with `mainline/common: interfaces/sensors/mainline_orig: `
-and end with the trailers:
-```
-Assisted-by: LLM
-Assisted-by: <Agent>:<Model ID>
-```
+Commit subject prefix: `mainline/common: interfaces/sensors/mainline_orig: `.
+See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
+message format.
