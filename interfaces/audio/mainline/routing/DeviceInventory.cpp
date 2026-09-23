@@ -453,7 +453,9 @@ void DeviceInventory::AssignRoles() {
 
     // Every module needs an attached default output and input. Promote the
     // most suitable path when the card has no dedicated speaker / microphone,
-    // e.g. desktop codecs with line out only or HDMI-only TV boxes.
+    // e.g. desktop codecs with line out only. HDMI and bus outputs (which
+    // include extra HDMI / DP heads) are never promoted: HDMI-only devices
+    // get a null speaker and use the HDMI template once it is connected.
     auto promote = [this, &used_templates](bool is_input, DeviceRole target,
                                            std::initializer_list<DeviceRole> preference) {
         for (const bool primary_only : {true, false}) {

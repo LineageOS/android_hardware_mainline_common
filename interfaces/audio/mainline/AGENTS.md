@@ -117,6 +117,24 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 * `plughw:` fallback is what guarantees 16-bit / 48 kHz / stereo everywhere;
   profiles are augmented with that combination even if the hardware does not
   do it natively (`AugmentCapabilities`).
+* Mix port profiles are the *intersection* (formats, rates) of the endpoints
+  they are routed to (`IntersectCapabilities`); channel counts are a fixed
+  window per mix port. The augmentation above is what keeps the primary
+  ports non-empty, but `FilterCapabilities` (card rates / bits properties)
+  runs after it and can remove the common subset. A mix port whose profiles
+  end up empty is treated by `Module` / the framework as a *dynamic* port,
+  not as an error.
+* High resolution output is split off `primary output` (`HraFilter`,
+  `kHraOutputCutoff`): the primary port keeps 8 / 16-bit below 88.2 kHz,
+  `hra output` (DIRECT | DIRECT_PCM) gets 24 / 32-bit / float at 88.2 kHz and
+  above. The combinations in between (e.g. 24-bit at 48 kHz) are on neither.
+  The policy manager never opens a direct output for a linear PCM stereo
+  stream up to 192 kHz unless the client asks for one, so normal playback
+  always mixes on the primary port.
+* Default output promotion (`DeviceInventory::AssignRoles`) never picks HDMI
+  or bus outputs: HDMI must stay a template that `WiredAccessoryManager`
+  connects, and extra HDMI / DP heads are bus outputs. Without a promotable
+  path a null speaker is added.
 * Master volume / mute are unsupported on purpose (framework does it
   digitally); mic mute is done by zeroing captured data.
 * USB is handled the AOSP way (templates + `connectExternalDevice` with an
