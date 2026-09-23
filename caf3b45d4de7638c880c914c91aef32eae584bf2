@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "80e832aa_85bfb2f1",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-09-23T06:57:46Z",
+      "side": 1,
+      "message": "This stops the mass failures I was getting on tegra where it was trying to set unsupported rates to devices.",
+      "revId": "caf3b45d4de7638c880c914c91aef32eae584bf2",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
