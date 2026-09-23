@@ -73,7 +73,11 @@ Build modules: `android.hardware.sensors-service.mainline` (binary),
   `prebuilts/clang/host/linux-x86/clang-r584948b/bin/clang-format -i --style=file <files>`
   (the repository `.clang-format` is `build/soong/scripts/system-clang-format`).
 * Commit messages start with `mainline/common: interfaces/sensors/mainline: `
-  and end with `Assisted-by: <Agent>/<Model ID>`.
+  and end with the trailers:
+  ```
+  Assisted-by: LLM
+  Assisted-by: <Agent>:<Model ID>
+  ```
 * Do not build or run tests yourself; the maintainer compiles and reports.
 
 ## Conventions worth knowing

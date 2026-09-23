@@ -17,7 +17,11 @@ the original requirements. This file is about the code.
   tags start with `MainlineAudio_`.
 * Do not compile or deploy yourself; the human does and reports back.
 * Every commit: subject `mainline/common: interfaces/audio/mainline: ...`,
-  detailed body, trailer `Assisted-by: <Agent>/<Model ID>`.
+  detailed body, trailers:
+  ```
+  Assisted-by: LLM
+  Assisted-by: <Agent>:<Model ID>
+  ```
 * Keep `README.md` (properties table, device model) in sync with the code.
 
 ## Where things are
