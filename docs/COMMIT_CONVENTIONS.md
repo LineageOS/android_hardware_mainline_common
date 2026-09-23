@@ -16,6 +16,19 @@ since `mainline` alone is ambiguous with `interfaces/vibrator/mainline` and
 `interfaces/sensors/mainline`. Check the target directory's `AGENTS.md` if
 you're unsure of the exact prefix it uses.
 
+A well-known leading path segment may also be replaced with its documented
+alias below, to shorten the subject further without losing meaning:
+
+| Segment      | Alias  |
+|--------------|--------|
+| `interfaces` | `intf` |
+
+For example, `interfaces/audio/mainline` may be written as
+`intf/audio/mainline`. Only use an alias from this table — don't invent a
+one-off abbreviation, so commit subjects stay searchable and consistent (see
+`docs/REVIEW.md` → Consistency). Add a new row here first if another segment
+is worth shortening the same way.
+
 ## Body
 
 Explain what changed and why, in full sentences. Wrap normally. Multiple
