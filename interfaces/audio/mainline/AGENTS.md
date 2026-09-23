@@ -119,15 +119,20 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   do it natively (`AugmentCapabilities`).
 * Mix port profiles are the *intersection* (formats, rates) of the endpoints
   they are routed to (`IntersectCapabilities`); channel counts are a fixed
-  window per mix port. The augmentation above is what keeps the primary
-  ports non-empty, but `FilterCapabilities` (card rates / bits properties)
-  runs after it and can remove the common subset. A mix port whose profiles
-  end up empty is treated by `Module` / the framework as a *dynamic* port,
-  not as an error.
+  window per mix port. The augmentation above is what normally keeps the
+  primary ports non-empty, but `FilterCapabilities` (card rates / bits
+  properties) runs after it and can remove the common subset. A mix port
+  whose profiles end up empty is treated by `Module` / the framework as a
+  *dynamic* port, not as an error, so never create one: the primary ports go
+  through `OrFallback()` (16-bit 44.1 / 48 kHz, served by the plug layer),
+  optional ports are skipped when `HasCommonProfile()` fails.
 * High resolution output is split off `primary output` (`HraFilter`,
   `kHraOutputCutoff`): the primary port keeps 8 / 16-bit below 88.2 kHz,
   `hra output` (DIRECT | DIRECT_PCM) gets 24 / 32-bit / float at 88.2 kHz and
   above. The combinations in between (e.g. 24-bit at 48 kHz) are on neither.
+  For the primary port the split only removes formats / rates as long as
+  some remain, so a card restricted to e.g. `bits=24` keeps a usable
+  primary output.
   The policy manager never opens a direct output for a linear PCM stereo
   stream up to 192 kHz unless the client asks for one, so normal playback
   always mixes on the primary port.

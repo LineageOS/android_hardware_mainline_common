@@ -164,7 +164,7 @@ Mix ports:
 
 * `primary output` (PRIMARY): routed to every output device port. Limited to
   the non high resolution part of the capabilities: 8 / 16-bit formats and
-  rates below 88.2 kHz.
+  rates below 88.2 kHz (see below for the exception).
 * `hra output` (DIRECT | DIRECT_PCM): stereo high resolution playback, only
   24-bit, 32-bit and float formats at 88.2 kHz and above. Routed to the
   outputs that support at least one such format and one such rate; only
@@ -181,8 +181,13 @@ those of the device ports the mix port is routed to, so that the framework
 never picks a configuration one of them does not support. The channel counts
 are not intersected: they are fixed per mix port (1..2, 1..2, 3..8 and 1..2).
 16-bit / 44.1 / 48 kHz is added to every probed device (the plug layer can
-always serve it), which keeps the primary ports' intersection non-empty
-unless `card.<selector>.rates` / `.bits` remove it.
+always serve it), which normally keeps the intersection of the primary ports
+non-empty. Should `card.<selector>.rates` / `.bits` leave the device ports of
+a primary port with nothing in common, the port falls back to 16-bit at
+44.1 / 48 kHz, which the plug layer converts, and a warning is logged; the
+optional `hra output` / `multichannel output` are left out in that case.
+When those properties leave only high resolution formats (or rates), the
+`primary output` keeps them instead of losing every profile.
 
 Multichannel PCM data is reordered from Android's `FL FR FC LFE BL BR (SL SR)`
 to ALSA's `FL FR BL BR FC LFE (SL SR)` for 5.1 / 7.1.
