@@ -144,18 +144,16 @@ alsa::HwCapabilities IntersectCapabilities(const std::vector<const Endpoint*>& e
 
 alsa::HwCapabilities HraFilter(alsa::HwCapabilities caps, bool is_hra) {
     if (is_hra) {
-        std::erase_if(caps.formats,
-                      [&](const auto& f) { return f != SND_PCM_FORMAT_S24_LE &&
-                                                  f != SND_PCM_FORMAT_S24_3LE &&
-                                                  f != SND_PCM_FORMAT_S32_LE &&
-                                                  f != SND_PCM_FORMAT_FLOAT_LE; });
+        std::erase_if(caps.formats, [&](const auto& f) {
+            return f != SND_PCM_FORMAT_S24_LE && f != SND_PCM_FORMAT_S24_3LE &&
+                   f != SND_PCM_FORMAT_S32_LE && f != SND_PCM_FORMAT_FLOAT_LE;
+        });
         std::erase_if(caps.rates, [&](const auto& r) { return r < kHraOutputCutoff; });
     } else {
-        std::erase_if(caps.formats,
-                      [&](const auto& f) { return f == SND_PCM_FORMAT_S24_LE ||
-                                                  f == SND_PCM_FORMAT_S24_3LE ||
-                                                  f == SND_PCM_FORMAT_S32_LE ||
-                                                  f == SND_PCM_FORMAT_FLOAT_LE; });
+        std::erase_if(caps.formats, [&](const auto& f) {
+            return f == SND_PCM_FORMAT_S24_LE || f == SND_PCM_FORMAT_S24_3LE ||
+                   f == SND_PCM_FORMAT_S32_LE || f == SND_PCM_FORMAT_FLOAT_LE;
+        });
         std::erase_if(caps.rates, [&](const auto& r) { return r >= kHraOutputCutoff; });
     }
 
@@ -209,11 +207,12 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
                 multichannel_endpoints.push_back(&endpoint);
             }
             if (!endpoint.IsNull() &&
-                std::ranges::any_of(endpoint.caps.rates, [](const auto& r) {
-                    return r >= kHraOutputCutoff; }) &&
+                std::ranges::any_of(endpoint.caps.rates,
+                                    [](const auto& r) { return r >= kHraOutputCutoff; }) &&
                 std::ranges::any_of(endpoint.caps.formats, [](const auto& f) {
                     return f == SND_PCM_FORMAT_S24_3LE || f == SND_PCM_FORMAT_S24_LE ||
-                           f == SND_PCM_FORMAT_S32_LE || f == SND_PCM_FORMAT_FLOAT_LE; })) {
+                           f == SND_PCM_FORMAT_S32_LE || f == SND_PCM_FORMAT_FLOAT_LE;
+                })) {
                 hires_device_ports.push_back(port.id);
                 hires_endpoints.push_back(&endpoint);
             }
@@ -272,13 +271,13 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
     }
 
     if (!hires_endpoints.empty()) {
-        AudioPort hires_out =
-                MakeMixPort(c->nextPortId++, kHiresOutputMixPort, false,
-                            makeBitPositionFlagMask(AudioOutputFlags::DIRECT) |
-                            makeBitPositionFlagMask(AudioOutputFlags::DIRECT_PCM), 1, 1,
-                            alsa::ProfilesFromCapabilities(
-                                    HraFilter(IntersectCapabilities(hires_endpoints, 1, 2), true),
-                                    false));
+        AudioPort hires_out = MakeMixPort(
+                c->nextPortId++, kHiresOutputMixPort, false,
+                makeBitPositionFlagMask(AudioOutputFlags::DIRECT) |
+                        makeBitPositionFlagMask(AudioOutputFlags::DIRECT_PCM),
+                1, 1,
+                alsa::ProfilesFromCapabilities(
+                        HraFilter(IntersectCapabilities(hires_endpoints, 1, 2), true), false));
         LOG(INFO) << __func__ << ": exposing \"" << kHiresOutputMixPort << "\" for "
                   << hires_endpoints.size() << " device port(s)";
         for (const int32_t sink : hires_device_ports) {
