@@ -175,3 +175,12 @@ Function and class names use `CamelCase`.
 - Mock backend is least preferred (loaded last by default)
 - Do NOT try to compile; the user will compile and report issues
 - Do NOT browse outside the AOSP source tree for reference
+
+## Commit Conventions
+
+Commit messages start with `mainline/common: interfaces/sensors/mainline_orig: `
+and end with the trailers:
+```
+Assisted-by: LLM
+Assisted-by: <Agent>:<Model ID>
+```

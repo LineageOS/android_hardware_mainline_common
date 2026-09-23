@@ -76,3 +76,12 @@ paths and explicitly prohibits local builds and tests.
 
 Keep changes minimal and Google C++ style. Do not use exceptions or catch
 blocks. Update `README.md` when changing supported behavior.
+
+## Commit Conventions
+
+Commit messages start with `mainline/common: interfaces/graphics/composer/drmfb: `
+and end with the trailers:
+```
+Assisted-by: LLM
+Assisted-by: <Agent>:<Model ID>
+```

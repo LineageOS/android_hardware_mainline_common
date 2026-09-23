@@ -53,3 +53,12 @@ Also supports: `drv260x`, `da7280`, and other drivers exposing EV_FF with FF_RUM
 
 Do NOT try to compile. The user will compile and report issues.
 Run lint/format checks if requested.
+
+## Commit Conventions
+
+Commit messages start with `mainline/common: interfaces/vibrator/mainline: `
+and end with the trailers:
+```
+Assisted-by: LLM
+Assisted-by: <Agent>:<Model ID>
+```
