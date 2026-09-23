@@ -1,27 +1,21 @@
 # Notes for AI agents working on this HAL
 
+> See the repository root `AGENTS.md` (`hardware/mainline/common/AGENTS.md`)
+> and `docs/` for shared code style, formatting, workflow, and commit
+> conventions. This file only covers what's specific to this directory.
+
 Read `README.md` first for the product view, `INITIAL_IMPLEMENTATION.md` for
 the original requirements. This file is about the code.
 
 ## Ground rules
 
-* C++ only, Google C++ style with the repository's `.clang-format`
-  (`hardware/mainline/common/.clang-format`, 4 spaces, 100 columns). Run
-  `prebuilts/clang/host/linux-x86/clang-r*/bin/clang-format -i` on every file
-  you touch. Our own code uses Google naming (`CamelCase()` functions,
-  `snake_case_` members, `kConstant`); overrides of AIDL / example HAL methods
-  keep their original `camelCase` names.
-* No `try` / `catch`. Report failures through return values
-  (`std::optional`, `::android::status_t`, `ndk::ScopedAStatus`).
-* Use `libbase` (`android-base/*.h`) for logging, properties, strings. Log
-  tags start with `MainlineAudio_`.
-* Do not compile or deploy yourself; the human does and reports back.
-* Every commit: subject `mainline/common: interfaces/audio/mainline: ...`,
-  detailed body, trailers:
-  ```
-  Assisted-by: LLM
-  Assisted-by: <Agent>:<Model ID>
-  ```
+* Our own code uses Google naming (`CamelCase()` functions, `snake_case_`
+  members, `kConstant`); overrides of AIDL / example HAL methods keep their
+  original `camelCase` names.
+* Log tags start with `MainlineAudio_`.
+* Commit subject prefix: `mainline/common: interfaces/audio/mainline: `.
+  See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
+  message format.
 * Keep `README.md` (properties table, device model) in sync with the code.
 
 ## Where things are
