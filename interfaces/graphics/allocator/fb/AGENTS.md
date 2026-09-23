@@ -62,3 +62,12 @@ client-composition-only Composer3 V5 stack for legacy fbdev systems.
 
 The vendor APEX and standalone modules are mutually exclusive. Board SELinux
 policy and framebuffer device labels live outside this directory.
+
+## Commit Conventions
+
+Commit messages start with `mainline/common: interfaces/graphics/allocator/fb: `
+and end with the trailers:
+```
+Assisted-by: LLM
+Assisted-by: <Agent>:<Model ID>
+```
