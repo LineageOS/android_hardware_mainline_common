@@ -22,6 +22,8 @@ have to read what's relevant to the task at hand:
   property naming patterns for a new component.
 - `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md` — shared requirements,
   references, and guidelines for bringing up a brand-new component.
+- `docs/REVIEW.md` — the SOP for reviewing a contributed commit, whether
+  it's someone else's patch or your own before it goes to a human.
 
 Read the relevant doc(s) above before writing code or crafting a commit
 message. A directory's own `AGENTS.md` and `INITIAL_IMPLEMENTATION.md` (where
