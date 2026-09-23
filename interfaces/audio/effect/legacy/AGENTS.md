@@ -14,7 +14,11 @@ the two.
   `std::optional` or legacy `int32_t` statuses.
 * Do not compile or deploy; the human does.
 * Commit subject `mainline/common: interfaces/audio/effect/legacy: ...`,
-  detailed body, trailer `Assisted-by: <Agent>/<Model ID>`.
+  detailed body, trailers:
+  ```
+  Assisted-by: LLM
+  Assisted-by: <Agent>:<Model ID>
+  ```
 
 ## Map
 
