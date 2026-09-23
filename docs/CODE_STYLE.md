@@ -59,9 +59,32 @@ Run a formatter on the files you actually touched before committing:
   `prebuilts/clang/host/linux-x86/clang-r*/bin/clang-format`.
 - Rust: `rustfmt <files>` using the repository's `rustfmt.toml`
   (`hardware/mainline/common/rustfmt.toml`).
+- `Android.bp`: `out/host/linux-x86/bin/bpfmt -w <files>` (relative to the
+  AOSP root; it's a build output, not a prebuilt). If it doesn't exist yet,
+  building it yourself would violate `docs/WORKFLOW.md` — ask the maintainer
+  to build it, or leave `Android.bp` formatting to them for that pass.
 
 Only format the files you changed. Do not go searching the tree for other
 formatters or linters to run, and do not reformat unrelated files.
+
+### Externally imported components
+
+Some components are tracked against an external upstream (see the root
+`README.md`'s Upstreams table) and deliberately keep the upstream's own
+formatting instead of this repository's, to keep diffs against upstream
+small and syncs/cherry-picks easy. Forcing this repository's formatter on
+such a component reformats the whole file and buries your actual change in
+unrelated noise.
+
+Before editing a file, run the formatter on it unmodified first:
+
+- No diff: the component already follows this repository's style; format
+  your touched files as usual before committing.
+- Non-trivial diff: the component doesn't use this repository's formatting
+  (typically true for anything in the Upstreams table). Don't run the
+  formatter on your touched files for this change — match the file's
+  existing style by hand instead, so your diff stays limited to the actual
+  change.
 
 ## Documentation
 
