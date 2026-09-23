@@ -18,6 +18,10 @@ have to read what's relevant to the task at hand:
 - `docs/COMMIT_CONVENTIONS.md` — commit subject/body/trailer format.
 - `docs/WORKFLOW.md` — what an AI agent may and may not do (builds, tests,
   references).
+- `docs/NAMING_CONVENTIONS.md` — executable, service, APEX, log tag, and
+  property naming patterns for a new component.
+- `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md` — shared requirements,
+  references, and guidelines for bringing up a brand-new component.
 
 Read the relevant doc(s) above before writing code or crafting a commit
 message. A directory's own `AGENTS.md` and `INITIAL_IMPLEMENTATION.md` (where

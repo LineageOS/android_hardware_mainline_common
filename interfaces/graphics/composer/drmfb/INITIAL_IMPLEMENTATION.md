@@ -16,25 +16,16 @@ and you've got to implement this in the directory containing this markdown file.
 
 You shall ignore the `sepolicy` directory of the original HAL.
 
-## Requirements
-
-- The HAL shall comply with Project Treble rules.
-- The HAL shall use latest AIDL interface.
-- Implement the HAL in C++ language.
-- Strictly follow Google C++ Style Guide.
-- Try to use C++ functions instead of C functions as much as possible, but you MUST not use `try...catch` approach.
-- Write `AGENTS.md` to help the future AI sessions to understand the project.
-- Write `README.md`s to provide useful informations to human developers.
-- Try to use `libbase` from `system/libbase` for Android platform helper functions.
-- Match with the expectations of the Vendor Test Suite (VTS) module.
+> See the repository root `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md`
+> (`hardware/mainline/common/docs/INITIAL_IMPLEMENTATION_GUIDELINES.md`) for
+> requirements, references, and guidelines shared by every component. This
+> file only lists what's specific to this HAL. Note this HAL is not an APEX
+> module and has no `mainline`-branded naming requirements, unlike most other
+> components covered by that document.
 
 ## References
 
 The paths mentioned in this section are relative to AOSP source tree root.
-
-### Build system
-
-- **C/C++ build handling**: In `build/soong/cc/`, mainly on `cc.go` and `cc_test.go` files.
 
 ### AIDL HAL interface definition
 
@@ -56,7 +47,6 @@ You can only take this kernel as reference, not any other kernels.
 ### Libraries
 
 - `android.hardware.graphics.composer@2.1-resources` and its dependencies: `hardware/interfaces/graphics/composer/2.1/utils`.
-- **libbase headers**: `system/libbase/include/android-base`.
 - **libdisplay-info**: `external/libdisplay-info-upstream`.
 - **libdrm**: `external/libdrm`.
 - **libfmq**: `system/libfmq`.
@@ -72,11 +62,4 @@ In `external/drm_hwcomposer-upstream`.
 
 ## Guidelines
 
-- Add enough log prints for debugging.
-- Do NOT browse anywhere outside of AOSP source tree for reference.
-- Do NOT try to search broadly in the root of AOSP source tree.
-- Do NOT try to look for other HALs which we did not mention for reference.
-- Do NOT try to compile and verify by yourself; The user will do so, and report issues to you if exists.
-- Do NOT blindly set hardware-specific properties.
 - Please firstly understand the AIDL interface, and then understand the latest Linux DRM APIs.
-- When you are very unsure about a specific thing, ask the user before proceed.

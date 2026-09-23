@@ -4,6 +4,16 @@ Applies to every component in this repository unless its own `AGENTS.md` or
 `INITIAL_IMPLEMENTATION.md` says otherwise. Written for both AI agents and
 human contributors.
 
+## Language
+
+C++ is preferred, since it's what most of this repository is written in and
+what most of the AOSP reference HAL implementations use, but it is not a hard
+requirement — pick whatever language best fits the component (this
+repository already carries a root `rustfmt.toml` for Rust). The C++-specific
+rules below apply when you do use C++; use the equivalent idiomatic
+conventions of whatever language you pick otherwise (e.g. `Result`/`Option`
+and no `panic!()` on recoverable errors in Rust).
+
 ## C++
 
 - Google C++ Style Guide naming: `CamelCase` types and functions,
@@ -16,8 +26,28 @@ human contributors.
   (`system/libbase/include/android-base`) over raw C APIs for logging,
   properties, string parsing (`android::base::Parse*`), and file descriptors
   (`unique_fd`).
-- Every new source file starts with the SPDX license header; copy it from an
-  existing file in the same directory rather than retyping it.
+
+## Copyright header
+
+Every new source file, in any language, starts with the SPDX license header;
+copy it from an existing file in the same directory rather than retyping it.
+For a directory's first file(s), use:
+
+`Android.bp`:
+```
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+```
+
+Source files:
+```
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+```
 
 ## Formatting tools
 
@@ -36,4 +66,4 @@ formatters or linters to run, and do not reformat unrelated files.
 ## Documentation
 
 Keep the relevant `README.md` (including any per-backend/per-module README)
-in sync with behavior, property, or ABI changes you make.
+and `AGENTS.md` in sync with behavior, property, or ABI changes you make.

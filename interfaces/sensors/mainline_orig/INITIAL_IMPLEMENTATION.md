@@ -7,36 +7,25 @@ which follows proper Linux standards.
 You (AI Coding Agent) act as a professional Android HAL engineer
 and you've got to implement this.
 
+> See the repository root `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md`
+> (`hardware/mainline/common/docs/INITIAL_IMPLEMENTATION_GUIDELINES.md`) for
+> requirements, references, and guidelines shared by every component. This
+> file only lists what's specific to this HAL.
+
 ## Requirements
 
 - The HAL shall be named `mainline`.
   - Init rc service name shall be `vendor.sensors-mainline`.
   - The APEX module name shall be `com.android.hardware.sensors.mainline`.
   - Filename for the executable shall be `android.hardware.sensors-service.mainline`.
-  - The name on the APEX manifest shall NOT be touched, for Multi-install APEX support.
   - Init rc and vintf fragment shall be renamed accordingly.
-  - Do NOT rename the HAL interface.
 - Libraries name shall begin with `libsensors_`.
 - Configuration files directory on the target device shall be either of `/{odm,vendor}/etc/sensors`.
-- The HAL shall comply with Project Treble rules.
-- The HAL shall use latest AIDL interface.
-- The entire HAL shall support living inside an APEX.
-- Implement the HAL in C++ language.
-- Strictly follow Google C++ Style Guide.
-- Write `AGENTS.md` to help the future AI sessions to understand the project.
-- Write `README.md`s to provide useful informations to human developers.
-- Try to use `libbase` from `system/libbase` for Android platform helper functions.
 - Android properties defined in this HAL shall have `vendor.sensors.` prefix.
-- Match with the expectations of the Vendor Test Suite (VTS) module.
 
 ## References
 
 The paths mentioned in this section are relative to AOSP source tree root.
-
-### Build system
-
-- **APEX build handling**: In `build/soong/apex/`, mainly on `apex.go` and `apex_test.go` files.
-- **C/C++ build handling**: In `build/soong/cc/`, mainly on `cc.go` and `cc_test.go` files.
 
 ### AIDL HAL interface definition
 
@@ -54,36 +43,7 @@ There is a reference Linux kernel located at `kernel/virt/virtio`. Check it out 
 
 ### Miscellaneous
 
-- **libbase headers**: `system/libbase/include/android-base`.
 - **iio-sensor-proxy**: `external/mainline-hw-deps/iio-sensor-proxy`. Check it out for the proper way to access IIO sensors (Except for GNU/Linux specifics).
-
-## Guidelines
-
-- Add enough log prints for debugging.
-- Do NOT browse anywhere outside of AOSP source tree for reference.
-- Do NOT try to look for other HALs which we did not mention for reference.
-- Do NOT try to compile and verify by yourself; The user will do so, and report issues to you if exists.
-- When you are very unsure about a specific thing, ask the user before proceed.
-
-### Copyright header
-
-Use this on Android.bp files:
-
-```
-//
-// SPDX-FileCopyrightText: The LineageOS Project
-// SPDX-License-Identifier: Apache-2.0
-//
-```
-
-Use this on source code files:
-
-```
-/*
- * SPDX-FileCopyrightText: The LineageOS Project
- * SPDX-License-Identifier: Apache-2.0
- */
-```
 
 ## Design
 
