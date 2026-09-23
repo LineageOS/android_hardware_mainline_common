@@ -121,9 +121,9 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 * `plughw:` fallback is what guarantees 16-bit / 48 kHz / stereo everywhere;
   profiles are augmented with that combination even if the hardware does not
   do it natively (`AugmentCapabilities`).
-* Mix port profiles are the *intersection* (formats, rates) of the endpoints
-  they are routed to (`IntersectCapabilities`); channel counts are a fixed
-  window per mix port. The augmentation above is what normally keeps the
+* Mix port profiles are the *intersection* (formats, rates, channel count
+  range) of the endpoints they are routed to (`IntersectCapabilities`),
+  clamped to a channel window per mix port. The augmentation above is what normally keeps the
   primary ports non-empty, but `FilterCapabilities` (card rates / bits
   properties) runs after it and can remove the common subset. A mix port
   whose profiles end up empty is treated by `Module` / the framework as a
