@@ -293,6 +293,7 @@ void DeviceInventory::CollectCandidates(const Properties& properties) {
 }
 
 void DeviceInventory::CollectFromUcm(const alsa::CardInfo& card, ucm::UcmManager& ucm) {
+    const size_t first_endpoint = endpoints_.size();
     for (const ucm::UcmDevice& device : ucm.devices()) {
         for (const bool playback : {true, false}) {
             const std::string& pcm = playback ? device.playback_pcm : device.capture_pcm;
@@ -318,6 +319,27 @@ void DeviceInventory::CollectFromUcm(const alsa::CardInfo& card, ucm::UcmManager
             endpoint.name = device.name;
             endpoints_.push_back(std::move(endpoint));
         }
+    }
+
+    // UCM commonly calls the playback path "Headphones" and the capture path
+    // "Headset". Android connects OUT_HEADSET (not OUT_HEADPHONE) with IN_HEADSET
+    // when a mic is present, so both output types must reach the same path.
+    bool has_headset_mic = false;
+    bool has_headset_output = false;
+    const Endpoint* headphones = nullptr;
+    for (size_t i = first_endpoint; i < endpoints_.size(); ++i) {
+        const Endpoint& e = endpoints_[i];
+        has_headset_mic |= e.role == DeviceRole::kHeadsetMic;
+        has_headset_output |= e.role == DeviceRole::kHeadset;
+        if (e.role == DeviceRole::kHeadphones &&
+            (headphones == nullptr || e.priority > headphones->priority)) {
+            headphones = &e;
+        }
+    }
+    if (has_headset_mic && !has_headset_output && headphones != nullptr) {
+        Endpoint headset = *headphones;
+        headset.role = DeviceRole::kHeadset;
+        endpoints_.push_back(std::move(headset));
     }
 }
 
@@ -468,7 +490,8 @@ void DeviceInventory::AssignRoles() {
     // neither the template nor the extra heads that became bus outputs: the
     // framework switches to HDMI itself once the sink is reported, so
     // HDMI-only devices get a null speaker instead.
-    auto promote = [this, &used_templates, &extra_hdmi_heads](
+    std::vector<Endpoint> promoted_endpoints;
+    auto promote = [this, &extra_hdmi_heads, &promoted_endpoints](
                            bool is_input, DeviceRole target,
                            std::initializer_list<DeviceRole> preference) {
         for (const bool primary_only : {true, false}) {
@@ -480,8 +503,15 @@ void DeviceInventory::AssignRoles() {
                     LOG(INFO) << __func__ << ": promoting \"" << e.name << "\" (" << e.pcm_name
                               << ", " << routing::ToString(e.role) << ") to "
                               << routing::ToString(target);
-                    used_templates.erase(e.role);
-                    e.role = target;
+                    if (IsExternalRole(e.role)) {
+                        // Keep the external template: the framework may still
+                        // connect this same path when a jack is inserted.
+                        Endpoint promoted = e;
+                        promoted.role = target;
+                        promoted_endpoints.push_back(std::move(promoted));
+                    } else {
+                        e.role = target;
+                    }
                     return true;
                 }
             }
@@ -495,6 +525,9 @@ void DeviceInventory::AssignRoles() {
     }
     if (!have_mic) {
         have_mic = promote(true, DeviceRole::kMic, {DeviceRole::kBusIn, DeviceRole::kHeadsetMic});
+    }
+    for (Endpoint& promoted : promoted_endpoints) {
+        endpoints_.push_back(std::move(promoted));
     }
 }
 

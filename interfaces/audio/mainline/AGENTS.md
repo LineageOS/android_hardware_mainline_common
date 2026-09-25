@@ -143,6 +143,10 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   The HDMI template's stream backing is selected at routing time from all
   plugged HDMI heads using their ALSA jack controls, not just the head that
   won template priority at start-up. Additional heads remain bus ports.
+  Promoting a wired template to a default device retains the template so
+  framework jack events can still route to it. When UCM has headphone playback
+  and headset-mic capture but no headset playback, the headphone path also
+  supplies an `OUT_HEADSET` template for four-pole plugs.
 * Master volume / mute are unsupported on purpose (framework does it
   digitally); mic mute is done by zeroing captured data.
 * USB is handled the AOSP way (templates + `connectExternalDevice` with an
