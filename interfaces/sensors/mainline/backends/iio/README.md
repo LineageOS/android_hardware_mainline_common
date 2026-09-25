@@ -119,8 +119,11 @@ the timestamp channel is 64 bit and the value is within 2 s of the current
 time; otherwise the HAL timestamps the samples itself.
 
 A watchdog switches the device to poll mode when the buffer delivers nothing
-for `max(3 s, 5 × period)` (e.g. runtime-suspended magnetometers whose trigger
-handler fails, or drivers that never push). Failing to enable the buffer also
+for `max(1 s, 5 × longest continuous period)` when all active sensors are
+pollable and at least one is continuous, or `max(3 s, 5 × longest active
+period)` otherwise. Some HID accelerometers report plausible samples only on
+change; gaps of over 1 s reset Android's accelerometer orientation judge even
+though the buffer is not completely silent. Failing to enable the buffer also
 falls back to poll mode. `iio.<device>.mode = poll|buffer` forces a mode.
 
 Sampling frequency writes go to `in_<type>_sampling_frequency`,
