@@ -167,6 +167,27 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   `Module::setAudioPortConfigGain` rejects any gain on a port without `gains`,
   which fails every stream open ("gains for port N is undefined").
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this HAL, look at:
+
+- `hardware/interfaces/audio/aidl/android/hardware/audio/core/` - the
+  `IModule`/`IConfig`/`StreamDescriptor` AIDL interface this HAL implements.
+- `hardware/interfaces/audio/aidl/default/` (example HAL) - `Module`,
+  `StreamCommonImpl`/`StreamIn`/`StreamOut` this directory subclasses (see
+  `## Reused from the example HAL` above); read this before touching
+  `ModuleMainline.cpp` or `StreamMainline.cpp`.
+- `frameworks/av/media/libaudiohal/impl/DeviceHalAidl.*`,
+  `StreamHalAidl.*`, `Hal2AidlMapper.*` - the framework-side client that
+  calls `IModule`/streams and maps AIDL ports/patches to the legacy
+  `audio_devices_t`/`audio_patch` world.
+- `frameworks/av/services/audiopolicy/` - the policy engine that decides
+  routing/port selection; consumes `config/audio_policy_engine_configuration.xml`
+  installed by this HAL (schema in
+  `hardware/interfaces/audio/aidl/default/config/audioPolicy/engine/`).
+- `frameworks/av/services/audioflinger/` - opens streams and drives the
+  data path on top of `libaudiohal`.
+
 ## When adding a property
 
 1. Add the field to `struct Properties` with a comment and default.

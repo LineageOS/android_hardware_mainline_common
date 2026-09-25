@@ -75,6 +75,29 @@ params/*Translator*.cpp     One family per file (Equalizer, Strength = BassBoost
 * `EFFECT_API_VERSION_MINOR` in `hardware/audio_effect.h` is broken; use the
   local helper.
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this effect HAL, look at:
+
+- `hardware/interfaces/audio/aidl/android/hardware/audio/effect/` - the
+  `IFactory`/`IEffect` AIDL interface this HAL implements.
+- `hardware/interfaces/audio/aidl/default/` (example HAL) - `EffectImpl`,
+  `EffectContext`, `EffectThread`, `EffectConfig` that this directory reuses
+  (`libaudioeffectaidlcommon`, `libeffectconfig`); read these before touching
+  the FMQ/state-machine parts.
+- `frameworks/av/media/libaudiohal/impl/EffectsFactoryHalAidl.*`,
+  `EffectHalAidl.*` - the framework-side client that discovers and drives
+  effects over this AIDL interface.
+- `frameworks/av/media/libaudiohal/impl/effectsAidlConversion/` - the
+  *inverse* of every typed translator in `params/*Translator*.cpp`; when the
+  framework changes how it maps a legacy parameter, mirror it here (see
+  `## What comes from where` above).
+- `system/media/audio/include/system/audio_effects/effect_*.h` - legacy
+  parameter ids consumed by `LegacyParam`/translators.
+- `frameworks/av/services/audiopolicy/` and `frameworks/av/media/libeffects/`
+  for how `audio_effects.xml` entries are ultimately instantiated per audio
+  session.
+
 ## Adding a typed effect
 
 1. New `params/<Name>Translator.cpp` deriving from `TypedTranslator<Effect,

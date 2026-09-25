@@ -80,6 +80,24 @@ paths and explicitly prohibits local builds and tests.
 
 Keep changes minimal. Update `README.md` when changing supported behavior.
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this Composer HAL, look at:
+
+- `hardware/interfaces/graphics/composer/aidl/` - the Composer3 AIDL
+  interface this HAL implements (`IComposer`, `IComposerClient`,
+  commands/callbacks).
+- `frameworks/native/services/surfaceflinger/DisplayHardware/` - the
+  framework-side caller:
+  - `HWComposer.cpp`/`.h` - per-display state, vsync handling, config
+    caching; the main consumer of hotplug/vsync/refresh callbacks.
+  - `ComposerHal.cpp`/`AidlComposerHal.cpp` - command buffer construction
+    (validate/present/commands), capability queries.
+- `frameworks/native/libs/ui/` (`Gralloc5.cpp` et al.) - how SurfaceFlinger
+  obtains and imports the buffer handles this HAL receives in commands.
+- Related mapper/allocator counterpart in this tree:
+  `../../allocator/fb/` produces the handles this Composer HAL imports.
+
 ## Commit Conventions
 
 Commit subject prefix: `mainline/common: interfaces/graphics/composer/drmfb: `.

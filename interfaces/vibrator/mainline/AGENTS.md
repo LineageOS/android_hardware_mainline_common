@@ -48,6 +48,23 @@ handling, and formatting rules. Module-specific:
 
 - LOG(VERBOSE) for debug, LOG(INFO) for important events, LOG(ERROR) for errors
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this HAL, look at:
+
+- `hardware/interfaces/vibrator/aidl/android/hardware/vibrator/` - the
+  `IVibrator`/`IVibratorManager`/`IVibrationSession` AIDL interface this HAL
+  implements.
+- `frameworks/base/services/core/java/com/android/server/vibrator/` - the
+  framework-side consumer: `VibratorManagerService.java`,
+  `VibratorController.java`, `VintfHalVibrator.java`/
+  `VintfHalVibratorManager.java` (HAL capability/version handling),
+  `VibrationThread.java`/`*VibratorStep.java` (playback sequencing).
+- `frameworks/base/services/core/jni/
+  com_android_server_vibrator_VibratorManagerService.cpp` and
+  `com_android_server_vibrator_VibratorController.cpp` - the JNI glue that
+  actually calls the AIDL binder from `VibratorManagerService`.
+
 ## Supported Kernel Drivers
 
 Focused on: `gpio-vibra`, `pm8xxx-vibrator`, `pwm-vibra`, `qcom-spmi-haptics`, `regulator-haptic`.

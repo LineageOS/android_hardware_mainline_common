@@ -67,6 +67,30 @@ client-composition-only Composer3 V5 stack for legacy fbdev systems.
 The vendor APEX and standalone modules are mutually exclusive. Board SELinux
 policy and framebuffer device labels live outside this directory.
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this allocator/mapper/
+composer stack, look at:
+
+- `hardware/interfaces/graphics/allocator/aidl/` - the `IAllocator` AIDL
+  interface this stack implements.
+- `hardware/interfaces/graphics/mapper/stable-c/` - the Stable-C mapper V5
+  ABI (`AIMapper`) this stack implements; this is loaded directly by
+  clients, not over Binder.
+- `hardware/interfaces/graphics/composer/aidl/` - the Composer3 AIDL
+  interface (`IComposer`/`IComposerClient`) the client-composition-only
+  stack in this directory implements.
+- `frameworks/native/libs/ui/Gralloc5.cpp` (and `include/ui/Gralloc5.h`) -
+  the framework-side client that loads the mapper `AIMapper` and calls
+  `IAllocator`; this is what every process linking `libui`/`libgralloc`
+  actually calls.
+- `frameworks/native/libs/nativewindow/AHardwareBuffer.cpp` - the public
+  NDK API (`AHardwareBuffer_allocate`, ...) built on top of the above.
+- `frameworks/native/services/surfaceflinger/DisplayHardware/` -
+  `HWComposer.cpp`, `ComposerHal.cpp`, `AidlComposerHal.cpp` - the
+  framework-side caller of `IComposerClient` (command batching, callbacks,
+  vsync) that this Composer3 implementation must satisfy.
+
 ## Commit Conventions
 
 Commit subject prefix: `mainline/common: interfaces/graphics/allocator/fb: `.

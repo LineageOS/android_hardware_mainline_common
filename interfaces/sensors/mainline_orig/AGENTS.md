@@ -165,6 +165,22 @@ setprop vendor.sensors.orientation.invert_x true
 
 The effective mount matrix (after applying transformations) is logged on activation.
 
+## Framework Interaction (AOSP source)
+
+When you need to check how the framework talks to this HAL, look at:
+
+- `hardware/interfaces/sensors/aidl/android/hardware/sensors/` - the AIDL
+  interface this HAL implements (`ISensors`, `Event`, `SensorInfo`, ...).
+- `hardware/interfaces/sensors/aidl/default/` - Google's reference AIDL
+  implementation and `hardware/interfaces/sensors/aidl/vts/` - the VTS suite
+  that exercises this HAL over the same interface.
+- `frameworks/native/services/sensorservice/` - the framework-side consumer
+  (`SensorDevice`, `SensorService`, fusion sensors); this is what calls
+  `ISensors` and dispatches events to apps.
+- `frameworks/base/core/java/android/hardware/Sensor*.java` and
+  `frameworks/base/core/java/android/hardware/SystemSensorManager.java` - the
+  public/app-facing API on top of `SensorService`.
+
 ## Important Notes
 
 - Do NOT rename the HAL interface (keep `ISensors/default`)

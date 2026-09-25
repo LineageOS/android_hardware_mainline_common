@@ -119,6 +119,14 @@ Build modules: `android.hardware.sensors-service.mainline` (binary),
 * AIDL interface: `hardware/interfaces/sensors/aidl/android/hardware/sensors/`
 * Reference HAL and VTS: `hardware/interfaces/sensors/aidl/default`,
   `hardware/interfaces/sensors/aidl/vts`
+* Framework side of the interface — check these when you need to see how the
+  framework calls into `ISensors` or consumes events:
+  * `frameworks/native/services/sensorservice/` (`SensorDevice` wraps the
+    `ISensors` binder, `SensorService`/`SensorList` route events to clients,
+    `Fusion.h` and the `*Sensor.cpp` files are framework-side virtual sensors
+    — compare with our `composite/` before adding a new one here).
+  * `frameworks/base/core/java/android/hardware/Sensor*.java`,
+    `SystemSensorManager.java` - public API consumed by apps.
 * IIO ABI: `<kernel>/Documentation/ABI/testing/sysfs-bus-iio`,
   `drivers/iio/industrialio-{core,buffer}.c`
 * Kernel trees: `kernel/virt/virtio` (generic), `kernel/mainline/msm8953-mainline`
