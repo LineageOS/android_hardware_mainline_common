@@ -133,7 +133,7 @@ Android sees it:
 | Speaker      | `OUT_SPEAKER`                | attached, *default* | UCM "Speaker", else first analog playback PCM of the primary card |
 | Earpiece     | `OUT_SPEAKER_EARPIECE`       | attached            | UCM "Earpiece" / "Handset" |
 | Headphones   | `OUT_HEADPHONE` / analog     | external template   | UCM "Headphones" |
-| Headset      | `OUT_HEADSET` / analog       | external template   | UCM "Headset" |
+| Headset      | `OUT_HEADSET` / analog       | external template   | UCM "Headset" playback, or "Headphones" playback when a headset mic is present on the card |
 | Line Out     | `OUT_DEVICE` / analog        | external template   | UCM "Line", second analog PCM |
 | HDMI         | `OUT_DEVICE` / hdmi          | external template   | UCM "HDMI*", PCMs named HDMI |
 | SPDIF        | `OUT_DEVICE` / spdif         | external template   | UCM "SPDIF*", PCMs named IEC958 |
@@ -153,11 +153,17 @@ Rules applied on top:
   connection / stream routing time (highest priority first). If jack state is
   unavailable, priority is used as a fallback; the extra bus ports remain
   explicitly selectable.
+* A UCM headphone playback path with a headset mic also supplies a headset
+  output template, unless the card already has a separate headset playback
+  path. Android connects the headset output and mic together for a plug with
+  a microphone, and the headphone output for a plug without one.
 * A module must have a default output and input. When the primary card has
   no speaker / mic, the best remaining path is promoted, primary card first,
   then the other cards. Outputs: line out, a bus output, headphones, headset,
   S/PDIF. Inputs: a bus input, then the headset mic. This is how a desktop
-  codec with only a line out still gets a working default output.
+  codec with only a line out still gets a working default output. Promoting an
+  external path keeps its template as well, so jack events can still connect
+  it even if it also backs the default device.
 * HDMI / DisplayPort is never promoted: neither the HDMI template nor the
   additional HDMI / DisplayPort heads, which end up as bus outputs, are
   candidates. A set top box or devkit with HDMI only therefore gets a *null*
