@@ -72,10 +72,20 @@ after):
 
 - The change does what the commit message claims, not just something
   adjacent to it.
+- The implementation covers its claimed acceptance surface, not only the
+  individual cases or call path used as examples in the request
+  (`docs/SCOPE.md`).
+- The feature is connected end to end: its real caller/workflow reaches it
+  and its result reaches the observable behavior or data path.
 - Edge cases (missing hardware, empty lists, I/O and permission failures)
   are handled, not only the common path.
 - No shortcuts that only work by accident: undefined behavior, unstated
   ordering assumptions, or a race that merely "usually" doesn't fire.
+- Regression coverage includes representative valid and invalid inputs,
+  boundaries/error cases, and protection against false positives where the
+  project has a test mechanism. For a new invariant, confirm the existing
+  target corpus was inventoried and any prerequisite cleanup was handled
+  explicitly rather than weakening the implementation.
 
 ## 6. Testing by affected users
 
