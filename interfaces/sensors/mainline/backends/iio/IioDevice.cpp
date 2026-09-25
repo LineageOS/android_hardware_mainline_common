@@ -35,6 +35,9 @@ constexpr int64_t kNanosecondsPerSecond = 1000LL * 1000 * 1000;
 constexpr int64_t kTimestampSanityNs = 2 * kNanosecondsPerSecond;
 // Minimum time without data before the buffer is considered dead.
 constexpr int64_t kMinWatchdogNs = 3 * kNanosecondsPerSecond;
+// Continuous consumers (including Android's orientation judge) need a new
+// sample within one second even when the buffer occasionally produces data.
+constexpr int64_t kMinContinuousWatchdogNs = kNanosecondsPerSecond;
 constexpr int kPollTimeoutMs = 500;
 
 std::string FirstCompatible(const std::string& content) {
@@ -734,10 +737,19 @@ void IioDevice::StopBuffer(std::unique_lock<std::mutex>* lock) {
 
 int64_t IioDevice::WatchdogTimeoutNsLocked() const {
     int64_t max_period = 0;
+    int64_t max_continuous_period = 0;
+    bool all_pollable = true;
     for (const auto& sensor : sensors_) {
         if (sensor->IsActive()) {
             max_period = std::max(max_period, sensor->GetPeriodNs());
+            all_pollable = all_pollable && sensor->CanPoll();
+            if (GetReportingMode(sensor->GetInfo().flags) == ReportingMode::kContinuous) {
+                max_continuous_period = std::max(max_continuous_period, sensor->GetPeriodNs());
+            }
         }
+    }
+    if (all_pollable && max_continuous_period > 0) {
+        return std::max(kMinContinuousWatchdogNs, 5 * max_continuous_period);
     }
     return std::max(kMinWatchdogNs, 5 * max_period);
 }
@@ -859,6 +871,17 @@ void IioDevice::ReaderThread() {
             failed = true;
             break;
         }
+        int64_t timeout_ns;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            timeout_ns = WatchdogTimeoutNsLocked();
+        }
+        if (GetBootTimeNs() - last_data_ns > timeout_ns) {
+            LOG(WARNING) << "IIO device " << info_.dev_num << ": no buffer data for "
+                         << (GetBootTimeNs() - last_data_ns) / 1000000 << " ms";
+            failed = true;
+            break;
+        }
         if (fds[0].revents & POLLIN) {
             ssize_t bytes = TEMP_FAILURE_RETRY(read(fd, buffer.data(), buffer.size()));
             if (bytes < 0) {
@@ -889,18 +912,6 @@ void IioDevice::ReaderThread() {
             std::vector<uint8_t> leftover(data + count * scan_size, data + available);
             partial = std::move(leftover);
             continue;
-        }
-        // Timeout: watchdog.
-        int64_t timeout_ns;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            timeout_ns = WatchdogTimeoutNsLocked();
-        }
-        if (GetBootTimeNs() - last_data_ns > timeout_ns) {
-            LOG(WARNING) << "IIO device " << info_.dev_num << ": no buffer data for "
-                         << (GetBootTimeNs() - last_data_ns) / 1000000 << " ms";
-            failed = true;
-            break;
         }
     }
 
