@@ -107,3 +107,8 @@ cannot verify a change that way either — verify by evidence instead:
 - Check 3 or 4 fails in a way that isn't a quick fix, or check 6 can't be
   satisfied: do not approve — this is the same bar as a `Code-Review -2` in
   `vendor/mainline/docs/review.md`'s cheatsheet.
+
+Applying these checks to a commit that is *already merged* (e.g. you find a
+gap while reviewing something else nearby) has no vote to cast — follow
+`docs/FIXUPS.md` instead, which does not involve rewriting the merged
+commit.

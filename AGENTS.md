@@ -24,6 +24,8 @@ have to read what's relevant to the task at hand:
   references, and guidelines for bringing up a brand-new component.
 - `docs/REVIEW.md` — the SOP for reviewing a contributed commit, whether
   it's someone else's patch or your own before it goes to a human.
+- `docs/FIXUPS.md` — the SOP for closing a `docs/` compliance gap in a
+  commit that is already merged, without rewriting history.
 
 Read the relevant doc(s) above before writing code or crafting a commit
 message. A directory's own `AGENTS.md` and `INITIAL_IMPLEMENTATION.md` (where
