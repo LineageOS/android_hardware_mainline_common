@@ -33,8 +33,8 @@ Consistency cuts across the whole change, not just source formatting:
 - **Code behavior**: the same kind of input/situation is handled the same
   way across the component — don't fix one call path while leaving a
   symmetric one behaving differently, and don't add a special case that
-  re-decides something already decided once elsewhere. Sibling
-  implementations (other backends, other APEX flavors, per
+  re-decides something already decided once elsewhere (`docs/SCOPE.md`).
+  Sibling implementations (other backends, other APEX flavors, per
   `docs/NAMING_CONVENTIONS.md`) should follow the same conventions unless a
   deviation is justified and, ideally, documented.
 - **Commit message vs. diff**: the message describes what the diff actually
@@ -54,7 +54,9 @@ Consistency cuts across the whole change, not just source formatting:
 
 ## 4. Other users' use cases
 
-One device/config improving is not enough; check nothing else regresses:
+One device/config improving is not enough; check nothing else regresses
+(`docs/SCOPE.md` is the same check applied before the diff exists, not just
+after):
 
 - Does it hardcode something that used to be derived at runtime or
   configurable (see `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md` → Design

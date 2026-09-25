@@ -68,8 +68,9 @@ Paths below are relative to the AOSP source tree root.
 ## Design principles: generic and flexible by default
 
 New components should work generically across the range of hardware/devices
-they target, not be tailored to a single device. Approaches that get you
-there:
+they target, not be tailored to a single device (see `docs/SCOPE.md` for the
+same principle applied to fixes on top of an existing component, not only
+new ones). Approaches that get you there:
 
 - Prefer deriving behavior and capabilities at runtime (from the kernel,
   sysfs/ioctl, hardware probing, or the AIDL request itself) over hardcoding
