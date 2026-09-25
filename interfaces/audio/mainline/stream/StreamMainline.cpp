@@ -59,7 +59,7 @@ std::optional<std::vector<routing::Endpoint>> StreamMainline::ResolveEndpoints(
                 LOG(ERROR) << Tag() << __func__ << ": direction mismatch for " << device.toString();
                 return std::nullopt;
             }
-            endpoints.push_back(*e);
+            endpoints.push_back(*deps_.inventory->SelectHdmiEndpoint(*e));
             continue;
         }
         if (auto usb = deps_.inventory->MakeUsbEndpoint(device, is_input_); usb.has_value()) {

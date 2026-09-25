@@ -212,6 +212,7 @@ ndk::ScopedAStatus ModuleMainline::populateConnectedDevicePort(AudioPort* audio_
         LOG(ERROR) << __func__ << ": no endpoint behind template port " << audio_port->id;
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
     }
+    endpoint = inventory_->SelectHdmiEndpoint(*endpoint);
     audio_port->profiles = endpoint->profiles;
     LOG(INFO) << __func__ << ": port " << audio_port->id << " connected -> "
               << endpoint->ToString();

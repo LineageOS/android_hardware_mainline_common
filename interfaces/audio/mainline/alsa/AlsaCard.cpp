@@ -200,4 +200,29 @@ std::vector<CardInfo> EnumerateCards() {
     return cards;
 }
 
+std::optional<bool> ReadJackState(int card, const std::string& control) {
+    snd_ctl_t* ctl = nullptr;
+    const std::string ctl_name = "hw:" + std::to_string(card);
+    if (const int err = snd_ctl_open(&ctl, ctl_name.c_str(), SND_CTL_NONBLOCK); err < 0) {
+        LOG(WARNING) << __func__ << ": snd_ctl_open(" << ctl_name << "): " << ErrorString(err);
+        return std::nullopt;
+    }
+    CtlHandle handle(ctl);
+    snd_ctl_elem_value_t* raw_value = nullptr;
+    if (snd_ctl_elem_value_malloc(&raw_value) < 0) return std::nullopt;
+    std::unique_ptr<snd_ctl_elem_value_t, decltype(&snd_ctl_elem_value_free)> value(
+            raw_value, snd_ctl_elem_value_free);
+    snd_ctl_elem_value_set_interface(value.get(), SND_CTL_ELEM_IFACE_CARD);
+    snd_ctl_elem_value_set_name(value.get(), control.c_str());
+    const int err = snd_ctl_elem_read(ctl, value.get());
+    if (err < 0) {
+        if (err != -ENOENT) {
+            LOG(WARNING) << __func__ << ": " << ctl_name << " " << control << ": "
+                         << ErrorString(err);
+        }
+        return std::nullopt;
+    }
+    return snd_ctl_elem_value_get_boolean(value.get(), 0) != 0;
+}
+
 }  // namespace aidl::android::hardware::audio::core::mainline::alsa

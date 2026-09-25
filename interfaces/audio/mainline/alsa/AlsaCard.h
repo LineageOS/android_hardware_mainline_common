@@ -61,4 +61,8 @@ std::vector<CardInfo> EnumerateCards();
 // Queries a single card by index.
 std::optional<CardInfo> QueryCard(int index);
 
+// Reads a boolean jack kcontrol on a card. Missing controls and read errors
+// have unknown state, not an unplugged state.
+std::optional<bool> ReadJackState(int card, const std::string& control);
+
 }  // namespace aidl::android::hardware::audio::core::mainline::alsa

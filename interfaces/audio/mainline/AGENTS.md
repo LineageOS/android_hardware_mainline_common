@@ -140,6 +140,9 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   (`extra_hdmi_heads`) and skips them when promoting a bus output. Other bus
   outputs (unrecognised UCM devices, a speaker on a secondary card, ...) stay
   promotable. Without a promotable path a null speaker is added.
+  The HDMI template's stream backing is selected at routing time from all
+  plugged HDMI heads using their ALSA jack controls, not just the head that
+  won template priority at start-up. Additional heads remain bus ports.
 * Master volume / mute are unsupported on purpose (framework does it
   digitally); mic mute is done by zeroing captured data.
 * USB is handled the AOSP way (templates + `connectExternalDevice` with an

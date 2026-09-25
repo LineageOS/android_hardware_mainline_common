@@ -39,6 +39,10 @@ class DeviceInventory {
             const ::aidl::android::media::audio::common::AudioDevice& device) const;
     const Endpoint* FindByPortId(int32_t port_id) const;
 
+    // Chooses the highest-priority plugged HDMI head behind the one template.
+    // Unknown jack states retain the normal priority order as a fallback.
+    const Endpoint* SelectHdmiEndpoint(const Endpoint& template_endpoint) const;
+
     // Synthesizes an endpoint for a USB device that the framework connected
     // through connectExternalDevice(). The address carries the ALSA card and
     // device numbers.

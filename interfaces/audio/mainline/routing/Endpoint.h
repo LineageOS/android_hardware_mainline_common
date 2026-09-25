@@ -41,6 +41,8 @@ struct Endpoint {
     std::string card_id;              // e.g. "PCH"
     std::string pcm_name;             // e.g. "hw:0,0"
     std::string ucm_device;           // UCM device to enable, empty without UCM.
+    std::string jack_control;         // HDMI jack kcontrol, if known.
+    bool is_hdmi_head = false;        // Also true for demoted HDMI bus outputs.
     int priority = 0;                 // UCM priority, higher wins.
     unsigned int fixed_channels = 0;  // UCM Playback/CaptureChannels, 0 = any.
     alsa::HwCapabilities caps;

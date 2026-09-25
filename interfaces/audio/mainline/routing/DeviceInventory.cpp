@@ -167,6 +167,7 @@ std::string Endpoint::ToString() const {
     } else {
         os << " card=" << card << "[" << card_id << "] pcm=" << pcm_name;
         if (!ucm_device.empty()) os << " ucm=\"" << ucm_device << "\"";
+        if (!jack_control.empty()) os << " jack=\"" << jack_control << "\"";
         if (fixed_channels != 0) os << " channels=" << fixed_channels;
         os << " prio=" << priority << " caps={" << caps.ToString() << "}";
     }
@@ -309,6 +310,8 @@ void DeviceInventory::CollectFromUcm(const alsa::CardInfo& card, ucm::UcmManager
             endpoint.card_id = card.id;
             endpoint.pcm_name = pcm;
             endpoint.ucm_device = device.name;
+            endpoint.is_hdmi_head = endpoint.role == DeviceRole::kHdmi;
+            if (endpoint.is_hdmi_head) endpoint.jack_control = device.jack_control;
             endpoint.priority = playback ? device.playback_priority : device.capture_priority;
             endpoint.fixed_channels = static_cast<unsigned int>(playback ? device.playback_channels
                                                                          : device.capture_channels);
@@ -338,6 +341,10 @@ void DeviceInventory::CollectFromPcmDevices(const alsa::CardInfo& card) {
             endpoint.card = card.index;
             endpoint.card_id = card.id;
             endpoint.pcm_name = pcm.HwName();
+            if (endpoint.role == DeviceRole::kHdmi) {
+                endpoint.is_hdmi_head = true;
+                endpoint.jack_control = "HDMI/DP,pcm=" + std::to_string(pcm.device) + " Jack";
+            }
             endpoint.name = pcm.name;
             // Lower device numbers first.
             endpoint.priority = 1000 - pcm.device;
@@ -590,6 +597,21 @@ const Endpoint* DeviceInventory::FindByPortId(int32_t port_id) const {
         if (e.port_id == port_id) return &e;
     }
     return nullptr;
+}
+
+const Endpoint* DeviceInventory::SelectHdmiEndpoint(const Endpoint& template_endpoint) const {
+    if (template_endpoint.role != DeviceRole::kHdmi) return &template_endpoint;
+    const Endpoint* unknown = nullptr;
+    for (const Endpoint& e : endpoints_) {
+        if (!e.is_hdmi_head) continue;
+        std::optional<bool> plugged;
+        if (!e.jack_control.empty()) plugged = alsa::ReadJackState(e.card, e.jack_control);
+        if (plugged == true) return &e;
+        if (!plugged.has_value() && unknown == nullptr) unknown = &e;
+    }
+    // Unknown controls take precedence over known-disconnected heads. If all
+    // controls report disconnected, keep the original template as a fallback.
+    return unknown != nullptr ? unknown : &template_endpoint;
 }
 
 std::optional<Endpoint> DeviceInventory::MakeUsbEndpoint(const AudioDevice& device,

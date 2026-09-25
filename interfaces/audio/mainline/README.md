@@ -84,6 +84,11 @@ $(call soong_config_set_bool,mainline_audio,internal_effects,true)
   with the above overlay) or through the Android specific
   `/sys/class/switch/hdmi_audio` (or `hdmi`) switch node. Without either,
   HDMI audio is never selected automatically; see "Device model".
+  When a card has multiple HDMI / DP PCMs, the HAL reads their ALSA jack
+  controls to route the connected HDMI template to a plugged head. UCM's
+  `JackControl` is used when present; without UCM, HDA-style
+  `HDMI/DP,pcm=N Jack` controls are used. The framework still needs to report
+  HDMI availability as above.
 * **Audio policy.** No `audio_policy_configuration.xml` is needed: the module
   list, ports and routes come from the HAL. The engine configuration
   (strategies, volume curves) is the AOSP phone example shipped in the APEX; a
@@ -144,6 +149,10 @@ Rules applied on top:
   select explicitly but which never hijack the default routing.
 * The framework can connect only one external device per type, so only the
   highest priority template of each kind is kept; the others become bus ports.
+  For HDMI, the template's backing head is chosen from the plugged heads at
+  connection / stream routing time (highest priority first). If jack state is
+  unavailable, priority is used as a fallback; the extra bus ports remain
+  explicitly selectable.
 * A module must have a default output and input. When the primary card has
   no speaker / mic, the best remaining path is promoted, primary card first,
   then the other cards. Outputs: line out, a bus output, headphones, headset,
@@ -228,10 +237,12 @@ endpoint with its capabilities and the UCM devices currently enabled.
 * No compressed offload, no MMAP / AAudio exclusive mode.
 * Master volume and mute are reported as unsupported; the framework applies
   them in software.
-* HDMI / DisplayPort connection state is not detected by the HAL (the AIDL
+* HDMI / DisplayPort connection state is not announced by the HAL (the AIDL
   interface has no way for a HAL to announce a device). The HDMI template is
   only connected when the framework learns about the sink (see "Jack
   detection"); additional HDMI / DisplayPort heads are reachable as bus
-  ports. HDMI is never promoted to the default output, so an HDMI-only device
-  without such reporting stays on the null speaker.
+  ports. Jack state is sampled when connecting or routing the template, not
+  monitored while a stream is active; changing heads without a new patch
+  does not reroute it. HDMI is never promoted to the default output, so an
+  HDMI-only device without such reporting stays on the null speaker.
 * Cards that appear after the HAL started are not picked up (USB excepted).
