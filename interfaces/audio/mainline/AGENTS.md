@@ -108,10 +108,12 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 ## Design decisions worth knowing
 
 * Device *types* are chosen so that the default Android policy engine does the
-  right thing without configuration: exactly one attached `OUT_SPEAKER` /
-  `IN_MICROPHONE` (default flags), wired things as external templates the
-  framework connects, everything else as addressed `*_BUS` ports that are
-  selectable but never auto-selected.
+  right thing without configuration: one attached `OUT_SPEAKER` and, if a
+  capture path exists, one attached `IN_MICROPHONE` (default flags); wired
+  things as external templates the framework connects, everything else as
+  addressed `*_BUS` ports that are selectable but never auto-selected. A null
+  speaker preserves cardless boot, but a null mic is opt-in (`null_mic`) for
+  bring-up; with no input endpoints there is no primary input mix port.
 * `plughw:` fallback is what guarantees 16-bit / 48 kHz / stereo everywhere;
   profiles are augmented with that combination even if the hardware does not
   do it natively (`AugmentCapabilities`).
