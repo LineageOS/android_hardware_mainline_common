@@ -174,6 +174,9 @@ Rules applied on top:
 * USB sound cards are *not* enumerated statically. They arrive through
   `connectExternalDevice()` (four USB template ports) with the ALSA card /
   device in the address, exactly like the AOSP USB module.
+* Initial port configs are provided only for attached devices. External
+  templates get configs after connection, so the framework does not reuse a
+  template config when opening a stream on the connected device.
 
 Mix ports:
 

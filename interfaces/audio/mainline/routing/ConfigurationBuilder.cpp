@@ -237,11 +237,12 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
     for (Endpoint& endpoint : inventory.mutable_endpoints()) {
         endpoint.port_id = c->nextPortId++;
         AudioPort port = MakeDevicePort(endpoint.port_id, endpoint);
-        c->initialConfigs.push_back(MakeDynamicPortConfig(port));
         if (!endpoint.IsAttached()) {
             // Template: profiles are only revealed once the device connects.
             c->connectedProfiles[port.id] = port.profiles;
             port.profiles.clear();
+        } else {
+            c->initialConfigs.push_back(MakeDynamicPortConfig(port));
         }
         if (endpoint.is_input) {
             input_device_ports.push_back(port.id);
@@ -281,7 +282,6 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
     for (const auto& tmpl : kUsbTemplates) {
         AudioPort port = MakeUsbTemplatePort(c->nextPortId++, tmpl.name, tmpl.type, tmpl.is_input);
         c->connectedProfiles[port.id] = usb_profiles;
-        c->initialConfigs.push_back(MakeDynamicPortConfig(port));
         (tmpl.is_input ? usb_input_ports : usb_output_ports).push_back(port.id);
         LOG(INFO) << __func__ << ": USB template port " << port.id << " \"" << tmpl.name << "\"";
         c->ports.push_back(std::move(port));
