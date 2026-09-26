@@ -2,6 +2,9 @@
 
 Applies to every commit in this repository.
 
+Wrap every paragraph so no line exceeds 72 characters. This does not apply to
+code snippets, URLs, or other content that should not be wrapped.
+
 ## Subject
 
 ```
