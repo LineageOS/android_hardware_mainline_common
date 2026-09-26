@@ -37,6 +37,10 @@ struct Properties {
     // flow driven by the framework's UsbAlsaManager.
     bool include_usb_cards = false;
 
+    // Expose a silent built-in microphone when no capture path exists. Only
+    // useful for bring-up; normally do not advertise nonexistent hardware.
+    bool null_mic = false;
+
     // Use the ALSA Use Case Manager (alsa-ucm-conf) to discover and route
     // devices when a profile exists for the card.
     bool ucm_enabled = true;

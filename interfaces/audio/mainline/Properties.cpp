@@ -61,6 +61,7 @@ Properties Properties::Load() {
             std::clamp(GetIntProperty(Key("wait_for_cards_ms"), props.wait_for_cards_ms), 0, 60000);
     props.primary_card = ::android::base::Trim(GetProperty(Key("primary_card"), ""));
     props.include_usb_cards = GetBoolProperty(Key("include_usb_cards"), props.include_usb_cards);
+    props.null_mic = GetBoolProperty(Key("null_mic"), props.null_mic);
     props.ucm_enabled = GetBoolProperty(Key("ucm.enabled"), props.ucm_enabled);
     props.ucm_verb = GetProperty(Key("ucm.verb"), props.ucm_verb);
     props.mixer_init = GetBoolProperty(Key("mixer.init"), props.mixer_init);
@@ -80,8 +81,8 @@ std::string Properties::ToString() const {
     std::ostringstream os;
     os << "cards=[" << ::android::base::Join(cards, ",") << "]"
        << " wait_for_cards_ms=" << wait_for_cards_ms << " primary_card=\"" << primary_card << "\""
-       << " include_usb_cards=" << include_usb_cards << " ucm.enabled=" << ucm_enabled
-       << " ucm.verb=\"" << ucm_verb << "\""
+       << " include_usb_cards=" << include_usb_cards << " null_mic=" << null_mic
+       << " ucm.enabled=" << ucm_enabled << " ucm.verb=\"" << ucm_verb << "\""
        << " mixer.init=" << mixer_init << " mixer.playback_percent=" << mixer_playback_percent
        << " mixer.capture_percent=" << mixer_capture_percent << " latency_ms=" << latency_ms
        << " multichannel=" << multichannel << " log.verbose=" << verbose_logging;

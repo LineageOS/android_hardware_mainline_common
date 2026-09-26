@@ -185,7 +185,7 @@ std::shared_ptr<DeviceInventory> DeviceInventory::Discover(const Properties& pro
     inventory->ProbeCapabilities();
     inventory->FilterCapabilities();
     inventory->AssignRoles();
-    inventory->AddNullEndpointsIfNeeded();
+    inventory->AddNullEndpointsIfNeeded(properties.null_mic);
     inventory->FinalizeEndpoints();
     LOG(INFO) << inventory->Dump();
     return inventory;
@@ -484,8 +484,7 @@ void DeviceInventory::AssignRoles() {
         }
     }
 
-    // Every module needs an attached default output and input. Promote the
-    // most suitable path when the card has no dedicated speaker / microphone,
+    // Promote the most suitable path when the card has no dedicated speaker / microphone,
     // e.g. desktop codecs with line out only. HDMI / DP is never promoted,
     // neither the template nor the extra heads that became bus outputs: the
     // framework switches to HDMI itself once the sink is reported, so
@@ -531,7 +530,7 @@ void DeviceInventory::AssignRoles() {
     }
 }
 
-void DeviceInventory::AddNullEndpointsIfNeeded() {
+void DeviceInventory::AddNullEndpointsIfNeeded(bool null_mic) {
     const bool have_speaker =
             std::any_of(endpoints_.begin(), endpoints_.end(),
                         [](const Endpoint& e) { return e.role == DeviceRole::kSpeaker; });
@@ -550,7 +549,7 @@ void DeviceInventory::AddNullEndpointsIfNeeded() {
         endpoints_.push_back(std::move(e));
     };
     if (!have_speaker) add_null(DeviceRole::kSpeaker, false);
-    if (!have_mic) add_null(DeviceRole::kMic, true);
+    if (!have_mic && null_mic) add_null(DeviceRole::kMic, true);
 }
 
 void DeviceInventory::FinalizeEndpoints() {

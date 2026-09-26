@@ -67,7 +67,7 @@ class DeviceInventory {
     void ProbeCapabilities();
     void FilterCapabilities();
     void AssignRoles();
-    void AddNullEndpointsIfNeeded();
+    void AddNullEndpointsIfNeeded(bool null_mic);
     void FinalizeEndpoints();
 
     std::vector<alsa::CardInfo> cards_;
