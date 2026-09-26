@@ -175,6 +175,9 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   got from `getAudioPortConfigs()` as the template for its requests, and
   `Module::setAudioPortConfigGain` rejects any gain on a port without `gains`,
   which fails every stream open ("gains for port N is undefined").
+  Only attached ports have initial configs: an initial config for an external
+  template makes `Hal2AidlMapper` reuse its port ID after connection, which
+  `Module::setAudioPortConfigImpl` rejects as an unconnected template.
 
 ## Framework Interaction (AOSP source)
 
