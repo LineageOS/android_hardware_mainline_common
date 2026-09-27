@@ -39,6 +39,12 @@ Written for both AI agents and human contributors.
 - Before implementation, define the component's acceptance surface and
   verify the result is wired end to end; see `docs/SCOPE.md`. Examples in a
   bring-up request are representative cases, not the complete specification.
+- Before starting an initial implementation, present the proposed plan to the
+  human developer and get their explicit confirmation. Cover the directory
+  structure, naming, major logic and design, user interface or API behavior,
+  integration, and tests as applicable. Do not create implementation files
+  until the plan is confirmed; resolve any feedback or unanswered decisions
+  with the human first.
 
 ## References
 
