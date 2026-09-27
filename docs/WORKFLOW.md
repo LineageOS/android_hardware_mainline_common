@@ -9,6 +9,10 @@ Applies to every component in this repository unless its own `AGENTS.md` or
   expected and allowed; see `docs/CODE_STYLE.md`. This is not "starting a
   build."
 - Do not browse outside the AOSP source tree for reference material.
+- Search reference material only in a precise, relevant directory and with
+  specific terms. AI agents must never run `grep` or `glob` from the AOSP
+  source tree root. If the appropriate search path is unclear, ask the human
+  developer for a more precise path instead of searching broadly.
 - Before presenting a commit to a human maintainer, or when asked to review
   someone else's commit, follow `docs/REVIEW.md`.
 - If that review is against a commit that's already merged, don't rewrite
