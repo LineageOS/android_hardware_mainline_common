@@ -166,6 +166,7 @@ std::string Endpoint::ToString() const {
         os << " backend=null";
     } else {
         os << " card=" << card << "[" << card_id << "] pcm=" << pcm_name;
+        if (pcm_identity.IsKnown()) os << " (" << pcm_identity.ToString() << ")";
         if (!ucm_device.empty()) os << " ucm=\"" << ucm_device << "\"";
         if (!jack_control.empty()) os << " jack=\"" << jack_control << "\"";
         if (fixed_channels != 0) os << " channels=" << fixed_channels;
@@ -395,7 +396,7 @@ void DeviceInventory::ProbeCapabilities() {
     for (Endpoint& endpoint : endpoints_) {
         const snd_pcm_stream_t stream =
                 endpoint.is_input ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK;
-        auto caps = alsa::QueryCapabilities(endpoint.pcm_name, stream);
+        auto caps = alsa::QueryCapabilities(endpoint.pcm_name, stream, &endpoint.pcm_identity);
         if (!caps.has_value()) {
             LOG(WARNING) << __func__ << ": could not probe " << endpoint.pcm_name
                          << ", assuming a basic PCM device";
@@ -666,7 +667,7 @@ std::optional<Endpoint> DeviceInventory::MakeUsbEndpoint(const AudioDevice& devi
     e.pcm_name = "hw:" + std::to_string(alsa_address[0]) + "," + std::to_string(alsa_address[1]);
     e.name = "USB " + e.pcm_name;
     const snd_pcm_stream_t stream = is_input ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK;
-    auto caps = alsa::QueryCapabilities(e.pcm_name, stream);
+    auto caps = alsa::QueryCapabilities(e.pcm_name, stream, &e.pcm_identity);
     if (!caps.has_value()) {
         LOG(ERROR) << __func__ << ": USB device " << e.pcm_name << " can not be probed";
         return std::nullopt;

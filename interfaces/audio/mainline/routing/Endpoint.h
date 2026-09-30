@@ -13,6 +13,7 @@
 #include <aidl/android/media/audio/common/AudioProfile.h>
 
 #include "alsa/AlsaFormat.h"
+#include "alsa/AlsaPcm.h"
 #include "routing/DeviceRole.h"
 
 namespace aidl::android::hardware::audio::core::mainline::routing {
@@ -40,6 +41,7 @@ struct Endpoint {
     int card = -1;
     std::string card_id;              // e.g. "PCH"
     std::string pcm_name;             // e.g. "hw:0,0"
+    alsa::PcmIdentity pcm_identity;   // Kernel device behind pcm_name, from probing.
     std::string ucm_device;           // UCM device to enable, empty without UCM.
     std::string jack_control;         // HDMI jack kcontrol, if known.
     bool is_hdmi_head = false;        // Also true for demoted HDMI bus outputs.

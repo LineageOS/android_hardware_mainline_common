@@ -174,7 +174,32 @@ std::string PlugName(const std::string& slave) {
     return "plug:{SLAVE=\"" + slave + "\"}";
 }
 
+PcmIdentity ProbeIdentity(snd_pcm_t* pcm) {
+    PcmIdentity identity;
+    // Only a kernel device has an identity worth arbitrating; plugins may
+    // share their slave (dmix) or wrap several devices.
+    if (snd_pcm_type(pcm) != SND_PCM_TYPE_HW) return identity;
+    PcmInfoPtr info = AllocPcmInfo();
+    if (const int err = snd_pcm_info(pcm, info.get()); err < 0) {
+        LOG(WARNING) << __func__ << ": snd_pcm_info: " << ErrorString(err);
+        return identity;
+    }
+    identity.card = snd_pcm_info_get_card(info.get());
+    identity.device = static_cast<int>(snd_pcm_info_get_device(info.get()));
+    identity.exclusive = snd_pcm_info_get_subdevices_count(info.get()) == 1;
+    return identity;
+}
+
 }  // namespace
+
+// --- PcmIdentity -------------------------------------------------------------
+
+std::string PcmIdentity::ToString() const {
+    if (!IsKnown()) return "unknown";
+    std::ostringstream os;
+    os << "card " << card << " device " << device << (exclusive ? ", exclusive" : "");
+    return os.str();
+}
 
 // --- PcmConfig ---------------------------------------------------------------
 
@@ -401,7 +426,8 @@ int32_t Pcm::LatencyMs() const {
 
 // --- Capability probing ------------------------------------------------------
 
-std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream) {
+std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream,
+                                                PcmIdentity* identity) {
     snd_pcm_t* raw = nullptr;
     int err = snd_pcm_open(&raw, name.c_str(), stream, SND_PCM_NONBLOCK);
     if (err < 0) {
@@ -410,6 +436,7 @@ std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm
         return std::nullopt;
     }
     PcmHandle handle(raw);
+    if (identity != nullptr) *identity = ProbeIdentity(raw);
     HwParamsPtr params = AllocHwParams();
     err = snd_pcm_hw_params_any(raw, params.get());
     if (err < 0) {
@@ -433,7 +460,8 @@ std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm
     snd_pcm_hw_params_get_channels_min(params.get(), &caps.min_channels);
     snd_pcm_hw_params_get_channels_max(params.get(), &caps.max_channels);
     LOG(INFO) << __func__ << ": " << name << " (" << snd_pcm_stream_name(stream)
-              << "): " << caps.ToString();
+              << "): " << caps.ToString()
+              << (identity != nullptr ? " pcm=" + identity->ToString() : "");
     if (caps.IsEmpty()) return std::nullopt;
     return caps;
 }
