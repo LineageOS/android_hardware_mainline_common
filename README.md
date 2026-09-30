@@ -2,6 +2,7 @@
 
 | Path | Link to upstream |
 |------|------------------|
+| interfaces/audio/mainline/spdif | https://android.googlesource.com/platform/system/media/+/1c6745e909157d47727317fceaa84b56bb71be96/audio_utils/spdif |
 | interfaces/graphics/allocator/gbm_mesa | https://github.com/open-rk3588/gralloc_gbm_mesa |
 | interfaces/graphics/composer/drmfb-hidl | https://github.com/android-generic/external_drmfb-composer |
 | interfaces/usb/gadget/mainline | https://github.com/LineageOS/android_hardware_mediatek/tree/lineage-22.2/aidl/gadget |
