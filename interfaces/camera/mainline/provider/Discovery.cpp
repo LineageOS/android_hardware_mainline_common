@@ -147,9 +147,14 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, Vi
     }
 
     candidate.internal = candidate.properties.internal.value_or(properties.default_internal);
+    candidate.facing = candidate.properties.facing.value_or(Facing::kBack);
+    candidate.rotation = candidate.properties.rotation.value_or(0);
 
     LOG(INFO) << what << ": camera " << candidate.key << ", "
-              << (candidate.internal ? "internal" : "external") << ", selectors ["
+              << (candidate.internal ? (candidate.facing == Facing::kFront ? "internal front"
+                                                                           : "internal back")
+                                     : "external")
+              << ", rotation " << candidate.rotation << ", selectors ["
               << ::android::base::Join(candidate.selectors, ", ") << "]";
     return candidate;
 }

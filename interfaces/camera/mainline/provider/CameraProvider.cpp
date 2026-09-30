@@ -68,43 +68,50 @@ bool CameraProvider::Rescan() {
         DiscoveryResult result = DiscoverCameras(properties_, known);
         retry = result.retry;
 
-        // Removed cameras.
+        // Removed cameras. A camera whose capture node changed (e.g. replugged
+        // while the old node was still open) is removed and added again; it
+        // keeps its ID.
         for (auto it = cameras_.begin(); it != cameras_.end();) {
-            const bool present = std::any_of(
-                    result.cameras.begin(), result.cameras.end(),
-                    [&](const CameraCandidate& candidate) { return candidate.key == it->first; });
+            const bool present =
+                    std::any_of(result.cameras.begin(), result.cameras.end(),
+                                [&](const CameraCandidate& candidate) {
+                                    return candidate.key == it->first &&
+                                           candidate.info.path == it->second.candidate.info.path;
+                                });
             if (present) {
                 ++it;
                 continue;
             }
             LOG(INFO) << "camera " << it->second.name << " (" << it->first << ") removed";
             changes.push_back({it->second.name, CameraDeviceStatus::NOT_PRESENT});
+            it->second.device->Disconnect();
             ids_.Release(it->first);
             it = cameras_.erase(it);
         }
 
-        // New cameras, internal ones first and in a stable order so that
-        // their IDs do not depend on the probe order.
+        // New cameras, internal ones first (back before front, as apps
+        // expect camera 0 to face back) and in a stable order so that their
+        // IDs do not depend on the probe order.
         std::vector<CameraCandidate> added;
         for (auto& candidate : result.cameras) {
-            auto it = cameras_.find(candidate.key);
-            if (it == cameras_.end()) {
-                added.push_back(std::move(candidate));
-            } else if (it->second.candidate.info.path != candidate.info.path) {
-                // Same device, other node number (e.g. replugged while the
-                // old node was still open). Same camera for the framework.
-                it->second.candidate = std::move(candidate);
-            }
+            if (cameras_.count(candidate.key) == 0) added.push_back(std::move(candidate));
         }
         std::sort(added.begin(), added.end(),
                   [](const CameraCandidate& a, const CameraCandidate& b) {
                       if (a.internal != b.internal) return a.internal;
+                      if (a.internal && a.facing != b.facing) return a.facing == Facing::kBack;
                       return a.key < b.key;
                   });
         for (auto& candidate : added) {
+            auto description = CameraDescription::Create(candidate);
+            if (description == nullptr) {
+                LOG(ERROR) << "camera " << candidate.key << " is not usable, skipped";
+                continue;
+            }
             Camera camera;
             camera.id = ids_.Allocate(candidate.key, candidate.internal);
             camera.name = kDeviceNamePrefix + std::to_string(camera.id);
+            camera.device = ndk::SharedRefBase::make<CameraDevice>(camera.name, description);
             camera.candidate = std::move(candidate);
             LOG(INFO) << "camera " << camera.name << " (" << camera.candidate.key << ") added, "
                       << (camera.candidate.internal ? "internal" : "external");
@@ -173,14 +180,14 @@ void CameraProvider::Notify(const std::vector<StatusChange>& changes) {
         const std::string& name, std::shared_ptr<device::ICameraDevice>* device) {
     *device = nullptr;
     std::lock_guard<std::mutex> lock(lock_);
-    const bool present = std::any_of(cameras_.begin(), cameras_.end(),
-                                     [&](const auto& entry) { return entry.second.name == name; });
-    if (!present) {
-        LOG(WARNING) << "getCameraDeviceInterface: unknown camera " << name;
-        return ToBinderStatus(Status::ILLEGAL_ARGUMENT);
+    for (const auto& [key, camera] : cameras_) {
+        if (camera.name == name) {
+            *device = camera.device;
+            return ::ndk::ScopedAStatus::ok();
+        }
     }
-    LOG(ERROR) << "getCameraDeviceInterface: " << name << ": camera devices are not implemented";
-    return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+    LOG(WARNING) << "getCameraDeviceInterface: unknown camera " << name;
+    return ToBinderStatus(Status::ILLEGAL_ARGUMENT);
 }
 
 ::ndk::ScopedAStatus CameraProvider::notifyDeviceStateChange(int64_t /*state*/) {

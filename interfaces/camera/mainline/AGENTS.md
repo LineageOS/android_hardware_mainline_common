@@ -29,10 +29,14 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `provider/Discovery.*`            | Classifies `/dev/video*` nodes into `CameraCandidate`s |
 | `provider/DeviceMonitor.*`        | inotify on `/dev`, debounced rescans with retry |
 | `provider/CameraIdAllocator.*`    | Stable numerical camera IDs |
+| `device/CameraDevice.*`           | `BnCameraDevice`, one object per camera, handed out repeatedly |
+| `device/CameraDescription.*`      | Everything fixed per camera: static metadata, stream validation (`PlanStreams()`) |
+| `device/StreamPlanner.*`          | Output sizes / durations, capture mode selection for a set of outputs |
+| `device/RequestTemplates.*`       | Default request settings |
 | `v4l2/VideoDevice.h`              | Abstract V4L2 capture node; everything above it is testable with a fake |
 | `v4l2/V4l2VideoDevice.cpp`        | The real implementation (ioctls, sysfs identity) |
 | `v4l2/PixelFormats.*`             | Which V4L2 formats are processed / Bayer / unsupported |
-| `utils/`                          | sysfs helpers, `common::Status` -> binder status |
+| `utils/`                          | sysfs helpers, `common::Status` -> binder status, `Metadata` (camera_metadata_t wrapper) |
 | `tests/`                          | `camera_provider_mainline_test` and `FakeVideoDevice` |
 | `permissions/`                    | Feature XMLs without a prebuilt module in `frameworks/native` |
 
@@ -51,6 +55,11 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 * `ClassifyPixelFormat()` returns `kProcessed` only for formats the converter
   handles. Adding a format there means handling it in the converter too.
 * Camera IDs must not depend on probe order: sort before allocating.
+* Keep `kRequestKeys` / `kResultOnlyKeys` in `CameraDescription.cpp` in sync
+  with what the session actually handles and reports, and the templates within
+  the request keys (a unit test checks the latter).
+* Characteristics describe the device, not a session. Anything a session can
+  not deliver for every advertised stream combination must not be advertised.
 * Calls into the framework (`ICameraProviderCallback`) are made without
   `CameraProvider::lock_` held, serialized by `callback_lock_`.
 * Do not crash when there is no camera, or when a device disappears at any

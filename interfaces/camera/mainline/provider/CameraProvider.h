@@ -16,6 +16,7 @@
 #include <aidl/android/hardware/camera/provider/BnCameraProvider.h>
 
 #include "Properties.h"
+#include "device/CameraDevice.h"
 #include "provider/CameraIdAllocator.h"
 #include "provider/DeviceMonitor.h"
 #include "provider/Discovery.h"
@@ -56,6 +57,9 @@ class CameraProvider : public provider::BnCameraProvider {
         int id = -1;
         // "device@1.1/internal/<id>"
         std::string name;
+        // Handed out by getCameraDeviceInterface(), the same object every
+        // time, so that it can keep track of its session.
+        std::shared_ptr<CameraDevice> device;
     };
 
     // A status change to send to the framework.

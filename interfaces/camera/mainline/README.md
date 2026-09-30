@@ -14,7 +14,8 @@ front / back facing) and external (hotpluggable) cameras.
 | Feature                                   | State |
 |-------------------------------------------|-------|
 | Discovery and hotplug of capture nodes    | done |
-| Camera devices, capture sessions          | not yet |
+| Camera devices (characteristics, templates, stream combination queries) | done |
+| Capture sessions                          | not yet (`open()` fails) |
 | Sensors behind a media controller pipeline (Qualcomm CAMSS, Intel IPU6, ...) | not yet |
 | Raw Bayer sensors (software ISP)          | not yet, detected and skipped |
 
@@ -110,10 +111,37 @@ registers. Set `wait_internal_count` if some internal camera probes late.
 
 ### Internal and external cameras
 
-An internal camera is listed at boot and faces front or back; an external one
-is announced when it appears and faces "external". Cameras are external unless
-`default_internal` is set, or the per-device `internal` property says
-otherwise.
+An internal camera is listed at boot, faces front or back and reports the
+hardware level `LIMITED`; an external one is announced when it appears, faces
+"external" and reports the hardware level `EXTERNAL`. Cameras are external
+unless `default_internal` is set, or the per-device `internal` property says
+otherwise. Internal cameras face back unless the per-device `facing` property
+says otherwise; back facing ones get the lower IDs.
+
+## Camera characteristics
+
+Everything is derived from what the capture node offers:
+
+* Output sizes are the capture sizes of all usable formats, plus 1920x1080,
+  1280x720, 640x480, 320x240 and 176x144 where they fit into the largest one.
+  Every output size is offered as `PRIVATE`, `YUV_420_888` and `JPEG`, with the
+  shortest frame duration of the capture modes that contain it. An output is
+  produced by center cropping a capture frame to its aspect ratio and scaling
+  it down.
+* A session has at most two processed (`PRIVATE` / `YUV_420_888`) streams and
+  one `JPEG` stream, all fed from one capture mode. The mode is picked per
+  session: the fastest up to 30 fps, then the smallest that contains every
+  stream, then uncompressed over MJPEG, then native over emulated formats.
+* AE target fps ranges: a fixed range for every frame rate the device offers,
+  plus a variable one from 15 fps up.
+* Digital zoom up to 4x, center crop only.
+* Fixed focus, no flash (yet), no manual sensor or post processing controls.
+* V4L2 does not describe optics. Focal length, aperture and physical sensor
+  size are nominal values of a typical webcam (3.6 mm wide sensor, 70 degree
+  horizontal field of view, f/2.0); they only affect field of view
+  calculations in apps.
+* `SENSOR_ORIENTATION` is 0 for external cameras, and the per-device
+  `rotation` property (default 0) for internal ones.
 
 ## Properties
 
@@ -152,6 +180,8 @@ adb logcat -s MainlineCamera_Discovery
 |------------|------|---------|
 | `enabled`  | bool | `false` ignores the device. |
 | `internal` | bool | Internal (`true`) or external (`false`) camera. |
+| `facing`   | string | `back` (or `rear`) / `front`, for internal cameras. Default `back`. |
+| `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. Default 0. |
 
 Example: `setprop vendor.camera.device.usb:046d:082d.internal true`
 
