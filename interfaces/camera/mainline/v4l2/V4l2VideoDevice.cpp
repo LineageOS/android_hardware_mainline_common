@@ -509,7 +509,8 @@ Result<void> V4l2VideoDevice::QueueFrame(uint32_t index) {
 }
 
 void FillSysfsInfo(VideoDeviceInfo* info) {
-    info->sysfs_device = CanonicalPath("/sys/class/video4linux/" + info->name + "/device");
+    const std::string node = "/sys/class/video4linux/" + info->name;
+    info->sysfs_device = CanonicalPath(node + "/device");
     if (info->sysfs_device.empty()) return;
 
     const std::string usb_device = FindSysfsAncestorWith(info->sysfs_device, "idVendor");
@@ -519,6 +520,12 @@ void FillSysfsInfo(VideoDeviceInfo* info) {
     if (vendor.has_value() && product.has_value()) {
         info->usb_vendor_id = static_cast<uint16_t>(*vendor);
         info->usb_product_id = static_cast<uint16_t>(*product);
+    }
+    const auto removable = ReadSysfsString(usb_device + "/removable");
+    if (removable == "removable") {
+        info->usb_removable = true;
+    } else if (removable == "fixed") {
+        info->usb_removable = false;
     }
 }
 

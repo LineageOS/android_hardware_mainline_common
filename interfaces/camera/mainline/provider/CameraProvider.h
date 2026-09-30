@@ -75,6 +75,8 @@ class CameraProvider : public provider::BnCameraProvider {
     int InternalCountLocked() const;
 
     const Properties properties_;
+    // May be null.
+    const std::unique_ptr<CameraHwdb> hwdb_;
 
     std::mutex lock_;
     std::condition_variable changed_;

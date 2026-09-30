@@ -4,6 +4,7 @@
  */
 
 #include <linux/videodev2.h>
+#include <unistd.h>
 
 #include <map>
 #include <set>
@@ -31,7 +32,7 @@ std::unique_ptr<VideoDevice> Uvc(const std::string& name, std::vector<FormatDesc
 TEST(ProbeCaptureNodeTest, UvcCamera) {
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480),
                                  FakeVideoDevice::Format(V4L2_PIX_FMT_MJPEG, 1920, 1080)});
-    const auto candidate = ProbeCaptureNode(Properties{}, device.get());
+    const auto candidate = ProbeCaptureNode(Properties{}, nullptr, device.get());
     ASSERT_TRUE(candidate.has_value());
     EXPECT_EQ(candidate->key, kUsbInterface);
     EXPECT_EQ(candidate->formats.size(), 2u);
@@ -45,14 +46,14 @@ TEST(ProbeCaptureNodeTest, DefaultInternal) {
     Properties properties;
     properties.default_internal = true;
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
-    const auto candidate = ProbeCaptureNode(properties, device.get());
+    const auto candidate = ProbeCaptureNode(properties, nullptr, device.get());
     ASSERT_TRUE(candidate.has_value());
     EXPECT_TRUE(candidate->internal);
 }
 
 TEST(ProbeCaptureNodeTest, KeyWithoutSysfs) {
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)}, "");
-    const auto candidate = ProbeCaptureNode(Properties{}, device.get());
+    const auto candidate = ProbeCaptureNode(Properties{}, nullptr, device.get());
     ASSERT_TRUE(candidate.has_value());
     EXPECT_EQ(candidate->key, "usb-0000:00:14.0-6|HD Pro Webcam C920");
 }
@@ -69,7 +70,8 @@ TEST(ProbeCaptureNodeTest, RejectsNonCaptureNodes) {
         auto info = FakeVideoDevice::UvcInfo("video0", kUsbInterface);
         info.device_caps = caps;
         FakeVideoDevice device(info, {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
-        EXPECT_FALSE(ProbeCaptureNode(Properties{}, &device).has_value()) << std::hex << caps;
+        EXPECT_FALSE(ProbeCaptureNode(Properties{}, nullptr, &device).has_value())
+                << std::hex << caps;
     }
 }
 
@@ -78,12 +80,12 @@ TEST(ProbeCaptureNodeTest, AcceptsMultiplanar) {
     info.device_caps = V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_STREAMING;
     info.multiplanar = true;
     FakeVideoDevice device(info, {FakeVideoDevice::Format(V4L2_PIX_FMT_NV12, 640, 480)});
-    EXPECT_TRUE(ProbeCaptureNode(Properties{}, &device).has_value());
+    EXPECT_TRUE(ProbeCaptureNode(Properties{}, nullptr, &device).has_value());
 }
 
 TEST(ProbeCaptureNodeTest, BayerOnlyNeedsIsp) {
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_SGRBG10, 2592, 1944)});
-    EXPECT_FALSE(ProbeCaptureNode(Properties{}, device.get()).has_value());
+    EXPECT_FALSE(ProbeCaptureNode(Properties{}, nullptr, device.get()).has_value());
 }
 
 TEST(ProbeCaptureNodeTest, KeepsOnlyUsableFormats) {
@@ -92,7 +94,7 @@ TEST(ProbeCaptureNodeTest, KeepsOnlyUsableFormats) {
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_SGRBG10, 2592, 1944),
                                  FakeVideoDevice::Format(V4L2_PIX_FMT_Z16, 640, 480), no_sizes,
                                  FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
-    const auto candidate = ProbeCaptureNode(Properties{}, device.get());
+    const auto candidate = ProbeCaptureNode(Properties{}, nullptr, device.get());
     ASSERT_TRUE(candidate.has_value());
     ASSERT_EQ(candidate->formats.size(), 1u);
     EXPECT_EQ(candidate->formats[0].fourcc, V4L2_PIX_FMT_YUYV);
@@ -100,7 +102,90 @@ TEST(ProbeCaptureNodeTest, KeepsOnlyUsableFormats) {
 
 TEST(ProbeCaptureNodeTest, UnsupportedOnly) {
     auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_Z16, 640, 480)});
-    EXPECT_FALSE(ProbeCaptureNode(Properties{}, device.get()).has_value());
+    EXPECT_FALSE(ProbeCaptureNode(Properties{}, nullptr, device.get()).has_value());
+}
+
+TEST(PlacementTest, DefaultsToExternal) {
+    auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    const auto candidate = ProbeCaptureNode(Properties{}, nullptr, device.get());
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_FALSE(candidate->internal);
+    EXPECT_EQ(candidate->internal_source, "default");
+    EXPECT_FALSE(candidate->facing_known);
+}
+
+TEST(PlacementTest, UsbPort) {
+    Properties properties;
+    properties.default_internal = true;
+
+    auto info = FakeVideoDevice::UvcInfo("video0", kUsbInterface);
+    info.usb_removable = true;
+    FakeVideoDevice removable(info, {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    auto candidate = ProbeCaptureNode(properties, nullptr, &removable);
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_FALSE(candidate->internal);
+
+    info.usb_removable = false;
+    FakeVideoDevice fixed(info, {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    candidate = ProbeCaptureNode(Properties{}, nullptr, &fixed);
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_TRUE(candidate->internal);
+    EXPECT_EQ(candidate->facing, Facing::kFront);
+    EXPECT_TRUE(candidate->facing_known);
+}
+
+TEST(PlacementTest, FirmwareControls) {
+    auto info = FakeVideoDevice::UvcInfo("video0", kUsbInterface);
+    info.usb_removable = true;  // Firmware wins.
+    FakeVideoDevice device(info, {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    device.controls()[V4L2_CID_CAMERA_ORIENTATION] = V4L2_CAMERA_ORIENTATION_BACK;
+    device.controls()[V4L2_CID_CAMERA_SENSOR_ROTATION] = 90;
+    auto candidate = ProbeCaptureNode(Properties{}, nullptr, &device);
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_TRUE(candidate->internal);
+    EXPECT_EQ(candidate->internal_source, "firmware");
+    EXPECT_EQ(candidate->facing, Facing::kBack);
+    EXPECT_EQ(candidate->facing_source, "firmware");
+    EXPECT_EQ(candidate->rotation, 270);
+
+    device.controls()[V4L2_CID_CAMERA_ORIENTATION] = V4L2_CAMERA_ORIENTATION_FRONT;
+    device.controls()[V4L2_CID_CAMERA_SENSOR_ROTATION] = 0;
+    candidate = ProbeCaptureNode(Properties{}, nullptr, &device);
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_EQ(candidate->facing, Facing::kFront);
+    EXPECT_EQ(candidate->rotation, 0);
+
+    device.controls()[V4L2_CID_CAMERA_ORIENTATION] = V4L2_CAMERA_ORIENTATION_EXTERNAL;
+    candidate = ProbeCaptureNode(Properties{}, nullptr, &device);
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_FALSE(candidate->internal);
+}
+
+TEST(PlacementTest, Hwdb) {
+    const auto hwdb = CameraHwdb::FromContent(
+            "camera:usb:v046dp082d:name:HD Pro*:\n"
+            " ID_CAMERA_DIRECTION=rear\n");
+    ASSERT_NE(hwdb, nullptr);
+    Properties properties;
+    properties.default_internal = true;
+    auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    const auto candidate = ProbeCaptureNode(properties, hwdb.get(), device.get());
+    ASSERT_TRUE(candidate.has_value());
+    EXPECT_EQ(candidate->facing, Facing::kBack);
+    EXPECT_EQ(candidate->facing_source, "hwdb");
+}
+
+TEST(PlacementTest, InfraredSkipped) {
+    const auto hwdb = CameraHwdb::FromContent(
+            "camera:usb:v*p*:name:*C920*:\n"
+            " ID_INFRARED_CAMERA=1\n");
+    ASSERT_NE(hwdb, nullptr);
+    auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)});
+    EXPECT_FALSE(ProbeCaptureNode(Properties{}, hwdb.get(), device.get()).has_value());
+
+    Properties properties;
+    properties.include_ir = true;
+    EXPECT_TRUE(ProbeCaptureNode(properties, hwdb.get(), device.get()).has_value());
 }
 
 class DiscoverCamerasTest : public ::testing::Test {
@@ -123,10 +208,11 @@ class DiscoverCamerasTest : public ::testing::Test {
 
     DiscoveryResult Discover(const std::map<std::string, CameraCandidate>& known = {}) {
         return DiscoverCameras(
-                Properties{}, known, [this](const std::string& path) { return Open(path); },
+                properties_, nullptr, known, [this](const std::string& path) { return Open(path); },
                 dir_.path);
     }
 
+    Properties properties_;
     TemporaryDir dir_;
     std::map<std::string, std::unique_ptr<VideoDevice>> devices_;
     std::map<std::string, int> errors_;
@@ -211,6 +297,31 @@ TEST_F(DiscoverCamerasTest, ProbesReplacedNodes) {
     ASSERT_EQ(result.cameras.size(), 1u);
     EXPECT_EQ(result.cameras[0].key, kUsbInterface);
     EXPECT_EQ(opened_.size(), 1u);
+}
+
+TEST_F(DiscoverCamerasTest, FacingByResolution) {
+    properties_.default_internal = true;
+    properties_.facing_by_resolution = true;
+    AddNode("video0");
+    AddNode("video2");
+    devices_["video0"] = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 1920, 1080)},
+                             "/sys/devices/a");
+    devices_["video2"] =
+            Uvc("video2", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 640, 480)}, "/sys/devices/b");
+    const auto result = Discover();
+    ASSERT_EQ(result.cameras.size(), 2u);
+    EXPECT_EQ(result.cameras[0].facing, Facing::kBack);
+    EXPECT_EQ(result.cameras[1].facing, Facing::kFront);
+    EXPECT_EQ(result.cameras[1].facing_source, "resolution");
+
+    // A single camera keeps the default.
+    devices_.erase("video2");
+    unlink((dir_.path + std::string("/video2")).c_str());
+    devices_["video0"] = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, 1920, 1080)},
+                             "/sys/devices/a");
+    const auto single = Discover();
+    ASSERT_EQ(single.cameras.size(), 1u);
+    EXPECT_EQ(single.cameras[0].facing, Facing::kBack);
 }
 
 }  // namespace

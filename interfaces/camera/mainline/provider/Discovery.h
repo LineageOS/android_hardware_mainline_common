@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "Properties.h"
+#include "config/CameraHwdb.h"
 #include "v4l2/VideoDevice.h"
 
 namespace aidl::android::hardware::camera::mainline {
@@ -30,8 +31,15 @@ struct CameraCandidate {
     // Capture formats the HAL can use, with their sizes and intervals.
     std::vector<FormatDescription> formats;
     bool internal = false;
+    // What the camera hwdb says about it.
+    CameraHwdb::Entry hwdb;
+    // Where `internal` came from, for the log.
+    std::string internal_source;
     // Only meaningful for internal cameras.
     Facing facing = Facing::kBack;
+    // Where `facing` came from; false when nothing determined it.
+    std::string facing_source;
+    bool facing_known = false;
     // ANDROID_SENSOR_ORIENTATION.
     int rotation = 0;
     // See Properties::prefer_rgb / advertise_rgb.
@@ -46,18 +54,19 @@ struct DiscoveryResult {
     bool retry = false;
 };
 
-// Finds all cameras behind /dev/video* nodes.
+// Finds all cameras behind /dev/video* nodes. `hwdb` may be null.
 //
 // `known` maps node paths to cameras found by an earlier scan. A node whose
 // device number did not change is not probed again.
-DiscoveryResult DiscoverCameras(const Properties& properties,
+DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
                                 const std::map<std::string, CameraCandidate>& known,
                                 const VideoDeviceOpener& open = OpenVideoDevice,
                                 const std::string& dev_dir = "/dev");
 
 // Builds a camera from an opened capture node, or returns nullopt (and logs
-// why) when the node is not usable as a camera.
-std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, VideoDevice* device);
+// why) when the node is not usable as a camera. `hwdb` may be null.
+std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
+                                                const CameraHwdb* hwdb, VideoDevice* device);
 
 // Selectors of a capture node, most specific first:
 //   node name     "video0"

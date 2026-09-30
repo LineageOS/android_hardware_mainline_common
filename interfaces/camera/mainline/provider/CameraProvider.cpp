@@ -25,7 +25,7 @@ constexpr char kDeviceNamePrefix[] = "device@1.1/internal/";
 }  // namespace
 
 CameraProvider::CameraProvider(const Properties& properties)
-    : properties_(properties), ids_(properties.external_id_offset) {}
+    : properties_(properties), hwdb_(CameraHwdb::Load()), ids_(properties.external_id_offset) {}
 
 CameraProvider::~CameraProvider() {
     monitor_.reset();
@@ -65,7 +65,7 @@ bool CameraProvider::Rescan() {
         std::map<std::string, CameraCandidate> known;
         for (const auto& [key, camera] : cameras_)
             known[camera.candidate.info.path] = camera.candidate;
-        DiscoveryResult result = DiscoverCameras(properties_, known);
+        DiscoveryResult result = DiscoverCameras(properties_, hwdb_.get(), known);
         retry = result.retry;
 
         // Removed cameras. A camera whose capture node changed (e.g. replugged
