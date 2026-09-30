@@ -70,6 +70,13 @@ public:
     uint32_t getBurstFrames() const { return mBurstFrames; }
 
     /**
+     * @return number of PCM channels to send the data bursts on: 2, or 8 for
+     *   high bit rate formats (burst rate 16 times the encoded rate), whose
+     *   bursts are sent as 8 channels at 4 times the encoded rate.
+     */
+    uint32_t getOutputChannelCount() const;
+
+    /**
      * @return number of bytes per PCM frame for the data burst
      */
     int      getBytesPerOutputFrame();
@@ -91,6 +98,7 @@ protected:
     void   writeBurstBufferShorts(const uint16_t* buffer, size_t numBytes);
     void   writeBurstBufferBytes(const uint8_t* buffer, size_t numBytes);
     void   sendZeroPad();
+    void   sendBurstBuffer();
     void   flushBurstBuffer();
     void   startDataBurst();
     size_t startSyncFrame();
@@ -109,6 +117,20 @@ protected:
     size_t    mPayloadBytesPending; // number of bytes needed to finish burst
     // state variable, true if scanning for start of frame
     bool      mScanning;
+
+    // Dolby TrueHD in MAT frames, see SPDIFEncoderMat.cpp.
+    ssize_t writeMat(const void *buffer, size_t numBytes);
+    void    startMatAccessUnit();
+    void    appendMat(const uint8_t *data, size_t numBytes);
+    void    insertDueMatCodes();
+    void    resetMat();
+
+    size_t    mMatFill;         // bytes of the current MAT frame written
+    size_t    mMatNextCode;     // index of the next MAT code to write
+    int64_t   mMatPosition;     // bytes of MAT stream since the last reset
+    int64_t   mMatUnitPosition; // nominal position of the last access unit
+    uint16_t  mMatUnitTiming;   // input timing of the last access unit
+    bool      mMatHaveUnit;
 };
 
 }  // namespace android

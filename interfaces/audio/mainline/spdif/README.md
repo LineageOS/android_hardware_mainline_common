@@ -47,3 +47,22 @@ the upstream style.
   The numbers come from IEC 61937-5 / ETSI TS 102 114 as understood without
   the documents at hand and have to be verified, e.g. against the output of
   `ffmpeg -f spdif -dtshd_rate 768000`.
+* Dolby TrueHD (`AUDIO_FORMAT_DOLBY_TRUEHD`, incl. Atmos): new
+  `TrueHDFrameScanner` and `SPDIFEncoderMat.cpp`, MAT frames in IEC 61937-9
+  bursts (data type 22) of 61440 bytes. Access units have no sync word, so
+  the scanner waits for a major sync and then follows the access unit
+  lengths (`resetBurst()` drops that lock). Each MAT frame (61424 bytes) has
+  a start code at offset 0, a middle code at 30708 and an end code at its
+  end; the access units go in between, split around the codes where needed,
+  each preceded by zero padding up to the position its input timing asks
+  for (2560 bytes of MAT stream per 40 samples, codes, preamble and stuffing
+  included), so that 24 access units of 40 samples fill one burst. The
+  length code counts bytes. `write()` hands TrueHD to `writeMat()`, and the
+  sending part of `flushBurstBuffer()` became `sendBurstBuffer()`, because a
+  MAT burst ends in the middle of an access unit, where `reset()` must not
+  run. Same caveat as above: code values and offsets are to be verified, e.g.
+  against `ffmpeg -f spdif` output.
+* High bit rate: `getOutputChannelCount()` tells whether the bursts go out
+  as 2 channels or, for a rate multiplier of 16 (TrueHD, DTS-HD at 16), as
+  8 channels at 4 times the base rate (same byte stream), and
+  `getBytesPerOutputFrame()` follows it. Upstream always assumed 2 channels.

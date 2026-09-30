@@ -25,6 +25,7 @@
 #include "AC3FrameScanner.h"
 #include "DTSFrameScanner.h"
 #include "DTSHDFrameScanner.h"
+#include "TrueHDFrameScanner.h"
 
 namespace android {
 
@@ -55,6 +56,12 @@ SPDIFEncoder::SPDIFEncoder(audio_format_t format, uint32_t rateMultiplier)
   , mBitstreamNumber(0)
   , mPayloadBytesPending(0)
   , mScanning(true)
+  , mMatFill(0)
+  , mMatNextCode(0)
+  , mMatPosition(0)
+  , mMatUnitPosition(0)
+  , mMatUnitTiming(0)
+  , mMatHaveUnit(false)
 {
     switch(format) {
         case AUDIO_FORMAT_AC3:
@@ -70,6 +77,9 @@ SPDIFEncoder::SPDIFEncoder(audio_format_t format, uint32_t rateMultiplier)
             break;
         case AUDIO_FORMAT_DTS_HD_MA:
             mFramer = new DTSHDFrameScanner(rateMultiplier != 0 ? rateMultiplier : 16);
+            break;
+        case AUDIO_FORMAT_DOLBY_TRUEHD:
+            mFramer = new TrueHDFrameScanner();
             break;
         default:
             break;
@@ -109,15 +119,22 @@ bool SPDIFEncoder::isFormatSupported(audio_format_t format)
         case AUDIO_FORMAT_DTS:
         case AUDIO_FORMAT_DTS_HD:
         case AUDIO_FORMAT_DTS_HD_MA:
+        case AUDIO_FORMAT_DOLBY_TRUEHD:
             return true;
         default:
             return false;
     }
 }
 
+uint32_t SPDIFEncoder::getOutputChannelCount() const
+{
+    return mFramer->getRateMultiplier() >= kSpdifRateMultiplierHbr
+            ? kSpdifHbrChannelCount : kSpdifEncodedChannelCount;
+}
+
 int SPDIFEncoder::getBytesPerOutputFrame()
 {
-    return kSpdifEncodedChannelCount * sizeof(int16_t);
+    return getOutputChannelCount() * sizeof(int16_t);
 }
 
 bool SPDIFEncoder::wouldOverflowBuffer(size_t numBytes) const {
@@ -205,9 +222,16 @@ void SPDIFEncoder::reset()
     }
     mPayloadBytesPending = 0;
     mScanning = true;
+    resetMat();
 }
 
 void SPDIFEncoder::flushBurstBuffer()
+{
+    sendBurstBuffer();
+    reset();
+}
+
+void SPDIFEncoder::sendBurstBuffer()
 {
     const int preambleSize = 4 * sizeof(uint16_t);
     if (mByteCursor > preambleSize) {
@@ -231,7 +255,6 @@ void SPDIFEncoder::flushBurstBuffer()
             }
         }
     }
-    reset();
 }
 
 void SPDIFEncoder::clearBurstBuffer()
@@ -284,6 +307,9 @@ size_t SPDIFEncoder::startSyncFrame()
 // Wraps raw encoded data into a data burst.
 ssize_t SPDIFEncoder::write( const void *buffer, size_t numBytes )
 {
+    if (mFramer->getDataType() == kSpdifDataTypeMat) {
+        return writeMat(buffer, numBytes);
+    }
     size_t bytesLeft = numBytes;
     const uint8_t *data = (const uint8_t *)buffer;
     ALOGV("SPDIFEncoder: mScanning = %d, write(buffer[0] = 0x%02X, numBytes = %zu)",
