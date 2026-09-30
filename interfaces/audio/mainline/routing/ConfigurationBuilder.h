@@ -32,8 +32,10 @@ inline constexpr uint32_t kHraOutputCutoff = 88200;
 //   * one device port per endpoint;
 //   * four USB device port templates (device / headset, in / out) served
 //     through connectExternalDevice();
-//   * "primary output" (PRIMARY flag) routed to every output device port,
-//     restricted to 8 / 16-bit formats below kHraOutputCutoff;
+//   * "primary output" (PRIMARY flag, plus FAST when the fast_latency_ms
+//     property asks for it and it gets the framework a FastMixer) routed to
+//     every output device port, restricted to 8 / 16-bit formats below
+//     kHraOutputCutoff;
 //   * "multichannel output" (DIRECT flag) routed to the outputs that accept
 //     six or more channels, only when such outputs exist;
 //   * "hra output" (DIRECT | DIRECT_PCM flags, stereo, 24 / 32-bit / float at

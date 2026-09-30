@@ -33,6 +33,11 @@ using ::aidl::android::media::audio::common::MicrophoneInfo;
 
 namespace {
 
+bool HasFastFlag(const AudioIoFlags& flags) {
+    return flags.getTag() == AudioIoFlags::Tag::output &&
+           isBitPositionFlagSet(flags.get<AudioIoFlags::Tag::output>(), AudioOutputFlags::FAST);
+}
+
 // How often a direct stream checks whether the mixed stream it pre-empted
 // has let go of the device.
 constexpr auto kYieldPollInterval = std::chrono::milliseconds(5);
@@ -65,12 +70,14 @@ StreamMainline::StreamMainline(StreamContext* context, const Metadata& metadata,
       buffer_size_frames_(getContext().getBufferSizeInFrames()),
       channel_count_(alsa::ChannelCount(getContext().getChannelLayout())),
       alsa_format_(alsa::ToAlsaFormat(getContext().getFormat())),
+      is_fast_(HasFastFlag(getContext().getFlags())),
       arbiter_client_(MakeArbiterClient(deps_, getContext(), buffer_size_frames_)),
       null_device_(getContext().getSampleRate()) {
     LOG(DEBUG) << Tag() << __func__ << ": format=" << getContext().getFormat().toString()
                << " channels=" << getContext().getChannelLayout().toString()
                << " rate=" << getContext().getSampleRate()
-               << " bufferFrames=" << buffer_size_frames_ << " frameSize=" << frame_size_bytes_;
+               << " bufferFrames=" << buffer_size_frames_ << " frameSize=" << frame_size_bytes_
+               << (is_fast_ ? " fast" : "");
 }
 
 StreamMainline::~StreamMainline() {
@@ -167,8 +174,17 @@ alsa::PcmConfig StreamMainline::MakePcmConfig() const {
     config.format = alsa_format_.value_or(SND_PCM_FORMAT_S16_LE);
     config.channels = channel_count_;
     config.rate = static_cast<unsigned int>(getContext().getSampleRate());
-    // Wake up twice per framework burst, keep two bursts of headroom.
-    config.period_frames = std::max<snd_pcm_uframes_t>(buffer_size_frames_ / 2, 64);
+    if (is_fast_) {
+        // One period per burst: once two bursts are queued, a blocking write
+        // of the next one returns after one period, which is the cycle the
+        // FastMixer expects (it counts a cycle longer than 1.75 periods as an
+        // underrun and sleeps after one shorter than half a period).
+        config.period_frames = std::max<snd_pcm_uframes_t>(buffer_size_frames_, 64);
+    } else {
+        // Wake up twice per framework burst.
+        config.period_frames = std::max<snd_pcm_uframes_t>(buffer_size_frames_ / 2, 64);
+    }
+    // Keep two bursts of headroom.
     config.buffer_frames = buffer_size_frames_ * 2;
     return config;
 }
@@ -233,6 +249,13 @@ void StreamMainline::OpenEndpoint(const routing::Endpoint& endpoint, const alsa:
         LOG(ERROR) << Tag() << __func__ << ": failed to open " << endpoint.ToString();
         if (IsArbitrated(identity)) deps_.pcm_arbiter->Release(*arbiter_client_, identity);
         return;
+    }
+    if (is_fast_ && pcm->config().period_frames > buffer_size_frames_) {
+        // E.g. the Qualcomm q6asm front-end only accepts multiples of 480
+        // frames: writes then block for more than a burst.
+        LOG(WARNING) << Tag() << __func__ << ": " << pcm->name() << " rounded the period to "
+                     << pcm->config().period_frames << " frames, more than the "
+                     << buffer_size_frames_ << " frame burst; the FastMixer will underrun";
     }
     // Pcm::Open() hands out a prepared device.
     pcms_.push_back(OpenPcm{.identity = identity, .pcm = std::move(pcm)});
