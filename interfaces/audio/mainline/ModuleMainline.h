@@ -13,6 +13,9 @@
 #include <core-impl/Module.h>
 
 #include "Properties.h"
+#include "passthrough/HdmiControl.h"
+#include "passthrough/PassthroughSink.h"
+#include "passthrough/SinkCapabilities.h"
 #include "routing/DeviceInventory.h"
 #include "routing/PcmArbiter.h"
 #include "routing/RoutingController.h"
@@ -72,10 +75,28 @@ class ModuleMainline final : public Module {
             bool connected) override;
     int32_t getNominalLatencyMs(
             const ::aidl::android::media::audio::common::AudioPortConfig& port_config) override;
+    ndk::ScopedAStatus calculateBufferSizeFrames(
+            const ::aidl::android::media::audio::common::AudioFormatDescription& format,
+            const ::aidl::android::media::audio::common::AudioIoFlags& flags, int32_t latency_ms,
+            int32_t sample_rate, int32_t* buffer_size_frames) override;
 
     StreamDeps MakeStreamDeps() const;
+    // Id of the mix port called `name`, 0 when there is none.
+    int32_t FindMixPort(const char* name);
     // Id of the primary output mix port when it carries the FAST flag, else 0.
     int32_t FindFastOutputPort();
+    // Adds the passthrough profiles and encoded formats of the sink behind
+    // `head` to the connected HDMI device port.
+    void AddPassthroughProfiles(const routing::Endpoint& head,
+                                ::aidl::android::media::audio::common::AudioPort* audio_port);
+    passthrough::SinkCapabilities ResolveSinkCapabilities(passthrough::HdmiControl& control);
+    // Fills the passthrough mix port from the connected HDMI device port, or
+    // empties it again (dynamic) on disconnection.
+    void UpdatePassthroughMixPort(const ::aidl::android::media::audio::common::AudioPort& hdmi_port,
+                                  bool connected);
+    // Completes the policy's probe of the dynamic passthrough mix port, see
+    // setAudioPortConfig().
+    void CompletePassthroughProbe(::aidl::android::media::audio::common::AudioPortConfig* request);
 
     const Properties properties_;
     const std::shared_ptr<routing::DeviceInventory> inventory_;
@@ -83,6 +104,13 @@ class ModuleMainline final : public Module {
     const std::shared_ptr<routing::PcmArbiter> pcm_arbiter_;
     const std::shared_ptr<std::atomic<bool>> mic_muted_;
     const int32_t fast_output_port_id_;
+    // HDMI heads that failed high bit rate, shared with the streams.
+    const std::shared_ptr<passthrough::HbrFailures> hbr_failures_;
+    const passthrough::HdmiControlFactory hdmi_control_factory_;
+    // From hdmi.passthrough_formats; empty: use the ELD.
+    const std::vector<passthrough::EncodedFormat> forced_passthrough_formats_;
+    // 0 without the "hdmi passthrough" mix port.
+    const int32_t passthrough_port_id_;
 };
 
 }  // namespace aidl::android::hardware::audio::core::mainline

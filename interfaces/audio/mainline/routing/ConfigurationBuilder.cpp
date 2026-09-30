@@ -267,6 +267,7 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
     std::vector<int32_t> input_device_ports;
     std::vector<int32_t> hires_device_ports;
     std::vector<int32_t> multichannel_device_ports;
+    std::vector<int32_t> hdmi_template_ports;
     std::vector<const Endpoint*> output_endpoints;
     std::vector<const Endpoint*> input_endpoints;
     std::vector<const Endpoint*> hires_endpoints;
@@ -288,6 +289,9 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
         } else {
             output_device_ports.push_back(port.id);
             output_endpoints.push_back(&endpoint);
+            if (endpoint.role == DeviceRole::kHdmi && !endpoint.IsNull()) {
+                hdmi_template_ports.push_back(port.id);
+            }
             if (endpoint.caps.max_channels >= 6 && !endpoint.IsNull()) {
                 multichannel_device_ports.push_back(port.id);
                 multichannel_endpoints.push_back(&endpoint);
@@ -383,6 +387,20 @@ std::unique_ptr<Configuration> BuildConfiguration(DeviceInventory& inventory,
                                     makeBitPositionFlagMask(AudioOutputFlags::DIRECT_PCM),
                             HraFilter(IntersectCapabilities(hires_endpoints, 1, 2), true),
                             hires_device_ports);
+    }
+
+    if (properties.hdmi_passthrough && !hdmi_template_ports.empty()) {
+        // Deliberately without profiles, i.e. dynamic: the policy then asks
+        // for them after the HDMI sink connects, which is when ModuleMainline
+        // knows them (from the ELD). See AGENTS.md.
+        AudioPort passthrough =
+                MakeMixPort(c->nextPortId++, kPassthroughOutputMixPort, false,
+                            makeBitPositionFlagMask(AudioOutputFlags::DIRECT), 1, 1, {});
+        LOG(INFO) << __func__ << ": exposing \"" << kPassthroughOutputMixPort << "\"";
+        for (const int32_t sink : hdmi_template_ports) {
+            c->routes.push_back(MakeRoute({passthrough.id}, sink));
+        }
+        c->ports.push_back(std::move(passthrough));
     }
 
     if (!input_device_ports.empty()) {

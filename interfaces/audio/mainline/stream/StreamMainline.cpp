@@ -38,6 +38,21 @@ bool HasFastFlag(const AudioIoFlags& flags) {
            isBitPositionFlagSet(flags.get<AudioIoFlags::Tag::output>(), AudioOutputFlags::FAST);
 }
 
+std::unique_ptr<passthrough::PassthroughSink> MakePassthroughSink(const StreamDeps& deps,
+                                                                  const StreamContext& context,
+                                                                  bool is_input) {
+    if (is_input) return nullptr;
+    const auto format = passthrough::FromAidl(context.getFormat());
+    if (!format.has_value()) return nullptr;
+    return std::make_unique<passthrough::PassthroughSink>(
+            passthrough::PassthroughSink::Config{
+                    .format = *format,
+                    .content_rate = static_cast<uint32_t>(context.getSampleRate()),
+                    .channels = alsa::ChannelCount(context.getChannelLayout()),
+                    .latency_ms = context.getNominalLatencyMs()},
+            deps.make_hdmi_control);
+}
+
 // How often a direct stream checks whether the mixed stream it pre-empted
 // has let go of the device.
 constexpr auto kYieldPollInterval = std::chrono::milliseconds(5);
@@ -71,6 +86,7 @@ StreamMainline::StreamMainline(StreamContext* context, const Metadata& metadata,
       channel_count_(alsa::ChannelCount(getContext().getChannelLayout())),
       alsa_format_(alsa::ToAlsaFormat(getContext().getFormat())),
       is_fast_(HasFastFlag(getContext().getFlags())),
+      passthrough_(MakePassthroughSink(deps_, getContext(), is_input_)),
       arbiter_client_(MakeArbiterClient(deps_, getContext(), buffer_size_frames_)),
       null_device_(getContext().getSampleRate()) {
     LOG(DEBUG) << Tag() << __func__ << ": format=" << getContext().getFormat().toString()
@@ -123,6 +139,18 @@ ndk::ScopedAStatus StreamMainline::setConnectedDevices(const ConnectedDevices& d
         LOG(ERROR) << Tag() << __func__ << ": input streams support a single device, got "
                    << devices.size();
         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+    if (passthrough_ != nullptr) {
+        // Compressed data only makes sense to an HDMI sink, whose template is
+        // the only device the passthrough mix port is routed to.
+        for (const AudioDevice& device : devices) {
+            const routing::Endpoint* e = deps_.inventory->FindByDevice(device);
+            if (devices.size() > 1 || e == nullptr || e->role != routing::DeviceRole::kHdmi) {
+                LOG(ERROR) << Tag() << __func__ << ": a passthrough stream only plays to HDMI, not "
+                           << device.toString();
+                return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+            }
+        }
     }
     auto endpoints = ResolveEndpoints(devices);
     if (!endpoints.has_value()) {
@@ -243,6 +271,14 @@ void StreamMainline::OpenEndpoint(const routing::Endpoint& endpoint, const alsa:
         return;
     }
     if (!AcquirePcm(endpoint, quiet)) return;
+    if (endpoint.is_hdmi_head && !is_input_ && IsArbitrated(identity) &&
+        deps_.make_hdmi_control != nullptr) {
+        // Owning the device, so no passthrough stream is using it: PCM must
+        // not go out flagged as non-audio, e.g. after a HAL crash.
+        if (auto control = deps_.make_hdmi_control(endpoint); control != nullptr) {
+            control->ClearNonAudio();
+        }
+    }
     const snd_pcm_stream_t direction = is_input_ ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK;
     auto pcm = alsa::Pcm::Open(endpoint.pcm_name, direction, config);
     if (pcm == nullptr) {
@@ -310,6 +346,7 @@ void StreamMainline::ReopenDeferredPcms() {
 }
 
 void StreamMainline::ClosePcms() {
+    if (passthrough_ != nullptr) passthrough_->Close();
     pcms_.clear();
     deferred_endpoints_.clear();
     pcms_opened_ = false;
@@ -329,11 +366,26 @@ void StreamMainline::ApplyPendingEndpoints() {
     null_running_ = false;
 }
 
+::android::status_t StreamMainline::EnsurePassthroughReady() {
+    if (passthrough_->IsOpen()) return ::android::OK;
+    const routing::Endpoint& head = active_endpoints_.front();
+    if (head.IsNull() || !AcquirePcm(head, false /*quiet*/)) return ::android::NO_INIT;
+    if (!passthrough_->Open(head)) {
+        // The framework falls back to decoding the stream itself.
+        if (IsArbitrated(head.pcm_identity)) {
+            deps_.pcm_arbiter->Release(*arbiter_client_, head.pcm_identity);
+        }
+        return ::android::NO_INIT;
+    }
+    return ::android::OK;
+}
+
 ::android::status_t StreamMainline::EnsureDevicesReady() {
     if (active_endpoints_.empty()) {
         // Not patched yet. The worker does not transfer in this case.
         return ::android::OK;
     }
+    if (passthrough_ != nullptr) return EnsurePassthroughReady();
     if (UsingNullDevice()) {
         if (!null_running_) {
             null_device_.Start();
@@ -370,6 +422,20 @@ void StreamMainline::ApplyPendingEndpoints() {
 }
 
 ::android::status_t StreamMainline::init(DriverCallbackInterface* /*callback*/) {
+    if (passthrough_ != nullptr) {
+        const passthrough::PassthroughSink::Config config{
+                .format = *passthrough::FromAidl(getContext().getFormat()),
+                .content_rate = static_cast<uint32_t>(getContext().getSampleRate()),
+                .channels = channel_count_};
+        if (!passthrough::PassthroughSink::IsPossible(config)) {
+            LOG(ERROR) << Tag() << __func__ << ": no IEC 61937 stream for "
+                       << getContext().getFormat().toString() << " at "
+                       << getContext().getSampleRate() << " Hz, "
+                       << getContext().getChannelLayout().toString();
+            return ::android::NO_INIT;
+        }
+        return ::android::OK;
+    }
     if (!alsa_format_.has_value()) {
         LOG(ERROR) << Tag() << __func__ << ": unsupported format "
                    << getContext().getFormat().toString();
@@ -396,6 +462,10 @@ void StreamMainline::ApplyPendingEndpoints() {
 
 ::android::status_t StreamMainline::drain(StreamDescriptor::DrainMode /*mode*/) {
     if (is_input_) return ::android::OK;
+    if (passthrough_ != nullptr) {
+        passthrough_->Drain();
+        return ::android::OK;
+    }
     if (OnNullPath()) {
         null_device_.Transfer(nullptr, buffer_size_frames_, frame_size_bytes_, false);
         return ::android::OK;
@@ -409,6 +479,7 @@ void StreamMainline::ApplyPendingEndpoints() {
 }
 
 ::android::status_t StreamMainline::flush() {
+    if (passthrough_ != nullptr) passthrough_->Flush();
     for (auto& open : pcms_) {
         open.pcm->Drop();
         open.pcm->Prepare();
@@ -419,7 +490,9 @@ void StreamMainline::ApplyPendingEndpoints() {
 ::android::status_t StreamMainline::pause() {
     // Playback is left to run dry (the ring buffer holds at most two bursts),
     // capture keeps filling the hardware buffer and drops on overrun. Both
-    // match what the state machine expects from the PAUSED state.
+    // match what the state machine expects from the PAUSED state. Passthrough
+    // does the same rather than snd_pcm_pause(): a burst may arrive while
+    // PAUSED, and a write to a paused device with a full buffer never returns.
     return ::android::OK;
 }
 
@@ -472,6 +545,15 @@ void StreamMainline::ApplyPendingEndpoints() {
     // arrive in STANDBY without a preceding start().
     ApplyPendingEndpoints();
     RETURN_STATUS_IF_ERROR(EnsureDevicesReady());
+    if (passthrough_ != nullptr) {
+        // Frames of the stream's frame size: bytes for encoded formats.
+        if (!passthrough_->Write(buffer, frame_count * frame_size_bytes_, latency_ms)) {
+            *latency_ms = StreamDescriptor::LATENCY_UNKNOWN;
+            return ::android::INVALID_OPERATION;
+        }
+        *actual_frame_count = frame_count;
+        return ::android::OK;
+    }
     if (OnNullPath()) {
         null_device_.Transfer(buffer, frame_count, frame_size_bytes_, is_input_);
         *actual_frame_count = frame_count;
@@ -494,6 +576,11 @@ void StreamMainline::ApplyPendingEndpoints() {
 }
 
 ::android::status_t StreamMainline::refinePosition(StreamDescriptor::Position* position) {
+    if (passthrough_ != nullptr) {
+        // Frames of the content, not the bytes the worker counts.
+        position->frames = passthrough_->PresentedFrames(&position->timeNs);
+        return ::android::OK;
+    }
     if (OnNullPath() || pcms_.empty()) return ::android::OK;
     const auto pcm_position = pcms_.front().pcm->QueryPosition();
     if (!pcm_position.has_value()) return ::android::OK;

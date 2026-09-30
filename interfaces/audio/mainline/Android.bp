@@ -57,7 +57,9 @@ cc_binary {
         "alsa/AlsaPcm.cpp",
         "passthrough/AlsaHdmiControl.cpp",
         "passthrough/Eld.cpp",
+        "passthrough/Encoder.cpp",
         "passthrough/Format.cpp",
+        "passthrough/PassthroughSink.cpp",
         "passthrough/Quirks.cpp",
         "passthrough/SinkCapabilities.cpp",
         "routing/ConfigurationBuilder.cpp",
@@ -69,11 +71,19 @@ cc_binary {
         "ucm/UcmDeviceMapper.cpp",
         "ucm/UcmManager.cpp",
     ],
-    local_include_dirs: ["."],
+    // "spdif/include" before the include directories of the dependencies:
+    // libaudioutils exports the upstream headers of the forked libaudiospdif
+    // under the same paths.
+    local_include_dirs: [
+        ".",
+        "spdif/include",
+    ],
     static_libs: [
         // Module / Stream / Config infrastructure and the r_submix and
         // bluetooth modules of the example HAL.
         "libaudioserviceexampleimpl",
+        // IEC 61937 packer, used through passthrough/Encoder.* only.
+        "libaudiospdif.mainline",
     ],
     shared_libs: [
         "android.hardware.bluetooth.audio-impl",
