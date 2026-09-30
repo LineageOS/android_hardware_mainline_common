@@ -59,6 +59,13 @@ struct Properties {
     // size negotiated with the framework.
     int latency_ms = 20;
 
+    // Nominal latency of the primary output when it is to be served by the
+    // framework's FastMixer (AudioOutputFlags::FAST, fast tracks). 0 disables
+    // it and keeps `latency_ms` for the primary output. The FAST flag is only
+    // set when the resulting buffer is smaller than AudioFlinger's normal
+    // mixer period, see ConfigurationBuilder.
+    int fast_latency_ms = 0;
+
     // Expose a DIRECT "multichannel output" mix port when a device supports
     // six or more channels.
     bool multichannel = true;
