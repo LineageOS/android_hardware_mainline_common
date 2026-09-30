@@ -8,6 +8,7 @@
 #include "ModuleMainline.h"
 
 #include <Log.h>
+#include <Utils.h>
 #include <android-base/file.h>
 #include <core-impl/utils.h>
 
@@ -16,11 +17,14 @@
 
 namespace aidl::android::hardware::audio::core::mainline {
 
+using ::aidl::android::hardware::audio::common::isBitPositionFlagSet;
 using ::aidl::android::hardware::audio::common::SinkMetadata;
 using ::aidl::android::hardware::audio::common::SourceMetadata;
 using ::aidl::android::media::audio::common::AudioDevice;
 using ::aidl::android::media::audio::common::AudioDeviceDescription;
+using ::aidl::android::media::audio::common::AudioIoFlags;
 using ::aidl::android::media::audio::common::AudioOffloadInfo;
+using ::aidl::android::media::audio::common::AudioOutputFlags;
 using ::aidl::android::media::audio::common::AudioPort;
 using ::aidl::android::media::audio::common::AudioPortConfig;
 using ::aidl::android::media::audio::common::AudioPortExt;
@@ -52,8 +56,23 @@ ModuleMainline::ModuleMainline(std::unique_ptr<Configuration>&& config,
       inventory_(std::move(inventory)),
       routing_(std::make_shared<routing::RoutingController>(inventory_)),
       pcm_arbiter_(std::make_shared<routing::PcmArbiter>()),
-      mic_muted_(std::make_shared<std::atomic<bool>>(false)) {
+      mic_muted_(std::make_shared<std::atomic<bool>>(false)),
+      fast_output_port_id_(FindFastOutputPort()) {
     LOG(INFO) << __func__ << ": module ready";
+}
+
+int32_t ModuleMainline::FindFastOutputPort() {
+    for (const AudioPort& port : getConfig().ports) {
+        if (port.name != routing::kPrimaryOutputMixPort ||
+            port.flags.getTag() != AudioIoFlags::Tag::output) {
+            continue;
+        }
+        return isBitPositionFlagSet(port.flags.get<AudioIoFlags::Tag::output>(),
+                                    AudioOutputFlags::FAST)
+                       ? port.id
+                       : 0;
+    }
+    return 0;
 }
 
 StreamDeps ModuleMainline::MakeStreamDeps() const {
@@ -179,7 +198,12 @@ ndk::ScopedAStatus ModuleMainline::createOutputStream(
                                                    offload_info, MakeStreamDeps());
 }
 
-int32_t ModuleMainline::getNominalLatencyMs(const AudioPortConfig& /*port_config*/) {
+int32_t ModuleMainline::getNominalLatencyMs(const AudioPortConfig& port_config) {
+    // The buffer size, and with it whether AudioFlinger runs a FastMixer on
+    // the output, follows from this latency.
+    if (fast_output_port_id_ != 0 && port_config.portId == fast_output_port_id_) {
+        return properties_.fast_latency_ms;
+    }
     return properties_.latency_ms;
 }
 

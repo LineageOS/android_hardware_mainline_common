@@ -89,6 +89,14 @@ $(call soong_config_set_bool,mainline_audio,internal_effects,true)
   `JackControl` is used when present; without UCM, HDA-style
   `HDMI/DP,pcm=N Jack` controls are used. The framework still needs to report
   HDMI availability as above.
+* **Real-time scheduling for FAST.** With `fast_latency_ms` the stream worker
+  of the primary output asks for `SCHED_FIFO`. The rc file grants
+  `SYS_NICE` and an `rtprio` limit, and the platform policy already allows
+  `sys_nice` to every audio HAL server domain
+  (`system/sepolicy/private/hal_audio.te`), so nothing needs to be added to
+  the device's policy. Per SoC values of `fast_latency_ms` belong in the
+  device (or SoC common) configuration, e.g. through
+  `PRODUCT_VENDOR_PROPERTIES`.
 * **Audio policy.** No `audio_policy_configuration.xml` is needed: the module
   list, ports and routes come from the HAL. The engine configuration
   (strategies, volume curves) is the AOSP phone example shipped in the APEX; a
@@ -113,6 +121,7 @@ starts.
 | `mixer.playback_percent`  | int    | `100`   | Playback volume applied by `mixer.init`. |
 | `mixer.capture_percent`   | int    | `80`    | Capture volume applied by `mixer.init`. |
 | `latency_ms`              | int    | `20`    | Nominal stream latency; drives the buffer size negotiated with the framework (5..500). |
+| `fast_latency_ms`         | int    | `0`     | 0: no FAST output (the primary output uses `latency_ms`). Above 0 (max 500): `primary output` becomes PRIMARY \| FAST with this latency, so that the framework runs a FastMixer and grants fast tracks. Only effective when the resulting buffer is below the framework's 20 ms normal mixer period at every rate of the port, i.e. up to 10 ms at 44.1 / 48 kHz; otherwise a warning is logged and nothing changes. See "Mix ports". |
 | `multichannel`            | bool   | `true`  | Expose a DIRECT "multichannel output" mix port when a device supports 6+ channels. |
 | `log.verbose`             | bool   | `false` | VERBOSE instead of DEBUG logging. |
 | `card.<selector>.rates`   | string | *(all)* | Comma separated list of sample rates to allow for the card matching `<selector>` (card id, index, or name with spaces replaced by underscores). Empty means all rates. |
@@ -187,6 +196,21 @@ Mix ports:
 * `primary output` (PRIMARY): routed to every output device port. Limited to
   the non high resolution part of the capabilities: 8 / 16-bit formats and
   rates below 88.2 kHz (see below for the exception).
+  With `fast_latency_ms` set it is also FAST and uses that latency instead of
+  `latency_ms`. AudioFlinger creates a FastMixer, and grants
+  `AUDIO_OUTPUT_FLAG_FAST` tracks, only when the HAL buffer is smaller than
+  its normal mixer period (20 ms), independently of the flag. The buffer
+  size the framework gets is derived from the latency by the example HAL
+  (rounded up to 16 frames, and to a power of two above 512 frames at
+  44.1 kHz and more: at 48 kHz 11..20 ms all give 1024 frames, 10 ms gives
+  480), so the flag is only set when the buffer is small enough at every
+  rate of the port; otherwise the port stays exactly as without the property.
+  The PCM of a FAST stream uses one period per burst, and a warning is logged
+  when the driver makes the period longer than a burst (the FastMixer then
+  underruns).
+  FAST is not a separate mix port on purpose: the policy opens every
+  non-direct mix port at start-up, and a second mixed stream on the same
+  exclusive PCM device would need a mixer inside the HAL.
 * `hra output` (DIRECT | DIRECT_PCM): stereo high resolution playback, only
   24-bit, 32-bit and float formats at 88.2 kHz and above. Routed to the
   outputs that support at least one such format and one such rate; only
@@ -268,7 +292,7 @@ stream owns which exclusive PCM device.
 ## Known limitations
 
 * No telephony (`ITelephony` is null): voice calls need modem specific paths.
-* No compressed offload, no MMAP / AAudio exclusive mode.
+* No compressed offload, no MMAP / AAudio exclusive mode, no FAST capture.
 * While a direct output (`hra output`, `multichannel output`) plays to a
   device, the system sounds and any other mixed audio routed to the same PCM
   device are dropped rather than mixed in. Mixing them into the direct stream
