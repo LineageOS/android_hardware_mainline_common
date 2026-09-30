@@ -135,6 +135,15 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   *dynamic* port, not as an error, so never create one: the primary ports go
   through `OrFallback()` (16-bit 44.1 / 48 kHz, served by the plug layer),
   optional ports are skipped when `HasCommonProfile()` fails.
+* FAST is a flag of `primary output` (opt-in through `fast_latency_ms`), not
+  a mix port of its own: the policy opens every non-direct mix port at
+  start-up, so a separate fast port would be a second mixed stream on the
+  same exclusive PCM. AudioFlinger decides about the FastMixer from the
+  buffer size alone, so `ConfigurationBuilder` only sets the flag when
+  `fast_latency_ms` gives a buffer below the 20 ms normal mixer period (same
+  rounding as `Module::calculateBufferSizeFramesForPcm`), and
+  `ModuleMainline::getNominalLatencyMs()` returns `fast_latency_ms` exactly
+  for the port that carries the flag. Keep the two in sync.
 * High resolution output is split off `primary output` (`HraFilter`,
   `kHraOutputCutoff`): the primary port keeps 8 / 16-bit below 88.2 kHz,
   `hra output` (DIRECT | DIRECT_PCM) gets 24 / 32-bit / float at 88.2 kHz and

@@ -70,6 +70,9 @@ Properties Properties::Load() {
     props.mixer_capture_percent =
             ClampPercent(GetIntProperty(Key("mixer.capture_percent"), props.mixer_capture_percent));
     props.latency_ms = std::clamp(GetIntProperty(Key("latency_ms"), props.latency_ms), 5, 500);
+    if (const int fast = GetIntProperty(Key("fast_latency_ms"), props.fast_latency_ms); fast > 0) {
+        props.fast_latency_ms = std::min(fast, 500);
+    }
     props.multichannel = GetBoolProperty(Key("multichannel"), props.multichannel);
     props.verbose_logging = GetBoolProperty(Key("log.verbose"), props.verbose_logging);
 
@@ -85,7 +88,8 @@ std::string Properties::ToString() const {
        << " ucm.enabled=" << ucm_enabled << " ucm.verb=\"" << ucm_verb << "\""
        << " mixer.init=" << mixer_init << " mixer.playback_percent=" << mixer_playback_percent
        << " mixer.capture_percent=" << mixer_capture_percent << " latency_ms=" << latency_ms
-       << " multichannel=" << multichannel << " log.verbose=" << verbose_logging;
+       << " fast_latency_ms=" << fast_latency_ms << " multichannel=" << multichannel
+       << " log.verbose=" << verbose_logging;
     return os.str();
 }
 
