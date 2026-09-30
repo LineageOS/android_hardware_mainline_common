@@ -14,10 +14,12 @@
 
 #include <aidl/android/hardware/graphics/common/BufferUsage.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android/sync.h>
 
 #include "convert/FormatConverter.h"
 #include "device/RequestTemplates.h"
+#include "jpeg/JpegOutput.h"
 #include "session/RequestSettings.h"
 #include "utils/Status.h"
 
@@ -99,6 +101,12 @@ CameraDeviceSession::CameraDeviceSession(std::string name,
       callback_(std::move(callback)),
       buffers_(std::move(buffers)),
       capture_(std::move(device)) {
+    jpeg_context_.characteristics = &description_->characteristics();
+    jpeg_context_.make = ::android::base::GetProperty("ro.product.manufacturer", "");
+    // External cameras are their own product.
+    jpeg_context_.model = description_->internal()
+                                  ? ::android::base::GetProperty("ro.product.model", "")
+                                  : description_->candidate().info.card;
     request_queue_ = std::make_unique<MetadataQueue>(kMetadataQueueSize, false);
     if (!request_queue_->isValid()) {
         LOG(ERROR) << name_ << ": invalid request metadata queue";
@@ -160,7 +168,11 @@ bool CameraDeviceSession::IsClosed() {
     std::map<int32_t, OutputStream> streams;
     for (const auto& stream : config.streams) {
         const PixelFormat format = EffectiveFormat(stream, prefer_rgb);
-        streams[stream.id] = {{stream.width, stream.height}, format};
+        // The framework sizes JPEG buffers itself and says so in bufferSize.
+        const int32_t buffer_size = format != PixelFormat::BLOB ? 0
+                                    : stream.bufferSize > 0     ? stream.bufferSize
+                                                                : description_->jpeg_max_size();
+        streams[stream.id] = {{stream.width, stream.height}, format, buffer_size};
 
         device::HalStream hal;
         hal.id = stream.id;
@@ -433,6 +445,9 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
                                                     .readoutTimestamp = timestamp});
     Notify({shutter});
 
+    // Camera privacy: every output of the request is black.
+    if (parsed.black) FillBlack(&frame_);
+
     const Rect region =
             ToCaptureCoordinates(parsed.region, description_->active_array(), capture_.size());
     CaptureResult result;
@@ -441,7 +456,7 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
     result.partialResult = 1;
     std::vector<NotifyMsg> errors;
     for (auto& output : request.outputs) {
-        const bool ok = WriteOutput(output, frame_, region, parsed.black);
+        const bool ok = WriteOutput(output, frame_, region, *request.settings);
         if (!ok) {
             NotifyMsg error;
             error.set<NotifyMsg::Tag::error>(ErrorMsg{.frameNumber = request.frame_number,
@@ -458,7 +473,7 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
 }
 
 bool CameraDeviceSession::WriteOutput(OutputBuffer& output, const I420Image& image,
-                                      const Rect& region, bool black) {
+                                      const Rect& region, const Metadata& settings) {
     if (output.acquire_fence.get() >= 0) {
         if (sync_wait(output.acquire_fence.get(), kAcquireFenceTimeoutMs) != 0) {
             PLOG(ERROR) << name_ << ": buffer " << output.buffer_id << " of stream "
@@ -469,37 +484,38 @@ bool CameraDeviceSession::WriteOutput(OutputBuffer& output, const I420Image& ima
     }
 
     const Size size = output.stream.size;
-    const Rect crop = CenterCropToAspect(region, size);
+    bool ok = false;
     switch (output.stream.format) {
-        case PixelFormat::YCBCR_420_888: {
-            auto destination = buffers_->LockYuv(output.handle, size);
-            if (!destination.has_value()) return false;
-            bool ok = true;
-            if (black) {
-                FillBlack(size, *destination);
-            } else {
-                ok = ScaleToYuv(image, crop, size, *destination, &scratch_);
+        case PixelFormat::YCBCR_420_888:
+            if (auto destination = buffers_->LockYuv(output.handle, size)) {
+                ok = ScaleToYuv(image, CenterCropToAspect(region, size), size, *destination,
+                                &scratch_);
+                buffers_->Unlock(output.handle);
             }
-            buffers_->Unlock(output.handle);
-            return ok;
-        }
-        case PixelFormat::RGBA_8888: {
-            auto destination = buffers_->Lock(output.handle, size);
-            if (!destination.has_value()) return false;
-            bool ok = true;
-            if (black) {
-                FillBlack(size, *destination);
-            } else {
-                ok = ScaleToRgba(image, crop, size, *destination, &scratch_);
+            break;
+        case PixelFormat::RGBA_8888:
+            if (auto destination = buffers_->Lock(output.handle, size)) {
+                ok = ScaleToRgba(image, CenterCropToAspect(region, size), size, *destination,
+                                 &scratch_);
+                buffers_->Unlock(output.handle);
             }
-            buffers_->Unlock(output.handle);
-            return ok;
+            break;
+        case PixelFormat::BLOB: {
+            // BLOB buffers are one row of buffer_size bytes.
+            const Size bytes = {output.stream.buffer_size, 1};
+            if (auto destination = buffers_->Lock(output.handle, bytes)) {
+                ok = WriteJpeg(image, region, size, settings, jpeg_context_, destination->data,
+                               static_cast<size_t>(output.stream.buffer_size), &jpeg_workspace_);
+                buffers_->Unlock(output.handle);
+            }
+            break;
         }
         default:
-            LOG(ERROR) << name_ << ": stream " << output.stream_id << ": "
-                       << toString(output.stream.format) << " output is not implemented";
-            return false;
+            LOG(ERROR) << name_ << ": stream " << output.stream_id << ": unsupported format "
+                       << toString(output.stream.format);
+            break;
     }
+    return ok;
 }
 
 StreamBuffer CameraDeviceSession::ReturnBuffer(OutputBuffer& output, bool ok) {
