@@ -66,6 +66,13 @@ class Pcm {
     // alsa-lib "plug" layer which performs rate / format / channel conversion.
     static std::unique_ptr<Pcm> Open(const std::string& name, snd_pcm_stream_t stream,
                                      const PcmConfig& config);
+    // Opens `name` with exactly the format, channel count and rate of
+    // `config`, without the plug fallback, for data that has to reach the
+    // hardware unchanged (IEC 61937). On failure `error` (if not null) gets
+    // the negative errno of the step that failed, e.g. -EINVAL from a prepare
+    // the driver refused.
+    static std::unique_ptr<Pcm> OpenStrict(const std::string& name, snd_pcm_stream_t stream,
+                                           const PcmConfig& config, int* error);
     ~Pcm();
 
     Pcm(const Pcm&) = delete;
@@ -103,7 +110,8 @@ class Pcm {
         bool can_pause);
 
     static std::unique_ptr<Pcm> TryOpen(const std::string& name, snd_pcm_stream_t stream,
-                                        const PcmConfig& config, bool is_plug);
+                                        const PcmConfig& config, bool is_plug,
+                                        int* error = nullptr);
     // Attempts to recover from an error returned by a transfer. Returns 0 when
     // the transfer may be retried.
     int Recover(int err);
