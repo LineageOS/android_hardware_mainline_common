@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <compare>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -28,6 +29,22 @@ struct PcmConfig {
     // Wanted total ring buffer size; the driver may round it.
     snd_pcm_uframes_t buffer_frames = 0;
 
+    std::string ToString() const;
+};
+
+// Which kernel PCM device a PCM name resolves to. Only known for names that
+// resolve to a "hw" PCM (directly, or through a use case manager prefix);
+// plugins such as dmix are left unidentified.
+struct PcmIdentity {
+    int card = -1;
+    int device = -1;
+    // The device has a single substream, so only one stream at a time can
+    // open it: a second snd_pcm_open() fails with -EBUSY.
+    bool exclusive = false;
+
+    bool IsKnown() const { return card >= 0 && device >= 0; }
+    bool operator==(const PcmIdentity&) const = default;
+    auto operator<=>(const PcmIdentity&) const = default;
     std::string ToString() const;
 };
 
@@ -100,7 +117,10 @@ class Pcm {
     uint64_t xruns_ = 0;
 };
 
-// Probes what the device supports without keeping it open.
-std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream);
+// Probes what the device supports without keeping it open. When `identity` is
+// not null, it receives the kernel PCM device behind `name` (left unknown when
+// the device can not be opened).
+std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream,
+                                                PcmIdentity* identity = nullptr);
 
 }  // namespace aidl::android::hardware::audio::core::mainline::alsa

@@ -51,12 +51,16 @@ ModuleMainline::ModuleMainline(std::unique_ptr<Configuration>&& config,
       properties_(properties),
       inventory_(std::move(inventory)),
       routing_(std::make_shared<routing::RoutingController>(inventory_)),
+      pcm_arbiter_(std::make_shared<routing::PcmArbiter>()),
       mic_muted_(std::make_shared<std::atomic<bool>>(false)) {
     LOG(INFO) << __func__ << ": module ready";
 }
 
 StreamDeps ModuleMainline::MakeStreamDeps() const {
-    return StreamDeps{.inventory = inventory_, .routing = routing_, .mic_muted = mic_muted_};
+    return StreamDeps{.inventory = inventory_,
+                      .routing = routing_,
+                      .pcm_arbiter = pcm_arbiter_,
+                      .mic_muted = mic_muted_};
 }
 
 // --- Optional sub-interfaces -------------------------------------------------
@@ -244,6 +248,7 @@ binder_status_t ModuleMainline::dump(int fd, const char** args, uint32_t num_arg
     text += "Properties: " + properties_.ToString() + "\n";
     text += inventory_->Dump();
     text += routing_->Dump();
+    text += pcm_arbiter_->Dump();
     ::android::base::WriteStringToFd(text, fd);
     return Module::dump(fd, args, num_args);
 }

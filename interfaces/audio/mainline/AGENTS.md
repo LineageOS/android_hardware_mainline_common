@@ -47,6 +47,8 @@ routing/                   Android side model.
                            promotion, null endpoints, USB endpoint synthesis.
   ConfigurationBuilder.*   Endpoints -> Module::Configuration (ports, routes, configs).
   RoutingController.*      Reference counted UCM device enable/disable.
+  PcmArbiter.*             Which output stream may open an exclusive PCM device;
+                           direct streams pre-empt mixed ones.
 stream/
   StreamMainline.*         DriverInterface on top of alsa::Pcm, in/out stream classes.
   NullDevice.*             Paced discard / silence when there is no hardware.
@@ -95,6 +97,7 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 
 * Binder threads: everything in `ModuleMainline`, `StreamMainline::
   setConnectedDevices` / `setGain`, `RoutingController`, `UcmManager`.
+  `PcmArbiter` is called from the workers (and `dump()`) only.
 * One worker thread per stream (created by `StreamCommonImpl`): all
   `DriverInterface` methods and every `alsa::Pcm` call. PCM handles are never
   touched from Binder threads.
@@ -104,6 +107,12 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   into them while holding a stream's `lock_` from the worker thread (the
   Binder side does hold `lock_` while calling `RoutingController`, which is
   fine because the worker never takes a routing lock).
+* `PcmArbiter` has its own mutex and never calls into a stream: a pre-empted
+  stream only sees an atomic flag, which its worker polls in `start()` /
+  `transfer()`, and it closes its own PCM. The worker calls into the arbiter
+  without holding `lock_`. A pre-empting worker sleeps (bounded) while the
+  other worker yields, so nothing may make a worker wait for another one
+  while it holds a lock the other worker needs.
 
 ## Design decisions worth knowing
 
@@ -169,6 +178,14 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   while the back-end can refuse with `-EINVAL`. Hence the plug fallbacks, and
   the pinned hardware rate for the case where the plug layer trusts the same
   optimistic answers.
+* Two HAL streams can target the same kernel PCM (the policy keeps
+  `primary output` open next to a direct output on the same device). The
+  identity of an endpoint's device (`Endpoint::pcm_identity`) comes from
+  `snd_pcm_info()` on the probed handle, never from parsing the PCM name, and
+  is only arbitrated when the resolved PCM is a `hw` one with a single
+  substream. A mixed stream that loses the device plays into the null device
+  instead of failing, because the framework would otherwise tear down the
+  primary output.
 * Initial (dynamic) port configs carry `gain = null`, and
   `ModuleMainline::setAudioPortConfig` strips a value-less gain for ports
   without gain controllers. `Hal2AidlMapper` reuses the device port config it
