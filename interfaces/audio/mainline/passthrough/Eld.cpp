@@ -30,6 +30,8 @@ enum AudioFormatCode : unsigned int {
     kAc3 = 2,
     kDts = 7,
     kEac3 = 10,
+    kDtsHd = 11,
+    kMlp = 12,  // Dolby TrueHD
 };
 
 // Short audio descriptor byte 1, bits 0..6.
@@ -91,9 +93,16 @@ std::optional<SinkCapabilities> ParseEld(const std::vector<uint8_t>& eld) {
                 // Byte 2 bit 0: Joint Object Coding (Dolby Atmos) supported.
                 if ((sad[2] & 0x01) != 0) Add(&caps, EncodedFormat::kEac3Joc, rates, channels);
                 break;
+            case kDtsHd:
+                // The descriptor does not tell High Resolution Audio from
+                // Master Audio.
+                Add(&caps, EncodedFormat::kDtsHd, rates, channels);
+                Add(&caps, EncodedFormat::kDtsHdMa, rates, channels);
+                break;
+            case kMlp:
+                Add(&caps, EncodedFormat::kTrueHd, rates, channels);
+                break;
             default:
-                // DTS-HD and Dolby TrueHD are not packed by the HAL; sinks
-                // announcing DTS-HD also announce DTS, whose core it carries.
                 break;
         }
     }
