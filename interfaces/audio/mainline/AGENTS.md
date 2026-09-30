@@ -53,7 +53,16 @@ stream/
   StreamMainline.*         DriverInterface on top of alsa::Pcm, in/out stream classes.
   NullDevice.*             Paced discard / silence when there is no hardware.
 config/                    XMLs installed into the APEX (effects, policy engine).
+spdif/                     Fork of AOSP libaudiospdif (IEC 61937 packer), own
+                           Android.bp, upstream formatting. See spdif/README.md.
 ```
+
+`spdif/` is an imported component (root `README.md`, Upstreams): never run
+`clang-format` on it, keep its upstream names and layout, and only change it
+for what the HAL needs from the packer (new frame scanners / formats). Record
+every local change in `spdif/README.md`. Its public headers have the same
+paths as the upstream ones exported by `libaudioutils`, so a module using it
+must list `spdif/include` in its own `local_include_dirs`.
 
 The policy engine XMLs are parsed by the example HAL's xsdc-generated parser,
 whose schema is frozen and *narrower* than the legacy audio policy engine

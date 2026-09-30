@@ -1,0 +1,35 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Fork of AOSP libaudiospdif (system/media, audio_utils/spdif), see README.md.
+// Used by the HAL through ../passthrough/Encoder.* only.
+cc_library_static {
+    name: "libaudiospdif.mainline",
+    vendor: true,
+    srcs: [
+        "AC3FrameScanner.cpp",
+        "BitFieldParser.cpp",
+        "DTSFrameScanner.cpp",
+        "FrameScanner.cpp",
+        "SPDIFEncoder.cpp",
+    ],
+    // The headers keep their upstream paths (<audio_utils/spdif/...>), which
+    // libaudioutils exports too. A user of this library has to list "spdif/include"
+    // in its own local_include_dirs, which are searched before the include
+    // directories exported by its dependencies.
+    local_include_dirs: ["include"],
+    export_include_dirs: ["include"],
+    header_libs: ["libaudio_system_headers"],
+    export_header_lib_headers: ["libaudio_system_headers"],
+    shared_libs: [
+        "libcutils",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wthread-safety",
+    ],
+}
