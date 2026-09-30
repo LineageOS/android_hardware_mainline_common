@@ -28,8 +28,8 @@ bool ScaleToRgba(const I420Image& source, const Rect& crop, Size output,
 // `destination` must already have the output size.
 void ScaleToI420(const I420Image& source, const Rect& crop, I420Image* destination);
 
-// Solid black, for the BLACK / SOLID_COLOR test patterns (camera privacy).
-void FillBlack(Size output, const YuvDestination& destination);
-void FillBlack(Size output, const RgbaDestination& destination);
+// Makes `image` solid black (full range), for the BLACK / SOLID_COLOR test
+// patterns (camera privacy).
+void FillBlack(I420Image* image);
 
 }  // namespace aidl::android::hardware::camera::mainline

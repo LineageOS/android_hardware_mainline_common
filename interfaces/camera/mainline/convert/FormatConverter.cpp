@@ -310,22 +310,13 @@ bool ScaleToRgba(const I420Image& source, const Rect& crop, Size output,
     return result == 0;
 }
 
-void FillBlack(Size output, const YuvDestination& destination) {
-    const int cw = (output.width + 1) / 2;
-    const int ch = (output.height + 1) / 2;
-    libyuv::SetPlane(destination.y, destination.y_stride, output.width, output.height, 0);
-    if (destination.c_step == 1) {
-        libyuv::SetPlane(destination.cb, destination.c_stride, cw, ch, 128);
-        libyuv::SetPlane(destination.cr, destination.c_stride, cw, ch, 128);
-    } else {
-        uint8_t* first = std::min(destination.cb, destination.cr);
-        libyuv::SetPlane(first, destination.c_stride, cw * 2, ch, 128);
-    }
-}
-
-void FillBlack(Size output, const RgbaDestination& destination) {
-    libyuv::ARGBRect(destination.data, destination.stride_bytes, 0, 0, output.width, output.height,
-                     0xff000000);
+void FillBlack(I420Image* image) {
+    const int cw = (image->width() + 1) / 2;
+    const int ch = (image->height() + 1) / 2;
+    libyuv::SetPlane(image->y(), image->y_stride(), image->width(), image->height(), 0);
+    libyuv::SetPlane(image->u(), image->uv_stride(), cw, ch, 128);
+    libyuv::SetPlane(image->v(), image->uv_stride(), cw, ch, 128);
+    image->full_range = true;
 }
 
 }  // namespace aidl::android::hardware::camera::mainline

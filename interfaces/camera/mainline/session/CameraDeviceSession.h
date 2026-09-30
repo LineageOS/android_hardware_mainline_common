@@ -22,6 +22,7 @@
 
 #include "convert/Image.h"
 #include "device/CameraDescription.h"
+#include "jpeg/JpegOutput.h"
 #include "session/CaptureStream.h"
 #include "session/GraphicBuffers.h"
 #include "utils/Metadata.h"
@@ -88,6 +89,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     struct OutputStream {
         Size size;
         ::aidl::android::hardware::graphics::common::PixelFormat format;
+        // Bytes of a BLOB (JPEG) buffer, 0 for other formats.
+        int32_t buffer_size = 0;
     };
 
     // One output buffer of a request.
@@ -117,7 +120,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     // Returns all buffers of a request with an error.
     void Fail(PendingRequest& request, device::ErrorCode code);
     // Writes one output; false if the buffer has to be returned with an error.
-    bool WriteOutput(OutputBuffer& output, const I420Image& image, const Rect& region, bool black);
+    bool WriteOutput(OutputBuffer& output, const I420Image& image, const Rect& region,
+                     const Metadata& settings);
     device::StreamBuffer ReturnBuffer(OutputBuffer& output, bool ok);
     void SendResult(device::CaptureResult result, const Metadata* metadata);
     void Notify(const std::vector<device::NotifyMsg>& messages);
@@ -148,6 +152,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     CaptureStream capture_;
     I420Image frame_;
     I420Image scratch_;
+    JpegContext jpeg_context_;
+    JpegWorkspace jpeg_workspace_;
     bool device_lost_ = false;
 
     // Serializes results written to result_queue_ and sent to the framework.
