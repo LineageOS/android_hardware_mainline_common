@@ -17,6 +17,7 @@
 #include "alsa/AlsaPcm.h"
 #include "routing/DeviceInventory.h"
 #include "routing/Endpoint.h"
+#include "routing/PcmArbiter.h"
 #include "routing/RoutingController.h"
 #include "stream/NullDevice.h"
 
@@ -26,6 +27,8 @@ namespace aidl::android::hardware::audio::core::mainline {
 struct StreamDeps {
     std::shared_ptr<routing::DeviceInventory> inventory;
     std::shared_ptr<routing::RoutingController> routing;
+    // Shared by all output streams of the module, see routing/PcmArbiter.h.
+    std::shared_ptr<routing::PcmArbiter> pcm_arbiter;
     // Shared with the module: when set, captured audio is replaced by silence.
     std::shared_ptr<std::atomic<bool>> mic_muted;
 };
@@ -46,6 +49,11 @@ struct StreamDeps {
 //
 // When the connected endpoint is the "null" placeholder (no sound card in the
 // system) a NullDevice discards / zero-fills while keeping real-time pacing.
+//
+// Output streams open exclusive PCM devices through the PcmArbiter. A direct
+// stream takes a device over from a mixed one; the mixed stream then plays
+// into the NullDevice for the endpoints it lost (dropping the audio, keeping
+// the timing) and reopens them once the direct stream lets go.
 class StreamMainline : public StreamCommonImpl {
   public:
     StreamMainline(StreamContext* context, const Metadata& metadata, StreamDeps deps);
@@ -78,8 +86,23 @@ class StreamMainline : public StreamCommonImpl {
     // active endpoints if that has not happened yet.
     ::android::status_t EnsureDevicesReady();
     bool OpenPcms();
+    // Opens one endpoint's PCM into pcms_, or defers it while another stream
+    // owns the device. `quiet` limits logging for the retries of a deferred
+    // endpoint.
+    void OpenEndpoint(const routing::Endpoint& endpoint, const alsa::PcmConfig& config, bool quiet);
+    // Asks the arbiter for the device of `endpoint`. False when the endpoint
+    // can not be opened now; a mixed stream then keeps it in deferred_endpoints_.
+    bool AcquirePcm(const routing::Endpoint& endpoint, bool quiet);
+    // Closes the devices another stream asked this one to give up.
+    void YieldRequestedPcms();
+    // Retries the deferred endpoints.
+    void ReopenDeferredPcms();
     void ClosePcms();
+    bool IsArbitrated(const alsa::PcmIdentity& pcm) const;
     bool UsingNullDevice() const;
+    // True when every endpoint is either null or deferred, i.e. the stream
+    // plays into the null device.
+    bool OnNullPath() const;
     ::android::status_t TransferOutput(void* buffer, size_t frame_count, int32_t* latency_ms);
     ::android::status_t TransferInput(void* buffer, size_t frame_count, int32_t* latency_ms);
     alsa::PcmConfig MakePcmConfig() const;
@@ -93,6 +116,8 @@ class StreamMainline : public StreamCommonImpl {
     const std::optional<snd_pcm_format_t> alsa_format_;
 
     std::atomic<float> gain_ = 1.0f;
+    // Null for input streams, which are not arbitrated.
+    const std::shared_ptr<routing::PcmArbiter::Client> arbiter_client_;
 
     // Exchanged between Binder threads and the worker thread.
     std::mutex lock_;
@@ -101,7 +126,16 @@ class StreamMainline : public StreamCommonImpl {
 
     // Worker thread state.
     std::vector<routing::Endpoint> active_endpoints_;
-    std::vector<std::unique_ptr<alsa::Pcm>> pcms_;
+    struct OpenPcm {
+        alsa::PcmIdentity identity;
+        std::unique_ptr<alsa::Pcm> pcm;
+    };
+    std::vector<OpenPcm> pcms_;
+    // Endpoints whose device is owned by a direct stream (mixed streams only).
+    std::vector<routing::Endpoint> deferred_endpoints_;
+    // OpenPcms() ran for active_endpoints_; pcms_ may still be empty when
+    // every endpoint is deferred.
+    bool pcms_opened_ = false;
     NullDevice null_device_;
     bool null_running_ = false;
 };

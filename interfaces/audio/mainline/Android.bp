@@ -57,6 +57,7 @@ cc_binary {
         "alsa/AlsaPcm.cpp",
         "routing/ConfigurationBuilder.cpp",
         "routing/DeviceInventory.cpp",
+        "routing/PcmArbiter.cpp",
         "routing/RoutingController.cpp",
         "stream/NullDevice.cpp",
         "stream/StreamMainline.cpp",
