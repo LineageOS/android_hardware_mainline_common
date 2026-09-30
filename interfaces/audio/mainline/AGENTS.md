@@ -62,6 +62,9 @@ passthrough/               HDMI compressed audio passthrough (IEC 61937).
   HdmiControl.h            The vendor boundary: ELD, channel status, HBR.
   AlsaHdmiControl.*        HdmiControl on ALSA controls, found by locators.
   Quirks.*                 Per driver: locator order, HBR support.
+  Encoder.*                Adapter over the spdif/ fork (the only user of it).
+  PassthroughSink.*        What a passthrough stream writes to: Encoder +
+                           HdmiControl + strict alsa::Pcm, content positions.
 config/                    XMLs installed into the APEX (effects, policy engine).
 spdif/                     Fork of AOSP libaudiospdif (IEC 61937 packer), own
                            Android.bp, upstream formatting. See spdif/README.md.
@@ -93,8 +96,9 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 * `Module` (port / patch / stream bookkeeping, connectExternalDevice logic,
   debug simulation). Extension points we override: `createInputStream`,
   `createOutputStream`, `populateConnectedDevicePort`,
-  `onExternalDeviceConnectionChanged`, `getNominalLatencyMs`, plus a few
-  IModule methods (mute/volume, sub-interfaces).
+  `onExternalDeviceConnectionChanged`, `getNominalLatencyMs`,
+  `calculateBufferSizeFrames` (encoded formats), plus a few IModule methods
+  (mute/volume, sub-interfaces, `setAudioPortConfig`).
 * `StreamCommonImpl` / `StreamIn` / `StreamOut` (worker thread, FMQ state
   machine). We implement `DriverInterface`. Read the state machine comments in
   `hardware/interfaces/audio/aidl/android/hardware/audio/core/StreamDescriptor.aidl`
@@ -119,6 +123,10 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   and `HdmiControl` implementations only, never anywhere else.
 * AIDL types appear in `passthrough/Format.*` only; the rest of
   `passthrough/` is AIDL free, like `alsa/`.
+* `spdif/` is used through `passthrough/Encoder.*` only.
+* `StreamMainline` knows nothing about vendors: it gets HdmiControl
+  instances from the module's factory (`StreamDeps::make_hdmi_control`) and
+  has one passthrough branch per `DriverInterface` method.
 * The ELD and "IEC958 Playback Default" controls are found by trying the
   quirk's locators in order: PCM interface control with the head's PCM
   device number (HDA ELD, `hdmi-codec`), mixer control with the head's HDMI
@@ -180,7 +188,36 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   whose profiles end up empty is treated by `Module` / the framework as a
   *dynamic* port, not as an error, so never create one: the primary ports go
   through `OrFallback()` (16-bit 44.1 / 48 kHz, served by the plug layer),
-  optional ports are skipped when `HasCommonProfile()` fails.
+  optional ports are skipped when `HasCommonProfile()` fails. The one
+  deliberate exception is `hdmi passthrough`, see below.
+* `hdmi passthrough` is dynamic (no profiles) because the policy only asks a
+  HAL for a mix port's formats again (`updateAudioProfiles()`) when the port
+  had no profiles at all; a placeholder profile does not count, the
+  conversion of HAL profiles never marks one as dynamic. Static encoded
+  profiles are no alternative either: `getDirectPlaybackSupport()` looks at
+  mix port profiles only, so applications would be told the sink decodes
+  everything. Two things make the dynamic port work:
+  `onExternalDeviceConnectionChanged()` fills it with the connected HDMI
+  port's encoded profiles (and IEC 61937) before `Module` would copy all of
+  the device's profiles, PCM included, into it, and empties it again on
+  disconnection; and `setAudioPortConfig()` applies the first profile to the
+  policy's probe (a request without format, channel mask and rate), which
+  `Module` would only answer with a suggestion that neither libaudiohal
+  (`Hal2AidlMapper`, no retry for DIRECT non-PCM) nor the policy retries.
+  The policy then reads the profiles, applies its surround settings and
+  reopens with a configuration of its choice. PCM must never be listed on
+  the port: AudioFlinger's `SpdifStreamOut` fallback would reopen it as PCM.
+* The HAL packs IEC 61937 itself (`passthrough/`, `spdif/`) rather than
+  relying on AudioFlinger's `SpdifStreamOut`: that one only knows AC-3,
+  E-AC-3 and DTS core, and hides the data as plain PCM, so the HAL could not
+  set the non-audio channel status (which HDA also needs to pick the
+  non-PCM stream format at prepare time, hence status before open).
+* Passthrough positions are content frames (PCM frames written minus the
+  delay, scaled by content rate / PCM rate), since AudioFlinger passes the
+  position of a direct compressed output on AIDL through unchanged. For
+  IEC 61937 input they are frames of `channels * 2` bytes, while the worker
+  counts frames of Module's IEC 61937 frame size (2 bytes); refinePosition()
+  therefore replaces the worker's count instead of adjusting it.
 * FAST is a flag of `primary output` (opt-in through `fast_latency_ms`), not
   a mix port of its own: the policy opens every non-direct mix port at
   start-up, so a separate fast port would be a second mixed stream on the
