@@ -97,6 +97,11 @@ $(call soong_config_set_bool,mainline_audio,internal_effects,true)
   the device's policy. Per SoC values of `fast_latency_ms` belong in the
   device (or SoC common) configuration, e.g. through
   `PRODUCT_VENDOR_PROPERTIES`.
+* **HDMI passthrough controls.** The sound card has to expose the sink's
+  `ELD` and an `IEC958 Playback Default` control per HDMI output, as the HDA
+  HDMI codec, ASoC `hdmi-codec` and Intel LPE drivers do. Without the IEC958
+  control there is no passthrough on that output; without the ELD only
+  `hdmi.passthrough_formats` makes formats available.
 * **Audio policy.** No `audio_policy_configuration.xml` is needed: the module
   list, ports and routes come from the HAL. The engine configuration
   (strategies, volume curves) is the AOSP phone example shipped in the APEX; a
@@ -123,8 +128,11 @@ starts.
 | `latency_ms`              | int    | `20`    | Nominal stream latency; drives the buffer size negotiated with the framework (5..500). |
 | `fast_latency_ms`         | int    | `0`     | 0: no FAST output (the primary output uses `latency_ms`). Above 0 (max 500): `primary output` becomes PRIMARY \| FAST with this latency, so that the framework runs a FastMixer and grants fast tracks. Only effective when the resulting buffer is below the framework's 20 ms normal mixer period at every rate of the port, i.e. up to 10 ms at 44.1 / 48 kHz; otherwise a warning is logged and nothing changes. See "Mix ports". |
 | `multichannel`            | bool   | `true`  | Expose a DIRECT "multichannel output" mix port when a device supports 6+ channels. |
+| `hdmi.passthrough`        | bool   | `true`  | Expose the `hdmi passthrough` mix port: compressed audio (AC-3, E-AC-3, DTS, ...) sent to the HDMI sink as IEC 61937 for it to decode. See "HDMI passthrough". |
+| `hdmi.passthrough_formats`| string | *(ELD)* | Comma separated list of formats to offer instead of those the sink's ELD announces, for sinks or bridges with a missing or wrong ELD: `ac3`, `eac3`, `eac3-joc`, `dts`. |
 | `log.verbose`             | bool   | `false` | VERBOSE instead of DEBUG logging. |
 | `card.<selector>.rates`   | string | *(all)* | Comma separated list of sample rates to allow for the card matching `<selector>` (card id, index, or name with spaces replaced by underscores). Empty means all rates. |
+| `card.<selector>.hbr`     | bool   | *(driver)* | Force high bit rate passthrough (8 channels at 192 kHz of IEC 61937 data, as applications packing Dolby TrueHD or DTS-HD Master Audio themselves send it) on or off for the HDMI outputs of the card. Unset: on for HDA (Intel, NVIDIA Tegra, ...), where a head that can not do it fails cleanly and is then left out, off for other drivers, which may send garbage instead. |
 | `card.<selector>.bits`    | string | *(all)* | Comma separated list of sample widths (`8`, `16`, `24`, `32`) to allow for the card matching `<selector>`; a width keeps every format of that width, so `24` keeps both `S24_3LE` and `S24_LE` and `32` keeps `S32_LE` and `FLOAT_LE`. Empty means all. |
 
 ## Device model
@@ -218,6 +226,10 @@ Mix ports:
   port, the framework only uses it for streams that ask for a direct output.
 * `multichannel output` (DIRECT): routed to the outputs that accept six or
   more channels; only present when such an output exists.
+* `hdmi passthrough` (DIRECT): compressed audio to the HDMI template, see
+  "HDMI passthrough". Present when there is an HDMI output and
+  `hdmi.passthrough` is set. Its profiles are dynamic: empty until an HDMI
+  sink connects, then the formats that sink decodes.
 * `primary input`: routed from every input device port; absent when there are none.
 * `usb output` / `usb input`: dynamic profiles, routed to the USB templates.
 
@@ -255,7 +267,7 @@ framework's 48 kHz stereo configuration.
 
 Most PCM devices can be opened by one stream at a time, yet the framework
 keeps `primary output` open and routed while a direct output (`hra output`,
-`multichannel output`) plays to the same device, and writes silence to it for
+`multichannel output`, `hdmi passthrough`) plays to the same device, and writes silence to it for
 a few seconds after the last sound. Output streams therefore open such
 *exclusive* devices (a hardware PCM with a single substream, identified when
 the endpoint is probed) through a shared arbiter (`routing/PcmArbiter.cpp`):
@@ -275,12 +287,64 @@ the endpoint is probed) through a shared arbiter (`routing/PcmArbiter.cpp`):
 Positions come from `snd_pcm_status()`; under- and overruns are recovered
 with `snd_pcm_prepare()` and counted.
 
+## HDMI passthrough
+
+Compressed streams (AC-3, E-AC-3, E-AC-3 JOC / Atmos, DTS) can be sent to
+an HDMI sink (TV, AV receiver) as IEC 61937 data for it to decode, instead of
+being decoded to PCM on the device. Applications ask for it with a direct
+track of the encoded format (e.g. ExoPlayer passthrough). They may also hand
+in data they packed themselves (`ENCODING_IEC61937`), which is passed through
+unchanged; stereo, or 7.1 at 192 kHz (high bit rate) when the output can do
+it. That is the only way to get DTS-HD and Dolby TrueHD to the sink: the
+HAL does not pack them.
+
+When the framework connects the HDMI template, the HAL reads the sink's ELD
+(or takes `hdmi.passthrough_formats`), adds a profile per decodable format to
+the connected device port and its `encodedFormats` (what the surround sound
+settings show), and fills the `hdmi passthrough` mix port with the same
+profiles plus IEC 61937 (never PCM). Rates are the ones the sink announces
+that the format can be carried at over HDMI: 32 / 44.1 / 48 kHz for AC-3 and
+DTS, 44.1 / 48 kHz for E-AC-3. The 7.1 IEC 61937 profile is only offered
+when the output can do high bit rate.
+
+A passthrough stream packs the data into IEC 61937 bursts (`spdif/`, a fork
+of AOSP's libaudiospdif), sets the IEC 958 channel status of the HDMI output
+to non-audio, and writes the bursts to the PCM device, opened without the
+plug fallback. Its device goes through the PCM arbiter like any direct
+stream. When the driver refuses high bit rate, the stream fails and the
+output no longer offers 7.1 IEC 61937 from the next connection on. Positions are frames of
+the content at its sample rate, what applications expect from a direct
+encoded track. The stream buffer holds `latency_ms` of the IEC 61937 stream
+the format becomes. `drain` drops a partial burst still held by the packer;
+`pause` lets the device run dry.
+
+The HAL packs IEC 61937 itself instead of leaving it to AudioFlinger's
+fallback (`SpdifStreamOut`), which only knows AC-3 / E-AC-3 / DTS core and
+reopens the mix port as plain PCM, so the HAL could not set the channel
+status.
+
+### Hardware notes
+
+* **HDA** (Intel, NVIDIA Tegra `tegra-hda`, ...): primary target, NVIDIA
+  Tegra being the hardware the feature is developed on. The ELD is a PCM
+  control of the HDMI PCM device, the IEC958 controls are mixer controls
+  numbered by HDMI PCM. High bit rate needs pin support (and, on Tegra 20 /
+  30, is not available at all); the driver then refuses it when the device
+  is prepared, which the HAL remembers per output.
+* **ASoC `hdmi-codec`** (e.g. Amlogic through `dw-hdmi`): expected to work
+  for everything but high bit rate, not tested. On DPCM cards the controls
+  sit on an internal back-end PCM, so the HAL uses the card's only ELD /
+  IEC958 control. High bit rate is off unless `card.<selector>.hbr` is set:
+  the I2S bridge does not know it and may send garbage.
+* **Qualcomm DisplayPort** (`msm_dp`): not supported, the driver never
+  programs the channel status and the DSP path is not known to be bit exact.
+
 ## Debugging
 
 ```sh
 adb logcat -s MainlineAudio_Main MainlineAudio_Inventory MainlineAudio_Ucm \
     MainlineAudio_Stream MainlineAudio_AlsaPcm MainlineAudio_Routing \
-    MainlineAudio_PcmArbiter
+    MainlineAudio_PcmArbiter MainlineAudio_Passthrough
 adb shell dumpsys android.hardware.audio.core.IModule/default
 setprop vendor.audio.mainline.log.verbose true   # then restart the HAL
 ```
@@ -293,10 +357,18 @@ stream owns which exclusive PCM device.
 
 * No telephony (`ITelephony` is null): voice calls need modem specific paths.
 * No compressed offload, no MMAP / AAudio exclusive mode, no FAST capture.
-* While a direct output (`hra output`, `multichannel output`) plays to a
-  device, the system sounds and any other mixed audio routed to the same PCM
+* While a direct output (`hra output`, `multichannel output`, `hdmi
+  passthrough`) plays to a device, the system sounds and any other mixed audio routed to the same PCM
   device are dropped rather than mixed in. Mixing them into the direct stream
-  is not implemented.
+  is not implemented (and impossible for passthrough).
+* HDMI passthrough: the HAL packs neither DTS-HD nor Dolby TrueHD (only
+  application packed IEC 61937 carries them); no S/PDIF passthrough, no
+  AC-4, DTS:X (DTS-UHD) or MPEG-H, no high bit rate for the 44.1 kHz rate
+  family (IEC 60958 channel
+  status has no code for 705.6 kHz), and no formats beyond what the ELD
+  announces other than through `hdmi.passthrough_formats` (the framework's
+  "always" / "manual" surround modes have nothing more to choose from). The
+  sink is read when HDMI connects, not while it stays connected.
 * Master volume and mute are reported as unsupported; the framework applies
   them in software.
 * HDMI / DisplayPort connection state is not announced by the HAL (the AIDL
