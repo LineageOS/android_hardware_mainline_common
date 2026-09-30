@@ -74,12 +74,15 @@ class ModuleMainline final : public Module {
             const ::aidl::android::media::audio::common::AudioPortConfig& port_config) override;
 
     StreamDeps MakeStreamDeps() const;
+    // Id of the primary output mix port when it carries the FAST flag, else 0.
+    int32_t FindFastOutputPort();
 
     const Properties properties_;
     const std::shared_ptr<routing::DeviceInventory> inventory_;
     const std::shared_ptr<routing::RoutingController> routing_;
     const std::shared_ptr<routing::PcmArbiter> pcm_arbiter_;
     const std::shared_ptr<std::atomic<bool>> mic_muted_;
+    const int32_t fast_output_port_id_;
 };
 
 }  // namespace aidl::android::hardware::audio::core::mainline
