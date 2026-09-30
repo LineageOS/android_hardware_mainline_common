@@ -22,12 +22,8 @@ cc_defaults {
         "-Wthread-safety",
     ],
     local_include_dirs: ["."],
+    defaults: ["android.hardware.graphics.common-ndk_static"],
     shared_libs: [
-        "android.hardware.camera.common-V1-ndk",
-        "android.hardware.camera.device-V4-ndk",
-        "android.hardware.camera.provider-V4-ndk",
-        "android.hardware.common-V2-ndk",
-        "android.hardware.common.fmq-V1-ndk",
         "libbase",
         "libbinder_ndk",
         "libcamera_metadata",
@@ -41,9 +37,17 @@ cc_defaults {
         "libutils",
         "libyuv",
     ],
+    // The interface libraries are linked statically: the service does not
+    // depend on them being installed, and neither does the unit test, which
+    // runs outside of the APEX.
     static_libs: [
+        "android.hardware.camera.common-V1-ndk",
         "android.hardware.camera.common-helper",
-        "libaidlcommonsupport",
+        "android.hardware.camera.device-V4-ndk",
+        "android.hardware.camera.metadata-V3-ndk",
+        "android.hardware.camera.provider-V4-ndk",
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
     ],
 }
 

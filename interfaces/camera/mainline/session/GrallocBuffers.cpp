@@ -6,7 +6,6 @@
 #define LOG_TAG "MainlineCamera_Gralloc"
 
 #include <aidl/android/hardware/graphics/common/BufferUsage.h>
-#include <aidlcommonsupport/NativeHandle.h>
 #include <android-base/logging.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
@@ -22,11 +21,24 @@ using ::android::GraphicBufferMapper;
 
 constexpr uint32_t kWriteUsage = static_cast<uint32_t>(BufferUsage::CPU_WRITE_OFTEN);
 
+// A native_handle_t borrowing the file descriptors of `handle`; free it with
+// native_handle_delete(), not native_handle_close().
+native_handle_t* MakeFromAidl(const ::aidl::android::hardware::common::NativeHandle& handle) {
+    native_handle_t* raw = native_handle_create(static_cast<int>(handle.fds.size()),
+                                                static_cast<int>(handle.ints.size()));
+    if (raw == nullptr) return nullptr;
+    for (size_t i = 0; i < handle.fds.size(); ++i) raw->data[i] = handle.fds[i].get();
+    for (size_t i = 0; i < handle.ints.size(); ++i) {
+        raw->data[handle.fds.size() + i] = handle.ints[i];
+    }
+    return raw;
+}
+
 class GrallocBuffers : public GraphicBuffers {
   public:
     buffer_handle_t Import(const ::aidl::android::hardware::common::NativeHandle& handle) override {
         // Borrows the file descriptors of `handle`; importing clones them.
-        native_handle_t* raw = ::android::makeFromAidl(handle);
+        native_handle_t* raw = MakeFromAidl(handle);
         if (raw == nullptr) return nullptr;
         buffer_handle_t imported = nullptr;
         const auto status = GraphicBufferMapper::get().importBufferNoValidate(raw, &imported);
