@@ -114,6 +114,9 @@ class StreamMainline : public StreamCommonImpl {
     const size_t buffer_size_frames_;
     const unsigned int channel_count_;
     const std::optional<snd_pcm_format_t> alsa_format_;
+    // The mix port carries the FAST flag: the framework runs a FastMixer that
+    // expects every write to block for about one burst.
+    const bool is_fast_;
 
     std::atomic<float> gain_ = 1.0f;
     // Null for input streams, which are not arbitrated.
