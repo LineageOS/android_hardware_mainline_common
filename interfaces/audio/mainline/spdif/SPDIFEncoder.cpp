@@ -24,13 +24,27 @@
 
 #include "AC3FrameScanner.h"
 #include "DTSFrameScanner.h"
+#include "DTSHDFrameScanner.h"
 
 namespace android {
 
 static int32_t sEndianDetector = 1;
 #define isLittleEndian()  (*((uint8_t *)&sEndianDetector))
 
+// IEC61937-5 type IV (DTS-HD) bursts start their payload with a start code
+// and the size of the DTS-HD frame in bytes.
+static const uint8_t kDtsHdStartCode[] =
+        { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFE };
+static const size_t kDtsHdBurstHeaderBytes = sizeof(kDtsHdStartCode) + sizeof(uint16_t);
+// Index of the size in mBurstBuffer: after the preamble and the start code.
+static const size_t kDtsHdSizeIndex = (4 * sizeof(uint16_t) + sizeof(kDtsHdStartCode)) / 2;
+
 SPDIFEncoder::SPDIFEncoder(audio_format_t format)
+    : SPDIFEncoder(format, 0)
+{
+}
+
+SPDIFEncoder::SPDIFEncoder(audio_format_t format, uint32_t rateMultiplier)
   : mFramer(NULL)
   , mSampleRate(48000)
   , mBurstBuffer(NULL)
@@ -49,8 +63,13 @@ SPDIFEncoder::SPDIFEncoder(audio_format_t format)
             mFramer = new AC3FrameScanner(format);
             break;
         case AUDIO_FORMAT_DTS:
-        case AUDIO_FORMAT_DTS_HD:
             mFramer = new DTSFrameScanner();
+            break;
+        case AUDIO_FORMAT_DTS_HD:
+            mFramer = new DTSHDFrameScanner(rateMultiplier != 0 ? rateMultiplier : 4);
+            break;
+        case AUDIO_FORMAT_DTS_HD_MA:
+            mFramer = new DTSHDFrameScanner(rateMultiplier != 0 ? rateMultiplier : 16);
             break;
         default:
             break;
@@ -89,6 +108,7 @@ bool SPDIFEncoder::isFormatSupported(audio_format_t format)
         case AUDIO_FORMAT_E_AC3_JOC:
         case AUDIO_FORMAT_DTS:
         case AUDIO_FORMAT_DTS_HD:
+        case AUDIO_FORMAT_DTS_HD_MA:
             return true;
         default:
             return false;
@@ -194,6 +214,9 @@ void SPDIFEncoder::flushBurstBuffer()
         // Set lengthCode for valid payload before zeroPad.
         uint16_t numBytes = (mByteCursor - preambleSize);
         mBurstBuffer[3] = mFramer->convertBytesToLengthCode(numBytes);
+        if (mFramer->getDataType() == kSpdifDataTypeDtsTypeIV) {
+            mBurstBuffer[kDtsHdSizeIndex] = numBytes - kDtsHdBurstHeaderBytes;
+        }
 
         sendZeroPad();
         size_t bytesWritten = 0;
@@ -235,6 +258,12 @@ void SPDIFEncoder::startDataBurst()
     preamble[2] = burstInfo;
     preamble[3] = 0; // lengthCode - This will get set after the buffer is full.
     writeBurstBufferShorts(preamble, 4);
+
+    if (mFramer->getDataType() == kSpdifDataTypeDtsTypeIV) {
+        const uint16_t size = 0; // This will get set after the buffer is full.
+        writeBurstBufferBytes(kDtsHdStartCode, sizeof(kDtsHdStartCode));
+        writeBurstBufferShorts(&size, 1);
+    }
 }
 
 size_t SPDIFEncoder::startSyncFrame()

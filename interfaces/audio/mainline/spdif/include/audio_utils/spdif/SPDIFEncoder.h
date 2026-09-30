@@ -33,6 +33,12 @@ class SPDIFEncoder {
 public:
 
     explicit SPDIFEncoder(audio_format_t format);
+    /**
+     * @param rateMultiplier ratio of the data burst sample rate to the encoded
+     *   rate for the formats that allow a choice: 4 or 16 (high bit rate) for
+     *   DTS-HD. Zero selects the default of the format. Ignored otherwise.
+     */
+    SPDIFEncoder(audio_format_t format, uint32_t rateMultiplier);
     // Defaults to AC3 format. Was in original API.
     SPDIFEncoder();
 
