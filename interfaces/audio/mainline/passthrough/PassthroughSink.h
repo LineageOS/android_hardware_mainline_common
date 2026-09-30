@@ -43,8 +43,8 @@ class PassthroughSink {
     PassthroughSink(Config config, HdmiControlFactory make_control);
     ~PassthroughSink();
 
-    // Whether an IEC 61937 stream exists for the configuration at all, with
-    // high bit rate if the head allows it.
+    // Whether this build can pack the format and an IEC 61937 stream exists
+    // for the configuration at all, with high bit rate if the head allows it.
     static bool IsPossible(const Config& config);
 
     // Opens `head`. Fails when the head has no controls, can not do the

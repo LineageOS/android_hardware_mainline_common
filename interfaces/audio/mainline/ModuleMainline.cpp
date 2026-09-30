@@ -17,6 +17,7 @@
 
 #include "alsa/AlsaMixer.h"
 #include "passthrough/Eld.h"
+#include "passthrough/Encoder.h"
 #include "passthrough/Format.h"
 #include "routing/ConfigurationBuilder.h"
 
@@ -81,6 +82,12 @@ std::vector<passthrough::EncodedFormat> ParseFormatList(const std::vector<std::s
     std::vector<passthrough::EncodedFormat> formats;
     for (const std::string& name : names) {
         if (const auto format = passthrough::EncodedFormatFromString(name); format.has_value()) {
+            if (*format != passthrough::EncodedFormat::kIec61937 &&
+                !passthrough::Encoder::CanPack(*format)) {
+                LOG(WARNING) << "hdmi.passthrough_formats: \"" << name
+                             << "\" needs the ffmpeg_passthrough build option, ignored";
+                continue;
+            }
             formats.push_back(*format);
         } else {
             LOG(WARNING) << "hdmi.passthrough_formats: unknown format \"" << name << "\"";
