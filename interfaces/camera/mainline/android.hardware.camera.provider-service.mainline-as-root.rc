@@ -1,0 +1,14 @@
+# Development only: run as root, so that no permissions on /dev/video* and
+# friends are needed.
+service vendor.camera.provider-mainline /apex/com.android.hardware.camera.provider/bin/hw/android.hardware.camera.provider-service.mainline
+    class hal
+    user root
+    group root camera system
+    capabilities SYS_NICE
+    rlimit rtprio 10 10
+    ioprio rt 4
+    task_profiles CameraServiceCapacity CameraServicePerformance
+
+# Restart the service on a rebootless update of the APEX.
+on property:apex.com.android.hardware.camera.provider.ready=true
+    start vendor.camera.provider-mainline
