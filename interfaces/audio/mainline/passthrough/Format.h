@@ -12,9 +12,12 @@
 #include <vector>
 
 #include <aidl/android/media/audio/common/AudioFormatDescription.h>
+#include <aidl/android/media/audio/common/AudioProfile.h>
 #include <system/audio.h>
 
 namespace aidl::android::hardware::audio::core::mainline::passthrough {
+
+struct SinkCapabilities;
 
 // Compressed formats the HAL can send to an HDMI sink as IEC 61937 data.
 enum class EncodedFormat {
@@ -71,6 +74,28 @@ bool RequiresHbr(EncodedFormat format);
 std::optional<EncodedFormat> FromAidl(
         const ::aidl::android::media::audio::common::AudioFormatDescription& format);
 ::aidl::android::media::audio::common::AudioFormatDescription ToAidl(EncodedFormat format);
+
+// Profiles of the HDMI device port and the passthrough mix port for `sink`:
+// one per format it decodes, with the content rates the sink announces that
+// the format can be sent at and positional channel masks up to the sink's
+// channel count, plus IEC 61937 (stereo, and 7.1 when `hbr_allowed`), which
+// is always offered.
+std::vector<::aidl::android::media::audio::common::AudioProfile> PassthroughProfiles(
+        const SinkCapabilities& sink, bool hbr_allowed);
+
+// The encoded formats among `profiles`, for AudioPortDeviceExt.encodedFormats
+// (IEC 61937 is not one).
+std::vector<::aidl::android::media::audio::common::AudioFormatDescription> EncodedFormatsOf(
+        const std::vector<::aidl::android::media::audio::common::AudioProfile>& profiles);
+
+// Stream buffer size for `format` at `rate`: `latency_ms` of the IEC 61937
+// stream it becomes (the input never needs more), in frames of the stream's
+// frame size, which Module derives from the PCM type: 1 byte for encoded
+// formats, 2 bytes for IEC 61937 whatever its channel count. nullopt when
+// `format` is not a passthrough format.
+std::optional<int32_t> BufferSizeFrames(
+        const ::aidl::android::media::audio::common::AudioFormatDescription& format,
+        int32_t latency_ms, int32_t rate);
 
 // Format of the libaudiospdif fork, AUDIO_FORMAT_DEFAULT for kIec61937.
 audio_format_t ToAudioFormat(EncodedFormat format);

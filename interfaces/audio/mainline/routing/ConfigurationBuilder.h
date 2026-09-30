@@ -18,6 +18,7 @@ namespace aidl::android::hardware::audio::core::mainline::routing {
 inline constexpr const char* kPrimaryOutputMixPort = "primary output";
 inline constexpr const char* kHiresOutputMixPort = "hra output";
 inline constexpr const char* kMultichannelOutputMixPort = "multichannel output";
+inline constexpr const char* kPassthroughOutputMixPort = "hdmi passthrough";
 inline constexpr const char* kPrimaryInputMixPort = "primary input";
 inline constexpr const char* kUsbOutputMixPort = "usb output";
 inline constexpr const char* kUsbInputMixPort = "usb input";
@@ -41,6 +42,9 @@ inline constexpr uint32_t kHraOutputCutoff = 88200;
 //   * "hra output" (DIRECT | DIRECT_PCM flags, stereo, 24 / 32-bit / float at
 //     kHraOutputCutoff and above) routed to the outputs that support high
 //     resolution audio, only when such outputs exist;
+//   * "hdmi passthrough" (DIRECT flag) routed to the HDMI template, only with
+//     the hdmi.passthrough property. Its profiles start out empty (dynamic)
+//     and are filled by ModuleMainline while an HDMI sink is connected;
 //   * "primary input" routed from every input device port;
 //   * "usb output" / "usb input" with dynamic profiles, routed to the USB
 //     templates only.

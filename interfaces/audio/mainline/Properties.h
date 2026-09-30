@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -70,6 +71,15 @@ struct Properties {
     // six or more channels.
     bool multichannel = true;
 
+    // Expose the "hdmi passthrough" mix port (compressed audio to the HDMI
+    // sink as IEC 61937) when there is an HDMI output.
+    bool hdmi_passthrough = true;
+
+    // Encoded formats to offer for passthrough instead of those in the
+    // sink's ELD, for sinks or bridges with a missing or wrong ELD. Names as
+    // in passthrough::EncodedFormatFromString(). Empty means "use the ELD".
+    std::vector<std::string> hdmi_passthrough_formats;
+
     // Log verbosely (sets the minimum severity to VERBOSE instead of DEBUG).
     bool verbose_logging = false;
 
@@ -80,6 +90,9 @@ struct Properties {
     struct CardProperties {
         std::set<int> rates;
         std::set<int> bits;
+        // Forces high bit rate passthrough formats on / off for the card's
+        // HDMI heads, overriding passthrough/Quirks. Unset: the quirk decides.
+        std::optional<bool> hbr;
     };
 
     static Properties Load();
