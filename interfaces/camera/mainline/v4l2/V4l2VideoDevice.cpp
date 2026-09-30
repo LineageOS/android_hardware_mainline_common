@@ -7,7 +7,9 @@
 
 #include <fcntl.h>
 #include <linux/videodev2.h>
+#include <poll.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -82,7 +84,27 @@ class V4l2VideoDevice : public VideoDevice {
     std::optional<int32_t> GetControl(uint32_t id) override;
     bool SetControl(uint32_t id, int32_t value) override;
 
+    Result<CaptureFormat> SetFormat(uint32_t fourcc, uint32_t width, uint32_t height) override;
+    Result<Fraction> SetFrameInterval(const Fraction& interval) override;
+    Result<void> StartStreaming(uint32_t buffer_count) override;
+    void StopStreaming() override;
+    bool IsStreaming() const override { return streaming_; }
+    Result<CapturedFrame> DequeueFrame(std::chrono::milliseconds timeout) override;
+    Result<void> QueueFrame(uint32_t index) override;
+
+    ~V4l2VideoDevice() override { StopStreaming(); }
+
   private:
+    struct MappedPlane {
+        void* address = MAP_FAILED;
+        size_t length = 0;
+    };
+    using MappedBuffer = std::vector<MappedPlane>;
+
+    // Fills the plane array of a v4l2_buffer for the multi-planar API.
+    void PrepareBuffer(v4l2_buffer* buffer, v4l2_plane* planes, uint32_t index) const;
+    void ReleaseBuffers();
+
     uint32_t BufferType() const {
         return info_.multiplanar ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_CAPTURE;
     }
@@ -95,6 +117,9 @@ class V4l2VideoDevice : public VideoDevice {
 
     unique_fd fd_;
     VideoDeviceInfo info_;
+    uint32_t num_planes_ = 1;
+    std::vector<MappedBuffer> buffers_;
+    bool streaming_ = false;
 };
 
 std::vector<FormatDescription> V4l2VideoDevice::EnumerateFormats() {
@@ -266,6 +291,221 @@ bool V4l2VideoDevice::SetControl(uint32_t id, int32_t value) {
         return false;
     }
     return true;
+}
+
+Result<CaptureFormat> V4l2VideoDevice::SetFormat(uint32_t fourcc, uint32_t width, uint32_t height) {
+    if (streaming_) return Error(EBUSY) << info_.name << ": can not set the format while streaming";
+
+    v4l2_format format = {};
+    format.type = BufferType();
+    if (info_.multiplanar) {
+        format.fmt.pix_mp.pixelformat = fourcc;
+        format.fmt.pix_mp.width = width;
+        format.fmt.pix_mp.height = height;
+        format.fmt.pix_mp.field = V4L2_FIELD_ANY;
+    } else {
+        format.fmt.pix.pixelformat = fourcc;
+        format.fmt.pix.width = width;
+        format.fmt.pix.height = height;
+        format.fmt.pix.field = V4L2_FIELD_ANY;
+    }
+    if (Xioctl(fd_.get(), VIDIOC_S_FMT, &format) != 0) {
+        return ErrnoError() << info_.name << ": VIDIOC_S_FMT " << FourccToString(fourcc) << " "
+                            << width << "x" << height;
+    }
+
+    CaptureFormat result;
+    if (info_.multiplanar) {
+        const auto& pix = format.fmt.pix_mp;
+        result.fourcc = pix.pixelformat;
+        result.width = pix.width;
+        result.height = pix.height;
+        for (uint32_t i = 0; i < pix.num_planes && i < VIDEO_MAX_PLANES; ++i) {
+            result.planes.push_back({pix.plane_fmt[i].bytesperline, pix.plane_fmt[i].sizeimage});
+        }
+    } else {
+        const auto& pix = format.fmt.pix;
+        result.fourcc = pix.pixelformat;
+        result.width = pix.width;
+        result.height = pix.height;
+        result.planes.push_back({pix.bytesperline, pix.sizeimage});
+    }
+    if (result.fourcc != fourcc || result.width != width || result.height != height ||
+        result.planes.empty()) {
+        return Error(EINVAL) << info_.name << ": asked for " << FourccToString(fourcc) << " "
+                             << width << "x" << height << ", got " << FourccToString(result.fourcc)
+                             << " " << result.width << "x" << result.height;
+    }
+    num_planes_ = static_cast<uint32_t>(result.planes.size());
+    LOG(DEBUG) << info_.name << ": format " << FourccToString(fourcc) << " " << width << "x"
+               << height << ", " << num_planes_ << " plane(s), stride "
+               << result.planes[0].bytes_per_line;
+    return result;
+}
+
+Result<Fraction> V4l2VideoDevice::SetFrameInterval(const Fraction& interval) {
+    v4l2_streamparm parm = {};
+    parm.type = BufferType();
+    if (Xioctl(fd_.get(), VIDIOC_G_PARM, &parm) != 0 ||
+        !(parm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME)) {
+        // The frame rate is not settable (e.g. an HDMI receiver).
+        return Error(ENOTTY) << info_.name << ": frame interval not settable";
+    }
+    parm.parm.capture.timeperframe.numerator = interval.numerator;
+    parm.parm.capture.timeperframe.denominator = interval.denominator;
+    if (Xioctl(fd_.get(), VIDIOC_S_PARM, &parm) != 0) {
+        return ErrnoError() << info_.name << ": VIDIOC_S_PARM";
+    }
+    return Fraction{parm.parm.capture.timeperframe.numerator,
+                    parm.parm.capture.timeperframe.denominator};
+}
+
+void V4l2VideoDevice::PrepareBuffer(v4l2_buffer* buffer, v4l2_plane* planes, uint32_t index) const {
+    *buffer = {};
+    buffer->type = BufferType();
+    buffer->memory = V4L2_MEMORY_MMAP;
+    buffer->index = index;
+    if (info_.multiplanar) {
+        memset(planes, 0, sizeof(v4l2_plane) * VIDEO_MAX_PLANES);
+        buffer->m.planes = planes;
+        buffer->length = num_planes_;
+    }
+}
+
+Result<void> V4l2VideoDevice::StartStreaming(uint32_t buffer_count) {
+    if (streaming_) return {};
+
+    v4l2_requestbuffers request = {};
+    request.count = buffer_count;
+    request.type = BufferType();
+    request.memory = V4L2_MEMORY_MMAP;
+    if (Xioctl(fd_.get(), VIDIOC_REQBUFS, &request) != 0) {
+        return ErrnoError() << info_.name << ": VIDIOC_REQBUFS " << buffer_count;
+    }
+    if (request.count == 0) return Error(ENOMEM) << info_.name << ": no buffers";
+
+    for (uint32_t index = 0; index < request.count; ++index) {
+        v4l2_buffer buffer;
+        v4l2_plane planes[VIDEO_MAX_PLANES];
+        PrepareBuffer(&buffer, planes, index);
+        if (Xioctl(fd_.get(), VIDIOC_QUERYBUF, &buffer) != 0) {
+            const int error = errno;
+            ReleaseBuffers();
+            return Error(error) << info_.name << ": VIDIOC_QUERYBUF " << index;
+        }
+
+        MappedBuffer mapped;
+        for (uint32_t plane = 0; plane < (info_.multiplanar ? num_planes_ : 1); ++plane) {
+            const size_t length = info_.multiplanar ? planes[plane].length : buffer.length;
+            const off_t offset = info_.multiplanar ? planes[plane].m.mem_offset : buffer.m.offset;
+            void* address =
+                    mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd_.get(), offset);
+            if (address == MAP_FAILED) {
+                const int error = errno;
+                for (auto& done : mapped) munmap(done.address, done.length);
+                ReleaseBuffers();
+                return Error(error) << info_.name << ": mmap buffer " << index;
+            }
+            mapped.push_back({address, length});
+        }
+        buffers_.push_back(std::move(mapped));
+    }
+
+    for (uint32_t index = 0; index < buffers_.size(); ++index) {
+        if (auto result = QueueFrame(index); !result.ok()) {
+            ReleaseBuffers();
+            return result.error();
+        }
+    }
+
+    int type = static_cast<int>(BufferType());
+    if (Xioctl(fd_.get(), VIDIOC_STREAMON, &type) != 0) {
+        const int error = errno;
+        ReleaseBuffers();
+        return Error(error) << info_.name << ": VIDIOC_STREAMON";
+    }
+    streaming_ = true;
+    LOG(DEBUG) << info_.name << ": streaming with " << buffers_.size() << " buffers";
+    return {};
+}
+
+void V4l2VideoDevice::StopStreaming() {
+    if (streaming_) {
+        int type = static_cast<int>(BufferType());
+        if (Xioctl(fd_.get(), VIDIOC_STREAMOFF, &type) != 0) {
+            PLOG(WARNING) << info_.name << ": VIDIOC_STREAMOFF";
+        }
+        streaming_ = false;
+        LOG(DEBUG) << info_.name << ": streaming stopped";
+    }
+    ReleaseBuffers();
+}
+
+void V4l2VideoDevice::ReleaseBuffers() {
+    if (buffers_.empty()) return;
+    for (auto& buffer : buffers_) {
+        for (auto& plane : buffer) munmap(plane.address, plane.length);
+    }
+    buffers_.clear();
+    v4l2_requestbuffers request = {};
+    request.count = 0;
+    request.type = BufferType();
+    request.memory = V4L2_MEMORY_MMAP;
+    if (Xioctl(fd_.get(), VIDIOC_REQBUFS, &request) != 0 && errno != ENODEV) {
+        PLOG(WARNING) << info_.name << ": VIDIOC_REQBUFS 0";
+    }
+}
+
+Result<CapturedFrame> V4l2VideoDevice::DequeueFrame(std::chrono::milliseconds timeout) {
+    if (!streaming_) return Error(EINVAL) << info_.name << ": not streaming";
+
+    pollfd pfd = {.fd = fd_.get(), .events = POLLIN, .revents = 0};
+    const int ret = TEMP_FAILURE_RETRY(poll(&pfd, 1, static_cast<int>(timeout.count())));
+    if (ret < 0) return ErrnoError() << info_.name << ": poll";
+    if (ret == 0)
+        return Error(ETIMEDOUT) << info_.name << ": no frame in " << timeout.count() << " ms";
+
+    v4l2_buffer buffer;
+    v4l2_plane planes[VIDEO_MAX_PLANES];
+    PrepareBuffer(&buffer, planes, 0);
+    if (Xioctl(fd_.get(), VIDIOC_DQBUF, &buffer) != 0) {
+        return ErrnoError() << info_.name << ": VIDIOC_DQBUF";
+    }
+    if (buffer.index >= buffers_.size()) {
+        return Error(EIO) << info_.name << ": bogus buffer index " << buffer.index;
+    }
+
+    CapturedFrame frame;
+    frame.index = buffer.index;
+    frame.sequence = buffer.sequence;
+    frame.error = (buffer.flags & V4L2_BUF_FLAG_ERROR) != 0;
+    if ((buffer.flags & V4L2_BUF_FLAG_TIMESTAMP_MASK) == V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC) {
+        frame.timestamp_ns = static_cast<int64_t>(buffer.timestamp.tv_sec) * 1'000'000'000LL +
+                             static_cast<int64_t>(buffer.timestamp.tv_usec) * 1'000LL;
+    }
+    const MappedBuffer& mapped = buffers_[buffer.index];
+    for (uint32_t plane = 0; plane < mapped.size(); ++plane) {
+        const size_t used = info_.multiplanar ? planes[plane].bytesused : buffer.bytesused;
+        const size_t offset = info_.multiplanar ? planes[plane].data_offset : 0;
+        if (offset > used || used > mapped[plane].length) {
+            frame.error = true;
+            frame.planes.push_back({static_cast<const uint8_t*>(mapped[plane].address), 0});
+            continue;
+        }
+        frame.planes.push_back(
+                {static_cast<const uint8_t*>(mapped[plane].address) + offset, used - offset});
+    }
+    return frame;
+}
+
+Result<void> V4l2VideoDevice::QueueFrame(uint32_t index) {
+    v4l2_buffer buffer;
+    v4l2_plane planes[VIDEO_MAX_PLANES];
+    PrepareBuffer(&buffer, planes, index);
+    if (Xioctl(fd_.get(), VIDIOC_QBUF, &buffer) != 0) {
+        return ErrnoError() << info_.name << ": VIDIOC_QBUF " << index;
+    }
+    return {};
 }
 
 void FillSysfsInfo(VideoDeviceInfo* info) {

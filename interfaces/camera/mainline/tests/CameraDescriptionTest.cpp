@@ -217,5 +217,25 @@ TEST(PlanStreamsTest, Rejected) {
     reject(high_speed);
 }
 
+TEST(PlanStreamsTest, AdvertisedRgb) {
+    CameraCandidate candidate = Webcam();
+    candidate.advertise_rgb = true;
+    auto description = CameraDescription::Create(candidate);
+    ASSERT_NE(description, nullptr);
+    std::string why;
+    EXPECT_TRUE(
+            description
+                    ->PlanStreams(Config({MakeStream(0, 640, 480, PixelFormat::RGBA_8888)}), &why)
+                    .has_value())
+            << why;
+    const auto configs =
+            description->characteristics().GetI32s(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS);
+    bool found = false;
+    for (size_t i = 0; i < configs.size(); i += 4) {
+        found |= configs[i] == static_cast<int32_t>(PixelFormat::RGBA_8888);
+    }
+    EXPECT_TRUE(found);
+}
+
 }  // namespace
 }  // namespace aidl::android::hardware::camera::mainline

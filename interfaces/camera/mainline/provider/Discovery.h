@@ -34,6 +34,9 @@ struct CameraCandidate {
     Facing facing = Facing::kBack;
     // ANDROID_SENSOR_ORIENTATION.
     int rotation = 0;
+    // See Properties::prefer_rgb / advertise_rgb.
+    bool prefer_rgb = false;
+    bool advertise_rgb = false;
 };
 
 struct DiscoveryResult {
@@ -42,10 +45,6 @@ struct DiscoveryResult {
     // e.g. ueventd did not apply its permissions yet. Scan again later.
     bool retry = false;
 };
-
-// Opens video nodes. A parameter for the unit tests.
-using VideoDeviceOpener =
-        std::function<::android::base::Result<std::unique_ptr<VideoDevice>>(const std::string&)>;
 
 // Finds all cameras behind /dev/video* nodes.
 //
