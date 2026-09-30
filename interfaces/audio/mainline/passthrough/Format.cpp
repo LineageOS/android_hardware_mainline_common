@@ -15,6 +15,7 @@
 #include <alsa/asoundef.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
+#include "passthrough/Encoder.h"
 #include "passthrough/SinkCapabilities.h"
 
 namespace aidl::android::hardware::audio::core::mainline::passthrough {
@@ -44,6 +45,12 @@ const std::vector<FormatNames>& Names() {
             {EncodedFormat::kEac3Joc, "eac3-joc", ::android::MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
              AUDIO_FORMAT_E_AC3_JOC},
             {EncodedFormat::kDts, "dts", ::android::MEDIA_MIMETYPE_AUDIO_DTS, AUDIO_FORMAT_DTS},
+            {EncodedFormat::kDtsHd, "dtshd", ::android::MEDIA_MIMETYPE_AUDIO_DTS_HD,
+             AUDIO_FORMAT_DTS_HD},
+            {EncodedFormat::kDtsHdMa, "dtshd-ma", ::android::MEDIA_MIMETYPE_AUDIO_DTS_HD_MA,
+             AUDIO_FORMAT_DTS_HD_MA},
+            {EncodedFormat::kTrueHd, "truehd", ::android::MEDIA_MIMETYPE_AUDIO_DOLBY_TRUEHD,
+             AUDIO_FORMAT_DOLBY_TRUEHD},
             {EncodedFormat::kIec61937, "iec61937", ::android::MEDIA_MIMETYPE_AUDIO_IEC61937,
              AUDIO_FORMAT_DEFAULT},
     };
@@ -122,6 +129,20 @@ std::vector<AudioChannelLayout> LayoutsUpTo(unsigned int max_channels) {
     return layouts;
 }
 
+// The IEC 60958 stream at 768 kHz in two channel frames, sent as 8 channels
+// at 192 kHz.
+std::optional<IecStream> HighBitRate(uint32_t content_rate, bool hbr_allowed) {
+    if (!hbr_allowed || content_rate == 0 || content_rate % 48000 != 0 ||
+        kHbrStreamRate % content_rate != 0) {
+        return std::nullopt;
+    }
+    return IecStream{.pcm_rate = kHbrPcmRate,
+                     .pcm_channels = kHbrChannels,
+                     .hbr = true,
+                     .rate_multiplier = kHbrStreamRate / content_rate,
+                     .aes3_rate_code = Aes3RateCode(kHbrStreamRate)};
+}
+
 }  // namespace
 
 const std::vector<EncodedFormat>& AllEncodedFormats() {
@@ -165,6 +186,23 @@ std::optional<IecStream> IecStreamFor(EncodedFormat format, uint32_t content_rat
             // IEC 61937-3: four times the content rate.
             if (content_rate > 48000) return std::nullopt;
             return TwoChannel(content_rate, 4);
+        // The following as FFmpeg's "spdif" muxer sends them
+        // (external/ffmpeg/libavformat/spdifenc.c).
+        case EncodedFormat::kDtsHd:
+            // Type IV bursts at `dtshd_rate`, 768 kHz (high bit rate) or
+            // 192 kHz; at the latter the muxer falls back to the core when a
+            // frame does not fit, as Master Audio frames may not. The
+            // repetition period (rate x 512 samples / content rate) only
+            // comes out as one of the allowed ones at 48 kHz.
+            if (content_rate != 48000) return std::nullopt;
+            if (auto hbr = HighBitRate(content_rate, hbr_allowed); hbr.has_value()) return hbr;
+            return TwoChannel(content_rate, 4);
+        case EncodedFormat::kDtsHdMa:
+            if (content_rate != 48000) return std::nullopt;
+            return HighBitRate(content_rate, hbr_allowed);
+        case EncodedFormat::kTrueHd:
+            // MAT frames at 768 kHz for the 48 kHz rate family.
+            return HighBitRate(content_rate, hbr_allowed);
         case EncodedFormat::kIec61937:
             if (channels == kHbrChannels) {
                 if (!hbr_allowed || content_rate != kHbrPcmRate) return std::nullopt;
@@ -212,7 +250,7 @@ AudioFormatDescription ToAidl(EncodedFormat format) {
 std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool hbr_allowed) {
     std::vector<AudioProfile> profiles;
     for (const EncodedFormat format : AllEncodedFormats()) {
-        if (format == EncodedFormat::kIec61937) continue;
+        if (format == EncodedFormat::kIec61937 || !Encoder::CanPack(format)) continue;
         const auto entry = sink.formats.find(format);
         if (entry == sink.formats.end()) continue;
         AudioProfile profile;

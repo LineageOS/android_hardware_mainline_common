@@ -25,6 +25,11 @@ enum class EncodedFormat {
     kEac3,
     kEac3Joc,  // E-AC-3 with Joint Object Coding (Dolby Atmos in DD+).
     kDts,
+    // Packed through FFmpeg only (ffmpeg_passthrough build option), see
+    // Encoder::CanPack().
+    kDtsHd,     // DTS-HD High Resolution Audio or Master Audio.
+    kDtsHdMa,   // DTS-HD Master Audio.
+    kTrueHd,    // Dolby TrueHD, incl. Dolby Atmos.
     kIec61937,  // Already packed by the application; passed through unchanged.
 };
 
@@ -32,7 +37,7 @@ enum class EncodedFormat {
 const std::vector<EncodedFormat>& AllEncodedFormats();
 
 // Short name, also used by the hdmi.passthrough_formats property:
-// "ac3", "eac3", "eac3-joc", "dts", "iec61937".
+// "ac3", "eac3", "eac3-joc", "dts", "dtshd", "dtshd-ma", "truehd", "iec61937".
 const char* ToString(EncodedFormat format);
 std::optional<EncodedFormat> EncodedFormatFromString(const std::string& name);
 
@@ -52,11 +57,10 @@ struct IecStream {
 };
 
 // The IEC 61937 stream for `format` at `content_rate`. `channels` only
-// matters for kIec61937 (2, or 8 for high bit rate, which only applications
-// packing the data themselves can use). Returns nullopt when the combination
-// has no valid HDMI audio rate or needs high bit rate while `hbr_allowed` is
-// false. High bit rate is only offered at 192 kHz: IEC 60958-3 channel status
-// has a code for 768 kHz, not for 705.6.
+// matters for kIec61937 (2, or 8 for high bit rate). Returns nullopt when the
+// combination has no valid HDMI audio rate or needs high bit rate while
+// `hbr_allowed` is false. High bit rate is only offered for the 48 kHz rate
+// family: IEC 60958-3 channel status has a code for 768 kHz, not for 705.6.
 std::optional<IecStream> IecStreamFor(EncodedFormat format, uint32_t content_rate,
                                       unsigned int channels, bool hbr_allowed);
 
@@ -70,8 +74,8 @@ std::optional<EncodedFormat> FromAidl(
 ::aidl::android::media::audio::common::AudioFormatDescription ToAidl(EncodedFormat format);
 
 // Profiles of the HDMI device port and the passthrough mix port for `sink`:
-// one per format it decodes, with the content rates the sink announces that
-// the format can be sent at and positional channel masks up to the sink's
+// one per format it decodes and this build can pack (Encoder::CanPack()), with the content rates
+// the sink announces that the format can be sent at and positional channel masks up to the sink's
 // channel count, plus IEC 61937 (stereo, and 7.1 when `hbr_allowed`), which
 // is always offered.
 std::vector<::aidl::android::media::audio::common::AudioProfile> PassthroughProfiles(
