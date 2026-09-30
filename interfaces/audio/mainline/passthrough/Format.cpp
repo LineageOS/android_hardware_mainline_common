@@ -7,16 +7,22 @@
 
 #include "passthrough/Format.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 #include <alsa/asoundlib.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
+#include "passthrough/SinkCapabilities.h"
+
 namespace aidl::android::hardware::audio::core::mainline::passthrough {
 
+using ::aidl::android::media::audio::common::AudioChannelLayout;
 using ::aidl::android::media::audio::common::AudioFormatDescription;
 using ::aidl::android::media::audio::common::AudioFormatType;
+using ::aidl::android::media::audio::common::AudioProfile;
 using ::aidl::android::media::audio::common::PcmType;
 
 namespace {
@@ -97,6 +103,23 @@ std::optional<IecStream> TwoChannel(uint32_t content_rate, uint32_t multiplier) 
                      .hbr = false,
                      .rate_multiplier = multiplier,
                      .aes3_rate_code = Aes3RateCode(pcm_rate)};
+}
+
+// Positional layouts applications ask for with encoded streams, by channel
+// count.
+std::vector<AudioChannelLayout> LayoutsUpTo(unsigned int max_channels) {
+    std::vector<AudioChannelLayout> layouts;
+    const std::pair<unsigned int, int32_t> kLayouts[] = {
+            {1, AudioChannelLayout::LAYOUT_MONO},    {2, AudioChannelLayout::LAYOUT_STEREO},
+            {3, AudioChannelLayout::LAYOUT_2POINT1}, {4, AudioChannelLayout::LAYOUT_QUAD},
+            {6, AudioChannelLayout::LAYOUT_5POINT1}, {8, AudioChannelLayout::LAYOUT_7POINT1},
+    };
+    for (const auto& [channels, layout] : kLayouts) {
+        if (channels <= max_channels) {
+            layouts.push_back(AudioChannelLayout::make<AudioChannelLayout::layoutMask>(layout));
+        }
+    }
+    return layouts;
 }
 
 }  // namespace
@@ -184,6 +207,65 @@ AudioFormatDescription ToAidl(EncodedFormat format) {
             .type = AudioFormatType::NON_PCM,
             .pcm = format == EncodedFormat::kIec61937 ? PcmType::INT_16_BIT : PcmType::DEFAULT,
             .encoding = NamesOf(format).mime};
+}
+
+std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool hbr_allowed) {
+    std::vector<AudioProfile> profiles;
+    for (const EncodedFormat format : AllEncodedFormats()) {
+        if (format == EncodedFormat::kIec61937) continue;
+        const auto entry = sink.formats.find(format);
+        if (entry == sink.formats.end()) continue;
+        AudioProfile profile;
+        profile.format = ToAidl(format);
+        for (const uint32_t rate : ContentRates(format, hbr_allowed)) {
+            if (entry->second.rates.count(rate) != 0) {
+                profile.sampleRates.push_back(static_cast<int32_t>(rate));
+            }
+        }
+        profile.channelMasks = LayoutsUpTo(std::min(entry->second.max_channels, 8u));
+        if (profile.sampleRates.empty() || profile.channelMasks.empty()) continue;
+        profiles.push_back(std::move(profile));
+    }
+
+    AudioProfile iec61937;
+    iec61937.format = ToAidl(EncodedFormat::kIec61937);
+    iec61937.channelMasks.push_back(AudioChannelLayout::make<AudioChannelLayout::layoutMask>(
+            AudioChannelLayout::LAYOUT_STEREO));
+    if (hbr_allowed) {
+        iec61937.channelMasks.push_back(AudioChannelLayout::make<AudioChannelLayout::layoutMask>(
+                AudioChannelLayout::LAYOUT_7POINT1));
+    }
+    for (const uint32_t rate : kIecRates)
+        iec61937.sampleRates.push_back(static_cast<int32_t>(rate));
+    profiles.push_back(std::move(iec61937));
+    return profiles;
+}
+
+std::vector<AudioFormatDescription> EncodedFormatsOf(const std::vector<AudioProfile>& profiles) {
+    std::vector<AudioFormatDescription> formats;
+    for (const AudioProfile& profile : profiles) {
+        const auto format = FromAidl(profile.format);
+        if (format.has_value() && *format != EncodedFormat::kIec61937 &&
+            std::find(formats.begin(), formats.end(), profile.format) == formats.end()) {
+            formats.push_back(profile.format);
+        }
+    }
+    return formats;
+}
+
+std::optional<int32_t> BufferSizeFrames(const AudioFormatDescription& format, int32_t latency_ms,
+                                        int32_t rate) {
+    const auto encoded = FromAidl(format);
+    if (!encoded.has_value() || rate <= 0 || latency_ms <= 0) return std::nullopt;
+    // The channel count is not known here; take the largest stream.
+    auto stream = IecStreamFor(*encoded, static_cast<uint32_t>(rate), kHbrChannels, true);
+    if (!stream.has_value()) stream = IecStreamFor(*encoded, static_cast<uint32_t>(rate), 2, true);
+    const int64_t bytes_per_second =
+            stream.has_value() ? static_cast<int64_t>(stream->pcm_rate) * stream->pcm_channels * 2
+                               : static_cast<int64_t>(kHbrPcmRate) * kHbrChannels * 2;
+    const int64_t bytes = bytes_per_second * latency_ms / 1000;
+    const int64_t frame_bytes = *encoded == EncodedFormat::kIec61937 ? 2 : 1;
+    return static_cast<int32_t>(bytes / frame_bytes);
 }
 
 audio_format_t ToAudioFormat(EncodedFormat format) {
