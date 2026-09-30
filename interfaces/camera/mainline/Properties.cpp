@@ -12,6 +12,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/parsebool.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 
 namespace aidl::android::hardware::camera::mainline {
@@ -34,15 +35,30 @@ std::optional<bool> ParseOptionalBool(const std::string& value) {
     return std::nullopt;
 }
 
-// Sets `field` from the property `key` of the selector at `prefix`, unless a
-// more specific selector already set it.
-void MergeBool(std::optional<bool>* field, const std::string& prefix, const char* key,
-               const std::function<std::string(const std::string&)>& get) {
+std::optional<Facing> ParseFacing(const std::string& value) {
+    if (value == "back" || value == "rear") return Facing::kBack;
+    if (value == "front") return Facing::kFront;
+    return std::nullopt;
+}
+
+std::optional<int> ParseRotation(const std::string& value) {
+    int rotation;
+    if (!::android::base::ParseInt(value, &rotation)) return std::nullopt;
+    if (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) return std::nullopt;
+    return rotation;
+}
+
+// Sets `field` from the property `key` of the selector at `prefix` with
+// `parse`, unless a more specific selector already set it.
+template <typename T>
+void Merge(std::optional<T>* field, const std::string& prefix, const char* key,
+           const std::function<std::string(const std::string&)>& get,
+           std::optional<T> (*parse)(const std::string&)) {
     if (field->has_value()) return;
     const std::string name = prefix + key;
     const std::string value = get(name);
     if (value.empty()) return;
-    *field = ParseOptionalBool(value);
+    *field = parse(value);
     if (!field->has_value()) {
         LOG(WARNING) << "ignoring invalid value \"" << value << "\" of " << name;
     }
@@ -83,8 +99,10 @@ Properties::DeviceProperties Properties::LoadDeviceProperties(
     for (const std::string& selector : selectors) {
         if (selector.empty()) continue;
         const std::string prefix = std::string(kPrefix) + "device." + selector + ".";
-        MergeBool(&merged.enabled, prefix, "enabled", get);
-        MergeBool(&merged.internal, prefix, "internal", get);
+        Merge(&merged.enabled, prefix, "enabled", get, ParseOptionalBool);
+        Merge(&merged.internal, prefix, "internal", get, ParseOptionalBool);
+        Merge(&merged.facing, prefix, "facing", get, ParseFacing);
+        Merge(&merged.rotation, prefix, "rotation", get, ParseRotation);
     }
     return merged;
 }

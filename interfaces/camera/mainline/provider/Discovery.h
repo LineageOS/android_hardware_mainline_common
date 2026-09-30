@@ -30,6 +30,10 @@ struct CameraCandidate {
     // Capture formats the HAL can use, with their sizes and intervals.
     std::vector<FormatDescription> formats;
     bool internal = false;
+    // Only meaningful for internal cameras.
+    Facing facing = Facing::kBack;
+    // ANDROID_SENSOR_ORIENTATION.
+    int rotation = 0;
 };
 
 struct DiscoveryResult {

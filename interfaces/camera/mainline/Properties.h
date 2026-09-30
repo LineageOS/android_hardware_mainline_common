@@ -12,6 +12,9 @@
 
 namespace aidl::android::hardware::camera::mainline {
 
+// Direction an internal camera faces.
+enum class Facing { kBack, kFront };
+
 // All Android properties understood by the HAL. Every key carries the
 // "vendor.camera." prefix. Values are read once at start-up (per-device ones
 // when the device is discovered); the HAL has to be restarted for a change
@@ -43,6 +46,12 @@ struct Properties {
         std::optional<bool> enabled;
         // Internal or external camera, overriding every detection.
         std::optional<bool> internal;
+        // Facing of an internal camera: "back" (or "rear") / "front".
+        std::optional<Facing> facing;
+        // Clockwise angle the image has to be rotated by to be upright on
+        // the display in its natural orientation (ANDROID_SENSOR_ORIENTATION):
+        // 0, 90, 180 or 270.
+        std::optional<int> rotation;
     };
 
     static Properties Load();
