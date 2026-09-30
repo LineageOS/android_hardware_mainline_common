@@ -14,6 +14,7 @@
 
 #include "Properties.h"
 #include "routing/DeviceInventory.h"
+#include "routing/PcmArbiter.h"
 #include "routing/RoutingController.h"
 #include "stream/StreamMainline.h"
 
@@ -77,6 +78,7 @@ class ModuleMainline final : public Module {
     const Properties properties_;
     const std::shared_ptr<routing::DeviceInventory> inventory_;
     const std::shared_ptr<routing::RoutingController> routing_;
+    const std::shared_ptr<routing::PcmArbiter> pcm_arbiter_;
     const std::shared_ptr<std::atomic<bool>> mic_muted_;
 };
 
