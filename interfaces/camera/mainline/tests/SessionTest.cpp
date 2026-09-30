@@ -7,9 +7,12 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <mutex>
 
 #include <aidl/android/hardware/camera/device/BnCameraDeviceCallback.h>
+#include <aidl/android/hardware/camera/device/CameraBlob.h>
+#include <aidl/android/hardware/camera/device/CameraBlobId.h>
 #include <aidl/android/hardware/graphics/common/BufferUsage.h>
 #include <gtest/gtest.h>
 #include <system/camera_metadata.h>
@@ -346,6 +349,36 @@ TEST_F(SessionTest, CaptureYuv) {
     ASSERT_TRUE(session_->close().isOk());
     EXPECT_EQ(buffers_->freed(), 2);
     session_ = nullptr;
+}
+
+TEST_F(SessionTest, CaptureJpeg) {
+    constexpr int32_t kBufferSize = 512 * 1024;
+    auto blob = MakeStream(0, kWidth, kHeight, PixelFormat::BLOB);
+    blob.dataSpace = Dataspace::JFIF;
+    blob.bufferSize = kBufferSize;
+    std::vector<HalStream> hal;
+    ASSERT_TRUE(session_->configureStreams(
+                                Config({blob, MakeStream(1, 320, 240, PixelFormat::YCBCR_420_888)}),
+                                &hal)
+                        .isOk());
+    EXPECT_EQ(hal[0].overrideFormat, PixelFormat::BLOB);
+
+    ASSERT_TRUE(Submit(Request(1, BufferList(Buffer(0, 1), Buffer(1, 2)))).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(1));
+    const auto result = callback_->results()[0];
+    ASSERT_EQ(result.outputBuffers.size(), 2u);
+    EXPECT_EQ(result.outputBuffers[0].status, BufferStatus::OK);
+    EXPECT_EQ(result.outputBuffers[1].status, BufferStatus::OK);
+    EXPECT_FALSE(callback_->HasError(1, ErrorCode::ERROR_BUFFER));
+
+    const auto contents = buffers_->Contents(1);
+    ASSERT_GE(contents.size(), static_cast<size_t>(kBufferSize));
+    device::CameraBlob trailer;
+    memcpy(&trailer, contents.data() + kBufferSize - sizeof(trailer), sizeof(trailer));
+    EXPECT_EQ(trailer.blobId, device::CameraBlobId::JPEG);
+    ASSERT_GT(trailer.blobSizeBytes, 0);
+    EXPECT_EQ(contents[0], 0xff);
+    EXPECT_EQ(contents[1], 0xd8);
 }
 
 TEST_F(SessionTest, TestPatternBlack) {

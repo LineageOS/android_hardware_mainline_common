@@ -39,6 +39,8 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern), result metadata |
 | `session/GraphicBuffers.h`, `GrallocBuffers.cpp` | Output buffer import / lock, abstract for tests |
 | `convert/`                        | V4L2 formats to I420, crop / scale to YUV and RGBA outputs (libyuv) |
+| `jpeg/JpegEncoder.*`              | I420 to JPEG with libjpeg (raw 4:2:0 input; errors `longjmp` back, never `exit()`) |
+| `jpeg/JpegOutput.*`               | BLOB outputs: scaling, thumbnail, EXIF (`android.hardware.camera.common-helper`), `CameraBlob` trailer |
 | `v4l2/VideoDevice.h`              | Abstract V4L2 capture node; everything above it is testable with a fake |
 | `v4l2/V4l2VideoDevice.cpp`        | The real implementation (ioctls, sysfs identity) |
 | `v4l2/PixelFormats.*`             | Which V4L2 formats are processed / Bayer / unsupported |

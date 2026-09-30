@@ -228,15 +228,20 @@ TEST_F(ScaleTest, ToRgba) {
 }
 
 TEST_F(ScaleTest, Black) {
-    std::vector<uint8_t> yuv(8 * 4 * 2, 0xee);
-    FillBlack({8, 4}, YuvDestination{yuv.data(), yuv.data() + 32, yuv.data() + 40, 8, 4, 1});
-    EXPECT_EQ(yuv[0], 0);
-    EXPECT_EQ(yuv[32], 128);
-    EXPECT_EQ(yuv[40], 128);
+    FillBlack(&source_);
+    EXPECT_TRUE(source_.full_range);
+    I420Image black;
+    black.Resize(4, 4);
+    ScaleToI420(source_, {0, 0, 16, 8}, &black);
+    EXPECT_EQ(black.y()[0], 0);
+    EXPECT_EQ(black.u()[0], 128);
+    EXPECT_EQ(black.v()[0], 128);
 
     std::vector<uint8_t> rgba(4 * 4 * 4, 0xee);
-    FillBlack({4, 4}, RgbaDestination{rgba.data(), 16});
+    ASSERT_TRUE(ScaleToRgba(source_, {0, 0, 8, 8}, {4, 4}, {rgba.data(), 16}, &scratch_));
     EXPECT_EQ(rgba[0], 0);
+    EXPECT_EQ(rgba[1], 0);
+    EXPECT_EQ(rgba[2], 0);
     EXPECT_EQ(rgba[3], 255);
 }
 
