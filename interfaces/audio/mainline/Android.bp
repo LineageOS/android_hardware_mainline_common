@@ -18,6 +18,13 @@
 //                             effect HAL, e.g. the legacy library wrapper in
 //                             ../effect/legacy. Exactly one IFactory/default
 //                             may be installed on a device.
+//   bool ffmpeg_passthrough - pack DTS-HD (incl. Master Audio) and Dolby
+//                             TrueHD for HDMI passthrough with FFmpeg
+//                             (external/ffmpeg: libavformat's "spdif" muxer
+//                             and libavcodec's parsers, LGPL-2.1 shared
+//                             libraries that end up in the APEX). Unset by
+//                             default: those formats are then not offered.
+//                             FFmpeg is built for 64-bit only.
 
 cc_defaults {
     name: "android.hardware.audio.service-aidl.mainline_defaults",
@@ -70,7 +77,10 @@ cc_binary {
         "stream/StreamMainline.cpp",
         "ucm/UcmDeviceMapper.cpp",
         "ucm/UcmManager.cpp",
-    ],
+    ] + select(soong_config_variable("mainline_audio", "ffmpeg_passthrough"), {
+        true: ["passthrough/FfmpegEncoder.cpp"],
+        default: [],
+    }),
     // "spdif/include" before the include directories of the dependencies:
     // libaudioutils exports the upstream headers of the forked libaudiospdif
     // under the same paths.
@@ -95,10 +105,20 @@ cc_binary {
         "libmedia_helper",
         "libstagefright_foundation",
         "libutils",
-    ],
+    ] + select(soong_config_variable("mainline_audio", "ffmpeg_passthrough"), {
+        true: [
+            "libavcodec",
+            "libavformat",
+            "libavutil",
+        ],
+        default: [],
+    }),
     cflags: select(soong_config_variable("mainline_audio", "disable_bluetooth"), {
         true: [],
         default: ["-DMAINLINE_AUDIO_WITH_BLUETOOTH"],
+    }) + select(soong_config_variable("mainline_audio", "ffmpeg_passthrough"), {
+        true: ["-DMAINLINE_AUDIO_WITH_FFMPEG"],
+        default: [],
     }),
     installable: false, // installed in the APEX below
 }
