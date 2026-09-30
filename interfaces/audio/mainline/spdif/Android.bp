@@ -12,6 +12,7 @@ cc_library_static {
         "AC3FrameScanner.cpp",
         "BitFieldParser.cpp",
         "DTSFrameScanner.cpp",
+        "DTSHDFrameScanner.cpp",
         "FrameScanner.cpp",
         "SPDIFEncoder.cpp",
     ],

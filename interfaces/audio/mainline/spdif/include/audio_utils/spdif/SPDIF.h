@@ -21,6 +21,7 @@ namespace android {
 inline constexpr uint32_t kSpdifEncodedChannelCount = 2u;
 inline constexpr uint32_t kSpdifDataTypeAc3 = 1u;
 inline constexpr uint32_t kSpdifDataTypeEac3 = 21u;
+inline constexpr uint32_t kSpdifDataTypeDtsTypeIV = 17u;  // DTS-HD, IEC61937-5
 inline constexpr uint32_t kSpdifRateMultiplierEac3 = 4u;
 
 // Burst preamble defined in IEC61937-1
