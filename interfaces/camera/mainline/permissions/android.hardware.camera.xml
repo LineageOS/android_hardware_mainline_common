@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<!-- A back facing camera without autofocus. Same features as
+     frameworks/native/data/etc/android.hardware.camera.xml, which has no
+     prebuilt_etc module to bundle into the APEX. -->
+<permissions>
+    <feature name="android.hardware.camera.any" />
+    <feature name="android.hardware.camera" />
+</permissions>

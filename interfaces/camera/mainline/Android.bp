@@ -1,0 +1,139 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Generic V4L2 based AIDL camera provider HAL for devices running a mainline
+// Linux kernel. See README.md.
+//
+// Soong config variables (namespace "camera_hal_mainline"):
+//   bool run_as_root                 - run the service as root (development).
+//   bool include_all_permission_xmls - ship the feature XMLs of every kind of
+//                                      camera the HAL can provide (back,
+//                                      front, external).
+
+cc_defaults {
+    name: "android.hardware.camera.provider-service.mainline_defaults",
+    vendor: true,
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wthread-safety",
+    ],
+    local_include_dirs: ["."],
+    shared_libs: [
+        "android.hardware.camera.common-V1-ndk",
+        "android.hardware.camera.device-V4-ndk",
+        "android.hardware.camera.provider-V4-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "liblog",
+    ],
+}
+
+// Everything but main(), shared by the service and the unit tests.
+cc_library_static {
+    name: "libcamera_provider_mainline",
+    defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
+    srcs: [
+        "Properties.cpp",
+        "provider/CameraIdAllocator.cpp",
+        "provider/CameraProvider.cpp",
+        "provider/DeviceMonitor.cpp",
+        "provider/Discovery.cpp",
+        "utils/Sysfs.cpp",
+        "v4l2/PixelFormats.cpp",
+        "v4l2/V4l2VideoDevice.cpp",
+    ],
+    visibility: [":__subpackages__"],
+}
+
+cc_binary {
+    name: "android.hardware.camera.provider-service.mainline",
+    defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
+    relative_install_path: "hw",
+    installable: false, // installed through the APEX
+    srcs: ["main.cpp"],
+    static_libs: ["libcamera_provider_mainline"],
+}
+
+cc_test {
+    name: "camera_provider_mainline_test",
+    defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
+    srcs: [
+        "tests/CameraIdAllocatorTest.cpp",
+        "tests/DiscoveryTest.cpp",
+        "tests/FakeVideoDevice.cpp",
+        "tests/PixelFormatsTest.cpp",
+        "tests/PropertiesTest.cpp",
+        "tests/SysfsTest.cpp",
+    ],
+    static_libs: [
+        "libcamera_provider_mainline",
+        "libgmock",
+    ],
+    test_suites: ["device-tests"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.provider-service.mainline.rc",
+    src: "android.hardware.camera.provider-service.mainline.rc",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.provider-service.mainline-as-root.rc",
+    src: "android.hardware.camera.provider-service.mainline-as-root.rc",
+    installable: false,
+}
+
+// frameworks/native/data/etc has no prebuilt_etc modules for these two.
+prebuilt_etc {
+    name: "android.hardware.camera.mainline.xml",
+    src: "permissions/android.hardware.camera.xml",
+    sub_dir: "permissions",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.external.mainline.xml",
+    src: "permissions/android.hardware.camera.external.xml",
+    sub_dir: "permissions",
+    installable: false,
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.provider-service.mainline.xml",
+    src: "android.hardware.camera.provider-service.mainline.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
+// The APEX manifest keeps the name "com.android.hardware.camera.provider" so
+// that this module can be installed as an alternative implementation of the
+// camera provider (multi-install APEX).
+apex {
+    name: "com.android.hardware.camera.provider.mainline",
+    manifest: "apex_manifest.json",
+    file_contexts: "file_contexts",
+    key: "com.android.hardware.key",
+    certificate: ":com.android.hardware.certificate",
+    updatable: false,
+    vendor: true,
+
+    binaries: ["android.hardware.camera.provider-service.mainline"],
+    prebuilts: [
+        "android.hardware.camera.provider-service.mainline.xml",
+    ] + select(soong_config_variable("camera_hal_mainline", "run_as_root"), {
+        true: ["android.hardware.camera.provider-service.mainline-as-root.rc"],
+        default: ["android.hardware.camera.provider-service.mainline.rc"],
+    }) + select(soong_config_variable("camera_hal_mainline", "include_all_permission_xmls"), {
+        true: [
+            "android.hardware.camera.mainline.xml",
+            "android.hardware.camera.external.mainline.xml",
+            "android.hardware.camera.front.prebuilt.xml",
+        ],
+        default: [],
+    }),
+}
