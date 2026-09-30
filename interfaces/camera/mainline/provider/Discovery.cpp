@@ -71,6 +71,109 @@ std::string CameraKey(const VideoDeviceInfo& info) {
     return info.bus_info + "|" + info.card;
 }
 
+// Decides internal / external, facing and rotation, from the most to the
+// least authoritative source:
+//   internal: property, firmware orientation control, USB port (built in or
+//             removable), default_internal
+//   facing:   property, firmware orientation control, camera hwdb, built-in
+//             USB camera (front, like a laptop's), back
+//   rotation: property, firmware rotation control, 0
+// facing_by_resolution may still change the facing of cameras that ended up
+// with the last default, see DiscoverCameras().
+void ResolvePlacement(const Properties& properties, VideoDevice* device,
+                      CameraCandidate* candidate) {
+    const auto& props = candidate->properties;
+    const auto& info = candidate->info;
+
+    // Set from the device tree ("orientation", "rotation") or ACPI (_PLD) on
+    // drivers that call v4l2_ctrl_new_fwnode_properties().
+    std::optional<int32_t> orientation;
+    if (device->HasControl(V4L2_CID_CAMERA_ORIENTATION)) {
+        orientation = device->GetControl(V4L2_CID_CAMERA_ORIENTATION);
+    }
+    std::optional<int32_t> sensor_rotation;
+    if (device->HasControl(V4L2_CID_CAMERA_SENSOR_ROTATION)) {
+        sensor_rotation = device->GetControl(V4L2_CID_CAMERA_SENSOR_ROTATION);
+    }
+
+    if (props.internal.has_value()) {
+        candidate->internal = *props.internal;
+        candidate->internal_source = "property";
+    } else if (orientation.has_value()) {
+        candidate->internal = *orientation != V4L2_CAMERA_ORIENTATION_EXTERNAL;
+        candidate->internal_source = "firmware";
+    } else if (info.usb_removable.has_value()) {
+        candidate->internal = !*info.usb_removable;
+        candidate->internal_source =
+                *info.usb_removable ? "removable USB port" : "built-in USB port";
+    } else {
+        candidate->internal = properties.default_internal;
+        candidate->internal_source = "default";
+    }
+
+    candidate->facing_known = true;
+    if (props.facing.has_value()) {
+        candidate->facing = *props.facing;
+        candidate->facing_source = "property";
+    } else if (orientation == V4L2_CAMERA_ORIENTATION_FRONT ||
+               orientation == V4L2_CAMERA_ORIENTATION_BACK) {
+        candidate->facing =
+                orientation == V4L2_CAMERA_ORIENTATION_FRONT ? Facing::kFront : Facing::kBack;
+        candidate->facing_source = "firmware";
+    } else if (candidate->hwdb.direction.has_value()) {
+        candidate->facing = *candidate->hwdb.direction;
+        candidate->facing_source = "hwdb";
+    } else if (info.usb_removable == false) {
+        // A built-in USB camera is almost always the one above a laptop's or
+        // tablet's screen.
+        candidate->facing = Facing::kFront;
+        candidate->facing_source = "built-in USB camera";
+    } else {
+        candidate->facing = Facing::kBack;
+        candidate->facing_source = "default";
+        candidate->facing_known = false;
+    }
+
+    if (props.rotation.has_value()) {
+        candidate->rotation = *props.rotation;
+    } else if (sensor_rotation.has_value() && *sensor_rotation % 90 == 0) {
+        // V4L2 gives the counter-clockwise correction, Android the clockwise
+        // one.
+        candidate->rotation = (360 - *sensor_rotation % 360) % 360;
+    } else {
+        candidate->rotation = 0;
+    }
+}
+
+int64_t LargestArea(const CameraCandidate& candidate) {
+    int64_t area = 0;
+    for (const auto& format : candidate.formats) {
+        for (const auto& size : format.sizes) area = std::max<int64_t>(area, size.Area());
+    }
+    return area;
+}
+
+// facing_by_resolution: of the internal cameras whose facing is not known,
+// the one with the smallest resolution faces front.
+void ApplyFacingByResolution(std::vector<CameraCandidate>* cameras) {
+    std::vector<CameraCandidate*> unknown;
+    for (auto& camera : *cameras) {
+        if (camera.internal && !camera.facing_known) unknown.push_back(&camera);
+    }
+    if (unknown.size() < 2) return;
+    auto smallest = *std::min_element(unknown.begin(), unknown.end(), [](auto* a, auto* b) {
+        const int64_t area_a = LargestArea(*a);
+        const int64_t area_b = LargestArea(*b);
+        return area_a != area_b ? area_a < area_b : a->key < b->key;
+    });
+    for (auto* camera : unknown) {
+        camera->facing = camera == smallest ? Facing::kFront : Facing::kBack;
+        camera->facing_source = "resolution";
+        LOG(INFO) << camera->info.name << ": facing "
+                  << (camera->facing == Facing::kFront ? "front" : "back") << " by resolution";
+    }
+}
+
 }  // namespace
 
 std::vector<std::string> DeviceSelectors(const VideoDeviceInfo& info) {
@@ -85,7 +188,8 @@ std::vector<std::string> DeviceSelectors(const VideoDeviceInfo& info) {
     return selectors;
 }
 
-std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, VideoDevice* device) {
+std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
+                                                const CameraHwdb* hwdb, VideoDevice* device) {
     const VideoDeviceInfo& info = device->Info();
     const uint32_t caps = info.device_caps;
     const std::string what = info.name + " (" + info.driver + ", \"" + info.card + "\")";
@@ -120,6 +224,14 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, Vi
         LOG(INFO) << what << ": disabled by property";
         return std::nullopt;
     }
+    if (hwdb != nullptr && info.usb_vendor_id.has_value() && info.usb_product_id.has_value()) {
+        candidate.hwdb = hwdb->Lookup(*info.usb_vendor_id, *info.usb_product_id, info.sysfs_name);
+    }
+    // Infrared cameras (face unlock) are no use to camera apps.
+    if (candidate.hwdb.infrared && !properties.include_ir && candidate.properties.enabled != true) {
+        LOG(INFO) << what << ": infrared camera, skipped";
+        return std::nullopt;
+    }
 
     bool has_bayer = false;
     for (auto& format : device->EnumerateFormats()) {
@@ -146,22 +258,22 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, Vi
         return std::nullopt;
     }
 
-    candidate.internal = candidate.properties.internal.value_or(properties.default_internal);
-    candidate.facing = candidate.properties.facing.value_or(Facing::kBack);
-    candidate.rotation = candidate.properties.rotation.value_or(0);
+    ResolvePlacement(properties, device, &candidate);
     candidate.prefer_rgb = candidate.properties.prefer_rgb.value_or(properties.prefer_rgb);
     candidate.advertise_rgb = candidate.properties.advertise_rgb.value_or(properties.advertise_rgb);
 
     LOG(INFO) << what << ": camera " << candidate.key << ", "
-              << (candidate.internal ? (candidate.facing == Facing::kFront ? "internal front"
-                                                                           : "internal back")
-                                     : "external")
-              << ", rotation " << candidate.rotation << ", selectors ["
-              << ::android::base::Join(candidate.selectors, ", ") << "]";
+              << (candidate.internal ? "internal" : "external") << " (" << candidate.internal_source
+              << ")";
+    if (candidate.internal) {
+        LOG(INFO) << what << ": facing " << (candidate.facing == Facing::kFront ? "front" : "back")
+                  << " (" << candidate.facing_source << "), rotation " << candidate.rotation;
+    }
+    LOG(INFO) << what << ": selectors [" << ::android::base::Join(candidate.selectors, ", ") << "]";
     return candidate;
 }
 
-DiscoveryResult DiscoverCameras(const Properties& properties,
+DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
                                 const std::map<std::string, CameraCandidate>& known,
                                 const VideoDeviceOpener& open, const std::string& dev_dir) {
     DiscoveryResult result;
@@ -188,7 +300,7 @@ DiscoveryResult DiscoverCameras(const Properties& properties,
             continue;
         }
 
-        auto candidate = ProbeCaptureNode(properties, device->get());
+        auto candidate = ProbeCaptureNode(properties, hwdb, device->get());
         if (!candidate.has_value()) continue;
         if (!keys.insert(candidate->key).second) {
             // e.g. the second capture node of a capture card.
@@ -198,6 +310,7 @@ DiscoveryResult DiscoverCameras(const Properties& properties,
         }
         result.cameras.push_back(std::move(*candidate));
     }
+    if (properties.facing_by_resolution) ApplyFacingByResolution(&result.cameras);
     return result;
 }
 

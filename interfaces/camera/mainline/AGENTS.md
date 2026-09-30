@@ -29,6 +29,7 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `provider/Discovery.*`            | Classifies `/dev/video*` nodes into `CameraCandidate`s |
 | `provider/DeviceMonitor.*`        | inotify on `/dev`, debounced rescans with retry |
 | `provider/CameraIdAllocator.*`    | Stable numerical camera IDs |
+| `config/CameraHwdb.*`             | systemd `70-cameras.hwdb` lookups (direction, infrared) via `libhwdb` |
 | `device/CameraDevice.*`           | `BnCameraDevice`, one object per camera, handed out repeatedly |
 | `device/CameraDescription.*`      | Everything fixed per camera: static metadata, stream validation (`PlanStreams()`) |
 | `device/StreamPlanner.*`          | Output sizes / durations, capture mode selection for a set of outputs |
@@ -63,6 +64,10 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 * `ClassifyPixelFormat()` returns `kProcessed` only for formats the converter
   handles. Adding a format there means handling it in the converter too.
 * Camera IDs must not depend on probe order: sort before allocating.
+* Placement (internal / external, facing, rotation) is decided only in
+  `ResolvePlacement()` / `ApplyFacingByResolution()` in `Discovery.cpp`, in
+  the order documented in the README; keep both in sync and record the
+  source in `internal_source` / `facing_source`.
 * Keep `kRequestKeys` / `kResultOnlyKeys` in `CameraDescription.cpp` in sync
   with what the session actually handles and reports, and the templates within
   the request keys (a unit test checks the latter).

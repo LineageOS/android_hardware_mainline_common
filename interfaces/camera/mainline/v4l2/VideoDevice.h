@@ -66,6 +66,12 @@ struct VideoDeviceInfo {
     // USB vendor / product ID when the device sits on USB.
     std::optional<uint16_t> usb_vendor_id;
     std::optional<uint16_t> usb_product_id;
+    // Whether the USB port is removable (true) or built in (false), from
+    // the firmware (ACPI _PLD / _UPC) or the hub descriptor. Unknown for
+    // non-USB devices and when the firmware does not say.
+    std::optional<bool> usb_removable;
+    // The "name" attribute of the video4linux device.
+    std::string sysfs_name;
 };
 
 // Layout of one memory plane of a capture buffer.

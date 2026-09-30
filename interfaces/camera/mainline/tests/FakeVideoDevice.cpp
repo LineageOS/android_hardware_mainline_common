@@ -79,6 +79,7 @@ VideoDeviceInfo FakeVideoDevice::UvcInfo(const std::string& name, const std::str
     info.sysfs_device = sysfs_device;
     info.usb_vendor_id = 0x046d;
     info.usb_product_id = 0x082d;
+    info.sysfs_name = "HD Pro Webcam C920";
     return info;
 }
 

@@ -30,6 +30,7 @@ cc_defaults {
         "libcutils",
         "libexif",
         "libfmq",
+        "libhwdb",
         "libjpeg",
         "liblog",
         "libsync",
@@ -57,6 +58,7 @@ cc_library_static {
     defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
     srcs: [
         "Properties.cpp",
+        "config/CameraHwdb.cpp",
         "convert/FormatConverter.cpp",
         "convert/Image.cpp",
         "device/CameraDescription.cpp",
@@ -96,6 +98,7 @@ cc_test {
     defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
     srcs: [
         "tests/CameraDescriptionTest.cpp",
+        "tests/CameraHwdbTest.cpp",
         "tests/CameraIdAllocatorTest.cpp",
         "tests/DiscoveryTest.cpp",
         "tests/FakeGraphicBuffers.cpp",

@@ -78,6 +78,9 @@ Properties Properties::Load() {
             std::clamp(GetIntProperty(Key("wait_internal_ms"), props.wait_internal_ms), 0, 60000);
     props.external_id_offset = std::clamp(
             GetIntProperty(Key("external_id_offset"), props.external_id_offset), 1, 100000);
+    props.facing_by_resolution =
+            GetBoolProperty(Key("facing_by_resolution"), props.facing_by_resolution);
+    props.include_ir = GetBoolProperty(Key("include_ir"), props.include_ir);
     props.prefer_rgb = GetBoolProperty(Key("prefer_rgb"), props.prefer_rgb);
     props.advertise_rgb = GetBoolProperty(Key("advertise_rgb"), props.advertise_rgb);
     props.verbose_logging = GetBoolProperty(Key("log.verbose"), props.verbose_logging);
@@ -90,6 +93,7 @@ std::string Properties::ToString() const {
     std::ostringstream os;
     os << "default_internal=" << default_internal << " wait_internal_count=" << wait_internal_count
        << " wait_internal_ms=" << wait_internal_ms << " external_id_offset=" << external_id_offset
+       << " facing_by_resolution=" << facing_by_resolution << " include_ir=" << include_ir
        << " prefer_rgb=" << prefer_rgb << " advertise_rgb=" << advertise_rgb
        << " log.verbose=" << verbose_logging;
     return os.str();

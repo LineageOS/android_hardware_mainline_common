@@ -108,10 +108,45 @@ registers. Set `wait_internal_count` if some internal camera probes late.
 
 An internal camera is listed at boot, faces front or back and reports the
 hardware level `LIMITED`; an external one is announced when it appears, faces
-"external" and reports the hardware level `EXTERNAL`. Cameras are external
-unless `default_internal` is set, or the per-device `internal` property says
-otherwise. Internal cameras face back unless the per-device `facing` property
-says otherwise; back facing ones get the lower IDs.
+"external" and reports the hardware level `EXTERNAL`. Back facing internal
+cameras get the lower IDs.
+
+Where a camera is, is decided from the most to the least authoritative
+source:
+
+| | Internal / external | Facing (internal cameras) | Rotation (`SENSOR_ORIENTATION`) |
+|---|---|---|---|
+| 1 | per-device `internal` property | per-device `facing` property | per-device `rotation` property |
+| 2 | firmware: `V4L2_CID_CAMERA_ORIENTATION` (device tree `orientation`, ACPI `_PLD`) front / back = internal, external = external | firmware: `V4L2_CID_CAMERA_ORIENTATION` | firmware: `V4L2_CID_CAMERA_SENSOR_ROTATION` (device tree `rotation`), converted to Android's clockwise angle |
+| 3 | USB port: built in (`removable` = `fixed`, from ACPI or the hub descriptor) = internal, `removable` = external | camera hwdb `ID_CAMERA_DIRECTION` | 0 |
+| 4 | `default_internal` (default: external) | built-in USB camera: front, like the one above a laptop screen | |
+| 5 | | with `facing_by_resolution`: of the remaining internal cameras, the one with the smallest resolution faces front | |
+| 6 | | back | |
+
+The log shows the decision and where it came from for every camera.
+
+Infrared cameras (camera hwdb `ID_INFRARED_CAMERA=1`, e.g. for face unlock)
+are skipped, unless `include_ir` is set or the camera's `enabled` property is
+`true`.
+
+### Camera hwdb
+
+The HAL reads the systemd compatible camera hardware database
+(`hwdb.d/70-cameras.hwdb`), which maps USB cameras, by vendor and product ID
+and their V4L2 name, to their direction and whether they are infrared
+cameras. It is read, later entries winning, from
+`/vendor/etc/camera/hwdb.d/*.hwdb`, `/odm/etc/camera/hwdb.d/*.hwdb` and the
+legacy locations `/vendor/etc/hwdb.d/70-cameras.hwdb` and
+`/odm/etc/hwdb.d/70-cameras.hwdb`. Parsing is done by `libhwdb`
+(`hardware/mainline/common/libraries/libhwdb`), with lookup keys built like
+systemd's `70-camera.rules`:
+
+```
+camera:usb:v<vendor ID>p<product ID>:name:<name attribute>:
+```
+
+The module `70-cameras.hwdb` (`vendor/mainline/configs/hwdb.d`, imported from
+systemd) installs it to `/vendor/etc/hwdb.d/`.
 
 ## Camera characteristics
 
@@ -135,8 +170,8 @@ Everything is derived from what the capture node offers:
   size are nominal values of a typical webcam (3.6 mm wide sensor, 70 degree
   horizontal field of view, f/2.0); they only affect field of view
   calculations in apps.
-* `SENSOR_ORIENTATION` is 0 for external cameras, and the per-device
-  `rotation` property (default 0) for internal ones.
+* `SENSOR_ORIENTATION` is 0 for external cameras (see above for internal
+  ones).
 * With `advertise_rgb`, every output size is also offered as `RGBA_8888`.
 
 ## Capture sessions
@@ -184,6 +219,8 @@ per-device keys when the device is discovered.
 | `wait_internal_count`  | int  | `0`     | Number of internal cameras to wait for before registering the provider (max 64). |
 | `wait_internal_ms`     | int  | `10000` | Maximum time to wait for them (max 60000). |
 | `external_id_offset`   | int  | `100`   | First camera ID of external cameras. |
+| `facing_by_resolution` | bool | `false` | Of the internal cameras whose facing nothing else determines, the one with the smallest resolution faces front, the others back. |
+| `include_ir`           | bool | `false` | Also use infrared cameras. |
 | `prefer_rgb`           | bool | `false` | Write RGBA 8888 instead of YUV into `PRIVATE` streams that do not feed a video encoder, for GPU consumers that handle YUV buffers badly. |
 | `advertise_rgb`        | bool | `false` | Also offer RGBA 8888 output streams. Not a format camera apps expect; some CTS tests fail with it. |
 | `log.verbose`          | bool | `false` | VERBOSE instead of DEBUG logging. |
@@ -210,10 +247,10 @@ adb logcat -s MainlineCamera_Discovery
 
 | Key        | Type | Meaning |
 |------------|------|---------|
-| `enabled`  | bool | `false` ignores the device. |
+| `enabled`  | bool | `false` ignores the device, `true` uses it even if it is an infrared camera. |
 | `internal` | bool | Internal (`true`) or external (`false`) camera. |
-| `facing`   | string | `back` (or `rear`) / `front`, for internal cameras. Default `back`. |
-| `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. Default 0. |
+| `facing`   | string | `back` (or `rear`) / `front`, for internal cameras. |
+| `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. |
 | `prefer_rgb` | bool | Overrides the global `prefer_rgb`. |
 | `advertise_rgb` | bool | Overrides the global `advertise_rgb`. |
 

@@ -35,6 +35,12 @@ struct Properties {
     // below it.
     int external_id_offset = 100;
 
+    // Internal cameras whose facing nothing else determines: the one with the
+    // smallest resolution faces front, the others back.
+    bool facing_by_resolution = false;
+    // Also use infrared cameras (ID_INFRARED_CAMERA in the camera hwdb).
+    bool include_ir = false;
+
     // Write RGBA 8888 instead of YUV into PRIVATE (IMPLEMENTATION_DEFINED)
     // streams that do not go to a video encoder, e.g. for GPU consumers that
     // handle YUV buffers badly.
