@@ -26,10 +26,21 @@ cc_defaults {
         "android.hardware.camera.common-V1-ndk",
         "android.hardware.camera.device-V4-ndk",
         "android.hardware.camera.provider-V4-ndk",
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
         "libbase",
         "libbinder_ndk",
         "libcamera_metadata",
+        "libcutils",
+        "libfmq",
         "liblog",
+        "libsync",
+        "libui",
+        "libutils",
+        "libyuv",
+    ],
+    static_libs: [
+        "libaidlcommonsupport",
     ],
 }
 
@@ -39,6 +50,8 @@ cc_library_static {
     defaults: ["android.hardware.camera.provider-service.mainline_defaults"],
     srcs: [
         "Properties.cpp",
+        "convert/FormatConverter.cpp",
+        "convert/Image.cpp",
         "device/CameraDescription.cpp",
         "device/CameraDevice.cpp",
         "device/RequestTemplates.cpp",
@@ -47,6 +60,11 @@ cc_library_static {
         "provider/CameraProvider.cpp",
         "provider/DeviceMonitor.cpp",
         "provider/Discovery.cpp",
+        "session/CameraDeviceSession.cpp",
+        "session/CaptureStream.cpp",
+        "session/DeviceControls.cpp",
+        "session/GrallocBuffers.cpp",
+        "session/RequestSettings.cpp",
         "utils/Metadata.cpp",
         "utils/Sysfs.cpp",
         "v4l2/PixelFormats.cpp",
@@ -71,11 +89,15 @@ cc_test {
         "tests/CameraDescriptionTest.cpp",
         "tests/CameraIdAllocatorTest.cpp",
         "tests/DiscoveryTest.cpp",
+        "tests/FakeGraphicBuffers.cpp",
         "tests/FakeVideoDevice.cpp",
+        "tests/FormatConverterTest.cpp",
         "tests/MetadataTest.cpp",
         "tests/PixelFormatsTest.cpp",
         "tests/PropertiesTest.cpp",
+        "tests/RequestSettingsTest.cpp",
         "tests/RequestTemplatesTest.cpp",
+        "tests/SessionTest.cpp",
         "tests/StreamPlannerTest.cpp",
         "tests/SysfsTest.cpp",
     ],
@@ -84,6 +106,14 @@ cc_test {
         "libgmock",
     ],
     test_suites: ["device-tests"],
+}
+
+// Lets the service load libraries (the gralloc mapper and its
+// dependencies) from /vendor and /odm.
+linker_config {
+    name: "com.android.hardware.camera.provider.mainline-linker-config",
+    src: "apex_linkerconfig.json",
+    installable: false,
 }
 
 prebuilt_etc {
@@ -135,6 +165,7 @@ apex {
     binaries: ["android.hardware.camera.provider-service.mainline"],
     prebuilts: [
         "android.hardware.camera.provider-service.mainline.xml",
+        "com.android.hardware.camera.provider.mainline-linker-config",
     ] + select(soong_config_variable("camera_hal_mainline", "run_as_root"), {
         true: ["android.hardware.camera.provider-service.mainline-as-root.rc"],
         default: ["android.hardware.camera.provider-service.mainline.rc"],

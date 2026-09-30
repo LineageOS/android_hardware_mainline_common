@@ -33,11 +33,17 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `device/CameraDescription.*`      | Everything fixed per camera: static metadata, stream validation (`PlanStreams()`) |
 | `device/StreamPlanner.*`          | Output sizes / durations, capture mode selection for a set of outputs |
 | `device/RequestTemplates.*`       | Default request settings |
+| `session/CameraDeviceSession.*`   | `BnCameraDeviceSession`: stream configuration, request validation, buffer cache, FMQs, worker thread |
+| `session/CaptureStream.*`         | The session's V4L2 device: format, frame interval, streaming, frame to I420 with boottime timestamp |
+| `session/DeviceControls.*`        | AE / AWB lock, antibanding, constant frame rate on V4L2 controls |
+| `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern), result metadata |
+| `session/GraphicBuffers.h`, `GrallocBuffers.cpp` | Output buffer import / lock, abstract for tests |
+| `convert/`                        | V4L2 formats to I420, crop / scale to YUV and RGBA outputs (libyuv) |
 | `v4l2/VideoDevice.h`              | Abstract V4L2 capture node; everything above it is testable with a fake |
 | `v4l2/V4l2VideoDevice.cpp`        | The real implementation (ioctls, sysfs identity) |
 | `v4l2/PixelFormats.*`             | Which V4L2 formats are processed / Bayer / unsupported |
 | `utils/`                          | sysfs helpers, `common::Status` -> binder status, `Metadata` (camera_metadata_t wrapper) |
-| `tests/`                          | `camera_provider_mainline_test` and `FakeVideoDevice` |
+| `tests/`                          | `camera_provider_mainline_test`, `FakeVideoDevice`, `FakeGraphicBuffers` |
 | `permissions/`                    | Feature XMLs without a prebuilt module in `frameworks/native` |
 
 Build modules: `android.hardware.camera.provider-service.mainline` (binary),
@@ -58,6 +64,11 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 * Keep `kRequestKeys` / `kResultOnlyKeys` in `CameraDescription.cpp` in sync
   with what the session actually handles and reports, and the templates within
   the request keys (a unit test checks the latter).
+* Sessions: callbacks into the framework happen on the worker thread only
+  (plus `close()` / `flush()` waiting for it); a shutter always precedes the
+  result of its frame, and every buffer of every request comes back, with an
+  error if need be. The worker is the only user of `CaptureStream` except
+  `configureStreams()`, which runs while it is idle.
 * Characteristics describe the device, not a session. Anything a session can
   not deliver for every advertised stream combination must not be advertised.
 * Calls into the framework (`ICameraProviderCallback`) are made without

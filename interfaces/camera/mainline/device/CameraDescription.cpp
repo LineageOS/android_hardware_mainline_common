@@ -236,8 +236,9 @@ void CameraDescription::BuildCharacteristics() {
     std::vector<int32_t> configurations;
     std::vector<int64_t> min_durations;
     std::vector<int64_t> stall_durations;
-    const PixelFormat formats[] = {PixelFormat::IMPLEMENTATION_DEFINED, PixelFormat::YCBCR_420_888,
-                                   PixelFormat::BLOB};
+    std::vector<PixelFormat> formats = {PixelFormat::IMPLEMENTATION_DEFINED,
+                                        PixelFormat::YCBCR_420_888, PixelFormat::BLOB};
+    if (candidate_.advertise_rgb) formats.push_back(PixelFormat::RGBA_8888);
     for (const auto& output : planner_.OutputSizes()) {
         for (const PixelFormat format : formats) {
             const auto f = static_cast<int32_t>(format);
@@ -372,6 +373,13 @@ std::optional<CaptureMode> CameraDescription::PlanStreams(const device::StreamCo
                 break;
             case PixelFormat::IMPLEMENTATION_DEFINED:
             case PixelFormat::YCBCR_420_888:
+                ++processed;
+                break;
+            case PixelFormat::RGBA_8888:
+                if (!candidate_.advertise_rgb) {
+                    *why = what + ": unsupported format";
+                    return std::nullopt;
+                }
                 ++processed;
                 break;
             default:

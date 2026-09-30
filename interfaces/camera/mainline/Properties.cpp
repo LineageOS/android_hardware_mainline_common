@@ -78,6 +78,8 @@ Properties Properties::Load() {
             std::clamp(GetIntProperty(Key("wait_internal_ms"), props.wait_internal_ms), 0, 60000);
     props.external_id_offset = std::clamp(
             GetIntProperty(Key("external_id_offset"), props.external_id_offset), 1, 100000);
+    props.prefer_rgb = GetBoolProperty(Key("prefer_rgb"), props.prefer_rgb);
+    props.advertise_rgb = GetBoolProperty(Key("advertise_rgb"), props.advertise_rgb);
     props.verbose_logging = GetBoolProperty(Key("log.verbose"), props.verbose_logging);
 
     LOG(INFO) << "loaded properties: " << props.ToString();
@@ -88,6 +90,7 @@ std::string Properties::ToString() const {
     std::ostringstream os;
     os << "default_internal=" << default_internal << " wait_internal_count=" << wait_internal_count
        << " wait_internal_ms=" << wait_internal_ms << " external_id_offset=" << external_id_offset
+       << " prefer_rgb=" << prefer_rgb << " advertise_rgb=" << advertise_rgb
        << " log.verbose=" << verbose_logging;
     return os.str();
 }
@@ -103,6 +106,8 @@ Properties::DeviceProperties Properties::LoadDeviceProperties(
         Merge(&merged.internal, prefix, "internal", get, ParseOptionalBool);
         Merge(&merged.facing, prefix, "facing", get, ParseFacing);
         Merge(&merged.rotation, prefix, "rotation", get, ParseRotation);
+        Merge(&merged.prefer_rgb, prefix, "prefer_rgb", get, ParseOptionalBool);
+        Merge(&merged.advertise_rgb, prefix, "advertise_rgb", get, ParseOptionalBool);
     }
     return merged;
 }

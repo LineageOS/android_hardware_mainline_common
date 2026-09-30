@@ -18,10 +18,9 @@ using device::RequestTemplate;
 // Frame rate a preview should not exceed by default.
 constexpr int32_t kPreviewFrameRate = 30;
 
-// The fps range for a template: a fixed one for video, a variable one
-// otherwise, both with the highest frame rate up to kPreviewFrameRate (or the
-// lowest one if all are higher).
-std::array<int32_t, 2> TemplateFpsRange(const CameraDescription& description, bool fixed) {
+}  // namespace
+
+std::array<int32_t, 2> DefaultFpsRange(const CameraDescription& description, bool fixed) {
     const auto& ranges = description.fps_ranges();
     if (ranges.empty()) return {kPreviewFrameRate, kPreviewFrameRate};
     int32_t max = 0;
@@ -40,8 +39,6 @@ std::array<int32_t, 2> TemplateFpsRange(const CameraDescription& description, bo
     }
     return result;
 }
-
-}  // namespace
 
 std::optional<Metadata> BuildRequestTemplate(const CameraDescription& description,
                                              RequestTemplate type) {
@@ -78,7 +75,7 @@ std::optional<Metadata> BuildRequestTemplate(const CameraDescription& descriptio
     m.SetU8(ANDROID_CONTROL_AE_ANTIBANDING_MODE, ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO);
     m.SetI32(ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION, 0);
     m.SetU8(ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER, ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
-    const auto fps = TemplateFpsRange(description, video);
+    const auto fps = DefaultFpsRange(description, video);
     m.Set(ANDROID_CONTROL_AE_TARGET_FPS_RANGE, std::vector<int32_t>{fps[0], fps[1]});
 
     m.SetU8(ANDROID_CONTROL_AF_MODE, ANDROID_CONTROL_AF_MODE_OFF);

@@ -149,6 +149,8 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties, Vi
     candidate.internal = candidate.properties.internal.value_or(properties.default_internal);
     candidate.facing = candidate.properties.facing.value_or(Facing::kBack);
     candidate.rotation = candidate.properties.rotation.value_or(0);
+    candidate.prefer_rgb = candidate.properties.prefer_rgb.value_or(properties.prefer_rgb);
+    candidate.advertise_rgb = candidate.properties.advertise_rgb.value_or(properties.advertise_rgb);
 
     LOG(INFO) << what << ": camera " << candidate.key << ", "
               << (candidate.internal ? (candidate.facing == Facing::kFront ? "internal front"

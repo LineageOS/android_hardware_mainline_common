@@ -35,6 +35,14 @@ struct Properties {
     // below it.
     int external_id_offset = 100;
 
+    // Write RGBA 8888 instead of YUV into PRIVATE (IMPLEMENTATION_DEFINED)
+    // streams that do not go to a video encoder, e.g. for GPU consumers that
+    // handle YUV buffers badly.
+    bool prefer_rgb = false;
+    // Also offer RGBA 8888 output streams. Not a format Android camera apps
+    // expect; some CTS tests fail with it.
+    bool advertise_rgb = false;
+
     // Log verbosely (sets the minimum severity to VERBOSE instead of DEBUG).
     bool verbose_logging = false;
 
@@ -52,6 +60,9 @@ struct Properties {
         // the display in its natural orientation (ANDROID_SENSOR_ORIENTATION):
         // 0, 90, 180 or 270.
         std::optional<int> rotation;
+        // Override the global prefer_rgb / advertise_rgb.
+        std::optional<bool> prefer_rgb;
+        std::optional<bool> advertise_rgb;
     };
 
     static Properties Load();

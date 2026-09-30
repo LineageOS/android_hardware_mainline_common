@@ -7,7 +7,9 @@
 
 #include <sys/types.h>
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -66,6 +68,36 @@ struct VideoDeviceInfo {
     std::optional<uint16_t> usb_product_id;
 };
 
+// Layout of one memory plane of a capture buffer.
+struct PlaneFormat {
+    uint32_t bytes_per_line = 0;
+    uint32_t size_image = 0;
+};
+
+// The format a capture device was set to.
+struct CaptureFormat {
+    uint32_t fourcc = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<PlaneFormat> planes;
+};
+
+// A filled capture buffer. Valid until it is queued again.
+struct CapturedFrame {
+    uint32_t index = 0;
+    struct Plane {
+        const uint8_t* data = nullptr;
+        size_t bytes_used = 0;
+    };
+    std::vector<Plane> planes;
+    // CLOCK_MONOTONIC time of the frame in nanoseconds, 0 when the driver
+    // does not provide one.
+    int64_t timestamp_ns = 0;
+    uint32_t sequence = 0;
+    // The driver flagged the buffer as (possibly) corrupt.
+    bool error = false;
+};
+
 // A V4L2 video device node. Abstract so that everything above it can be
 // tested against a fake device.
 class VideoDevice {
@@ -82,7 +114,30 @@ class VideoDevice {
     virtual bool HasControl(uint32_t id) = 0;
     virtual std::optional<int32_t> GetControl(uint32_t id) = 0;
     virtual bool SetControl(uint32_t id, int32_t value) = 0;
+
+    // Streaming. The format and frame interval can only be changed while not
+    // streaming. The error code of a failure is an errno value; ENODEV means
+    // that the device is gone.
+    virtual ::android::base::Result<CaptureFormat> SetFormat(uint32_t fourcc, uint32_t width,
+                                                             uint32_t height) = 0;
+    // Returns the interval the driver actually applied.
+    virtual ::android::base::Result<Fraction> SetFrameInterval(const Fraction& interval) = 0;
+    // Allocates and queues `buffer_count` buffers and starts streaming.
+    virtual ::android::base::Result<void> StartStreaming(uint32_t buffer_count) = 0;
+    // Stops streaming and frees the buffers. Harmless when not streaming.
+    virtual void StopStreaming() = 0;
+    virtual bool IsStreaming() const = 0;
+    // Waits for the next frame. Fails with ETIMEDOUT when none arrives in
+    // time.
+    virtual ::android::base::Result<CapturedFrame> DequeueFrame(
+            std::chrono::milliseconds timeout) = 0;
+    // Hands a dequeued buffer back to the driver.
+    virtual ::android::base::Result<void> QueueFrame(uint32_t index) = 0;
 };
+
+// Opens video nodes. A parameter wherever the unit tests need a fake.
+using VideoDeviceOpener = std::function<::android::base::Result<std::unique_ptr<VideoDevice>>(
+        const std::string& path)>;
 
 // Opens a V4L2 video node. The error code of a failure is the errno of the
 // failing call, so that callers can tell a node that is not accessible
