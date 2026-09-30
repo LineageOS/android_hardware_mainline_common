@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include <android-base/logging.h>
+#include <android-base/parsebool.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/strings.h>
@@ -74,6 +75,8 @@ Properties Properties::Load() {
         props.fast_latency_ms = std::min(fast, 500);
     }
     props.multichannel = GetBoolProperty(Key("multichannel"), props.multichannel);
+    props.hdmi_passthrough = GetBoolProperty(Key("hdmi.passthrough"), props.hdmi_passthrough);
+    props.hdmi_passthrough_formats = SplitList(GetProperty(Key("hdmi.passthrough_formats"), ""));
     props.verbose_logging = GetBoolProperty(Key("log.verbose"), props.verbose_logging);
 
     LOG(INFO) << "loaded properties: " << props.ToString();
@@ -89,7 +92,9 @@ std::string Properties::ToString() const {
        << " mixer.init=" << mixer_init << " mixer.playback_percent=" << mixer_playback_percent
        << " mixer.capture_percent=" << mixer_capture_percent << " latency_ms=" << latency_ms
        << " fast_latency_ms=" << fast_latency_ms << " multichannel=" << multichannel
-       << " log.verbose=" << verbose_logging;
+       << " hdmi.passthrough=" << hdmi_passthrough << " hdmi.passthrough_formats=["
+       << ::android::base::Join(hdmi_passthrough_formats, ",")
+       << "] log.verbose=" << verbose_logging;
     return os.str();
 }
 
@@ -109,6 +114,18 @@ Properties::CardProperties Properties::LoadCardProperties(const std::string& car
         merged.rates.insert(rates.begin(), rates.end());
         auto bits = ParseIntSet(GetProperty(prefix + "bits", ""));
         merged.bits.insert(bits.begin(), bits.end());
+        if (!merged.hbr.has_value()) {
+            switch (::android::base::ParseBool(GetProperty(prefix + "hbr", ""))) {
+                case ::android::base::ParseBoolResult::kTrue:
+                    merged.hbr = true;
+                    break;
+                case ::android::base::ParseBoolResult::kFalse:
+                    merged.hbr = false;
+                    break;
+                case ::android::base::ParseBoolResult::kError:
+                    break;
+            }
+        }
     }
     return merged;
 }

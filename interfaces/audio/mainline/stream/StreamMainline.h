@@ -15,6 +15,7 @@
 #include <core-impl/Stream.h>
 
 #include "alsa/AlsaPcm.h"
+#include "passthrough/PassthroughSink.h"
 #include "routing/DeviceInventory.h"
 #include "routing/Endpoint.h"
 #include "routing/PcmArbiter.h"
@@ -31,6 +32,8 @@ struct StreamDeps {
     std::shared_ptr<routing::PcmArbiter> pcm_arbiter;
     // Shared with the module: when set, captured audio is replaced by silence.
     std::shared_ptr<std::atomic<bool>> mic_muted;
+    // Access to the channel status / ELD of HDMI heads, for passthrough.
+    passthrough::HdmiControlFactory make_hdmi_control;
 };
 
 // alsa-lib backed implementation of DriverInterface for both directions.
@@ -54,6 +57,10 @@ struct StreamDeps {
 // stream takes a device over from a mixed one; the mixed stream then plays
 // into the NullDevice for the endpoints it lost (dropping the audio, keeping
 // the timing) and reopens them once the direct stream lets go.
+//
+// A stream with an encoded format (or IEC 61937) is a passthrough stream: it
+// only plays to the HDMI template and hands its data to a PassthroughSink
+// instead of a PCM device.
 class StreamMainline : public StreamCommonImpl {
   public:
     StreamMainline(StreamContext* context, const Metadata& metadata, StreamDeps deps);
@@ -85,6 +92,7 @@ class StreamMainline : public StreamCommonImpl {
     // Worker thread: opens the PCM devices (or starts the null device) for the
     // active endpoints if that has not happened yet.
     ::android::status_t EnsureDevicesReady();
+    ::android::status_t EnsurePassthroughReady();
     bool OpenPcms();
     // Opens one endpoint's PCM into pcms_, or defers it while another stream
     // owns the device. `quiet` limits logging for the retries of a deferred
@@ -117,6 +125,8 @@ class StreamMainline : public StreamCommonImpl {
     // The mix port carries the FAST flag: the framework runs a FastMixer that
     // expects every write to block for about one burst.
     const bool is_fast_;
+    // Set for passthrough streams.
+    const std::unique_ptr<passthrough::PassthroughSink> passthrough_;
 
     std::atomic<float> gain_ = 1.0f;
     // Null for input streams, which are not arbitrated.
