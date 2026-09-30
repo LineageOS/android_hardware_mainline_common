@@ -229,6 +229,25 @@ when the hardware does not accept the requested format / rate / channels
 natively, which is what makes an arbitrary card "just work" with the
 framework's 48 kHz stereo configuration.
 
+Most PCM devices can be opened by one stream at a time, yet the framework
+keeps `primary output` open and routed while a direct output (`hra output`,
+`multichannel output`) plays to the same device, and writes silence to it for
+a few seconds after the last sound. Output streams therefore open such
+*exclusive* devices (a hardware PCM with a single substream, identified when
+the endpoint is probed) through a shared arbiter (`routing/PcmArbiter.cpp`):
+
+* A direct stream pre-empts a mixed one: the mixed stream is asked to give
+  the device up, notices it on its next burst, closes it and keeps running on
+  a paced null device (its audio is dropped, its timing kept). The direct
+  stream waits for that for up to two of the mixed stream's bursts plus
+  100 ms, then gives up.
+* When the direct stream closes the device, the mixed stream reopens it on
+  its next burst.
+* Two direct streams on the same device: the first one wins, the second one
+  fails to start.
+* Capture streams and devices that allow several streams at once (more than
+  one substream, or an alsa-lib plugin such as `dmix`) are not arbitrated.
+
 Positions come from `snd_pcm_status()`; under- and overruns are recovered
 with `snd_pcm_prepare()` and counted.
 
@@ -236,18 +255,24 @@ with `snd_pcm_prepare()` and counted.
 
 ```sh
 adb logcat -s MainlineAudio_Main MainlineAudio_Inventory MainlineAudio_Ucm \
-    MainlineAudio_Stream MainlineAudio_AlsaPcm MainlineAudio_Routing
+    MainlineAudio_Stream MainlineAudio_AlsaPcm MainlineAudio_Routing \
+    MainlineAudio_PcmArbiter
 adb shell dumpsys android.hardware.audio.core.IModule/default
 setprop vendor.audio.mainline.log.verbose true   # then restart the HAL
 ```
 
 The `dumpsys` output starts with the effective properties, the cards, every
-endpoint with its capabilities and the UCM devices currently enabled.
+endpoint with its capabilities, the UCM devices currently enabled and which
+stream owns which exclusive PCM device.
 
 ## Known limitations
 
 * No telephony (`ITelephony` is null): voice calls need modem specific paths.
 * No compressed offload, no MMAP / AAudio exclusive mode.
+* While a direct output (`hra output`, `multichannel output`) plays to a
+  device, the system sounds and any other mixed audio routed to the same PCM
+  device are dropped rather than mixed in. Mixing them into the direct stream
+  is not implemented.
 * Master volume and mute are reported as unsupported; the framework applies
   them in software.
 * HDMI / DisplayPort connection state is not announced by the HAL (the AIDL
