@@ -26,8 +26,13 @@ constexpr int32_t kResourceCost = 50;
 
 }  // namespace
 
-CameraDevice::CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description)
-    : name_(std::move(name)), description_(std::move(description)) {}
+CameraDevice::CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description,
+                           VideoDeviceOpener open,
+                           std::function<std::shared_ptr<GraphicBuffers>()> buffers)
+    : name_(std::move(name)),
+      description_(std::move(description)),
+      open_(std::move(open)),
+      buffers_(std::move(buffers)) {}
 
 void CameraDevice::Disconnect() {
     disconnected_ = true;
@@ -67,8 +72,19 @@ void CameraDevice::Disconnect() {
     *session = nullptr;
     if (callback == nullptr) return ToBinderStatus(Status::ILLEGAL_ARGUMENT);
     if (disconnected_) return ToBinderStatus(Status::CAMERA_DISCONNECTED);
-    LOG(ERROR) << name_ << ": capture sessions are not implemented";
-    return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+
+    std::lock_guard<std::mutex> lock(session_lock_);
+    if (auto current = session_.lock(); current != nullptr && !current->IsClosed()) {
+        LOG(ERROR) << name_ << ": already open";
+        return ToBinderStatus(Status::CAMERA_IN_USE);
+    }
+    Status status;
+    auto opened =
+            CameraDeviceSession::Create(name_, description_, callback, open_, buffers_(), &status);
+    if (opened == nullptr) return ToBinderStatus(status);
+    session_ = opened;
+    *session = opened;
+    return ::ndk::ScopedAStatus::ok();
 }
 
 ::ndk::ScopedAStatus CameraDevice::openInjectionSession(

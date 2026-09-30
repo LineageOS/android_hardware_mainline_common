@@ -15,7 +15,8 @@ front / back facing) and external (hotpluggable) cameras.
 |-------------------------------------------|-------|
 | Discovery and hotplug of capture nodes    | done |
 | Camera devices (characteristics, templates, stream combination queries) | done |
-| Capture sessions                          | not yet (`open()` fails) |
+| Capture sessions, YUV and RGBA outputs    | done |
+| JPEG outputs                              | not yet (buffers are returned with an error) |
 | Sensors behind a media controller pipeline (Qualcomm CAMSS, Intel IPU6, ...) | not yet |
 | Raw Bayer sensors (software ISP)          | not yet, detected and skipped |
 
@@ -124,6 +125,36 @@ Everything is derived from what the capture node offers:
   calculations in apps.
 * `SENSOR_ORIENTATION` is 0 for external cameras, and the per-device
   `rotation` property (default 0) for internal ones.
+* With `advertise_rgb`, every output size is also offered as `RGBA_8888`.
+
+## Capture sessions
+
+A session streams from the capture node in the mode picked for its stream
+configuration and processes one request per captured frame, in order, on its
+own thread:
+
+* Every frame is converted to I420 once (packed / planar / semi-planar YUV,
+  RGB and grey with libyuv, MJPEG with libyuv's libjpeg based decoder), then
+  center cropped to the zoom region and each output's aspect ratio and scaled
+  into the output buffers. Frames the driver flags as corrupt or that fail to
+  decode are skipped.
+* `PRIVATE` streams get `YUV_420_888` buffers, or `RGBA_8888` ones with
+  `prefer_rgb` unless they feed a video encoder.
+* The frame interval follows the upper end of the AE target fps range; a
+  fixed range also turns off the device's `exposure_auto_priority`, so that
+  auto exposure keeps the frame rate. Changing the frame interval restarts
+  streaming.
+* AE and AWB locks use `V4L2_CID_3A_LOCK`, or freeze the automatic exposure /
+  white balance by switching to manual mode with the current value. Power
+  line frequency (antibanding) is set to automatic where the device offers it.
+  AE and AWB always report converged (or locked); there is no precapture
+  metering or focus control.
+* The `BLACK` and `SOLID_COLOR` test patterns output black frames (camera
+  privacy mode); `SOLID_COLOR` ignores the requested color.
+* Timestamps are the driver's frame timestamps converted to
+  `CLOCK_BOOTTIME`.
+* A device that disappears while streaming ends the session with
+  `ERROR_DEVICE`.
 
 ## Properties
 
@@ -136,6 +167,8 @@ per-device keys when the device is discovered.
 | `wait_internal_count`  | int  | `0`     | Number of internal cameras to wait for before registering the provider (max 64). |
 | `wait_internal_ms`     | int  | `10000` | Maximum time to wait for them (max 60000). |
 | `external_id_offset`   | int  | `100`   | First camera ID of external cameras. |
+| `prefer_rgb`           | bool | `false` | Write RGBA 8888 instead of YUV into `PRIVATE` streams that do not feed a video encoder, for GPU consumers that handle YUV buffers badly. |
+| `advertise_rgb`        | bool | `false` | Also offer RGBA 8888 output streams. Not a format camera apps expect; some CTS tests fail with it. |
 | `log.verbose`          | bool | `false` | VERBOSE instead of DEBUG logging. |
 
 ### Per-device properties
@@ -164,6 +197,8 @@ adb logcat -s MainlineCamera_Discovery
 | `internal` | bool | Internal (`true`) or external (`false`) camera. |
 | `facing`   | string | `back` (or `rear`) / `front`, for internal cameras. Default `back`. |
 | `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. Default 0. |
+| `prefer_rgb` | bool | Overrides the global `prefer_rgb`. |
+| `advertise_rgb` | bool | Overrides the global `advertise_rgb`. |
 
 Example: `setprop vendor.camera.device.usb:046d:082d.internal true`
 
