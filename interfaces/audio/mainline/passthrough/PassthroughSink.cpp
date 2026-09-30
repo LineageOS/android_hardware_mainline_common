@@ -28,6 +28,9 @@ PassthroughSink::~PassthroughSink() {
 }
 
 bool PassthroughSink::IsPossible(const Config& config) {
+    if (config.format != EncodedFormat::kIec61937 && !Encoder::CanPack(config.format)) {
+        return false;
+    }
     return IecStreamFor(config.format, config.content_rate, config.channels, true /*hbr*/)
             .has_value();
 }
@@ -49,9 +52,9 @@ bool PassthroughSink::Open(const routing::Endpoint& head) {
         return false;
     }
     if (config_.format != EncodedFormat::kIec61937) {
-        encoder_ = Encoder::Create(config_.format, [this](const uint8_t* data, size_t bytes) {
-            WriteBursts(data, bytes);
-        });
+        encoder_ = Encoder::Create(
+                config_.format, *iec_,
+                [this](const uint8_t* data, size_t bytes) { WriteBursts(data, bytes); });
         if (encoder_ == nullptr || encoder_->OutputChannels() != iec_->pcm_channels) {
             LOG(ERROR) << __func__ << ": no packer for " << ToString(config_.format) << " as "
                        << iec_->ToString();

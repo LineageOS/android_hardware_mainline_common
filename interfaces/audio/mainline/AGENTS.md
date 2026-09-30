@@ -62,7 +62,9 @@ passthrough/               HDMI compressed audio passthrough (IEC 61937).
   HdmiControl.h            The vendor boundary: ELD, channel status, HBR.
   AlsaHdmiControl.*        HdmiControl on ALSA controls, found by locators.
   Quirks.*                 Per driver: locator order, HBR support.
-  Encoder.*                Adapter over the spdif/ fork (the only user of it).
+  Encoder.*                The only user of the packers: the spdif/ fork, and
+                           FfmpegEncoder.cpp (DTS-HD, TrueHD) with the
+                           ffmpeg_passthrough Soong option.
   PassthroughSink.*        What a passthrough stream writes to: Encoder +
                            HdmiControl + strict alsa::Pcm, content positions.
 config/                    XMLs installed into the APEX (effects, policy engine).
@@ -124,6 +126,14 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 * AIDL types appear in `passthrough/Format.*` only; the rest of
   `passthrough/` is AIDL free, like `alsa/`.
 * `spdif/` is used through `passthrough/Encoder.*` only.
+* DTS-HD and Dolby TrueHD are packed by FFmpeg (`passthrough/FfmpegEncoder.cpp`,
+  built only with `ffmpeg_passthrough`), never by code of this repository:
+  their IEC 61937 framing (type IV bursts, MAT frames) is defined by
+  paywalled or licensed specifications. Do not reimplement it, in particular
+  not from memory (`docs/WORKFLOW.md`). Their transport parameters in
+  `passthrough/Format.cpp` follow what the muxer in
+  `external/ffmpeg/libavformat/spdifenc.c` sends. Without the option,
+  `Encoder::CanPack()` keeps these formats off every profile.
 * `StreamMainline` knows nothing about vendors: it gets HdmiControl
   instances from the module's factory (`StreamDeps::make_hdmi_control`) and
   has one passthrough branch per `DriverInterface` method.
