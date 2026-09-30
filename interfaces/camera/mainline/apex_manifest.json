@@ -1,0 +1,5 @@
+{
+    "name": "com.android.hardware.camera.provider",
+    "supportsRebootlessUpdate": true,
+    "version": 1
+}
