@@ -32,8 +32,9 @@ Properties.*               vendor.audio.mainline.* -> struct Properties.
 alsa/                      Thin C++ wrappers over alsa-lib. No Android types except
                            in AlsaFormat (AIDL <-> ALSA formats/channels/profiles).
   AlsaCard.*               Card / PCM enumeration through snd_ctl.
-  AlsaPcm.*                RAII PCM: open (hw: then plughw: fallback), read/write with
-                           xrun recovery, position, latency, capability probing.
+  AlsaPcm.*                RAII PCM: open (hw: then plughw: fallback, or strict for
+                           IEC 61937), read/write with xrun recovery, position,
+                           latency, capability probing, PCM identity.
   AlsaMixer.*              "alsactl init"-like mixer initialisation (no-UCM cards, USB).
   AlsaError.*              RAII handle types, error strings, alsa-lib error handler.
 ucm/                       alsa-lib Use Case Manager.
@@ -52,6 +53,15 @@ routing/                   Android side model.
 stream/
   StreamMainline.*         DriverInterface on top of alsa::Pcm, in/out stream classes.
   NullDevice.*             Paced discard / silence when there is no hardware.
+passthrough/               HDMI compressed audio passthrough (IEC 61937).
+  Format.*                 EncodedFormat, IEC 61937 transport per format (rate,
+                           channels, HBR, channel status), the only AIDL <->
+                           encoded format and audio_format_t conversions.
+  SinkCapabilities.*       What the sink decodes (from the ELD or a property).
+  Eld.*                    ELD bytes -> SinkCapabilities. No ALSA, no AIDL.
+  HdmiControl.h            The vendor boundary: ELD, channel status, HBR.
+  AlsaHdmiControl.*        HdmiControl on ALSA controls, found by locators.
+  Quirks.*                 Per driver: locator order, HBR support.
 config/                    XMLs installed into the APEX (effects, policy engine).
 spdif/                     Fork of AOSP libaudiospdif (IEC 61937 packer), own
                            Android.bp, upstream formatting. See spdif/README.md.
@@ -101,6 +111,33 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   `hardware/interfaces/audio/aidl/default/*` was extended to allow this.
   Without it the device supplies `IFactory/default`, normally the legacy
   library wrapper in `../effect/legacy`. Exactly one of the two, never both.
+
+## Passthrough rules
+
+* HDMI passthrough differs a lot between vendors. Driver knowledge (driver
+  names, where controls live, HBR behaviour) goes into `passthrough/Quirks.*`
+  and `HdmiControl` implementations only, never anywhere else.
+* AIDL types appear in `passthrough/Format.*` only; the rest of
+  `passthrough/` is AIDL free, like `alsa/`.
+* The ELD and "IEC958 Playback Default" controls are found by trying the
+  quirk's locators in order: PCM interface control with the head's PCM
+  device number (HDA ELD, `hdmi-codec`), mixer control with the head's HDMI
+  ordinal (HDA IEC958 controls), the only such control of the card (ASoC
+  `hdmi-codec` behind a DPCM back-end, whose controls sit on an internal PCM
+  numbered after the link, not on the front-end userspace opens). No IEC958
+  control: no passthrough on the head. Unknown (non HDA) cards do not try the
+  HDA ordinal, which could hit an unrelated S/PDIF control.
+* High bit rate (8 channels at 192 kHz of IEC 61937 data): HDA refuses it at
+  prepare time (`-EINVAL`) when the pin or display side can not do it, so it
+  is `kSupported` there and a failure turns it off for the head
+  (`HbrFailures`, shared, outlives streams). Other drivers may accept it and
+  send garbage (Amlogic I2S to dw-hdmi), so it is off unless the card's
+  property forces it. Only the 48 kHz family gets HBR: channel status has no
+  code for 705.6 kHz.
+* New vendor checklist: read the kernel driver for where the ELD / IEC958
+  controls are created and what happens on an HBR attempt, add a quirk
+  entry (or, if the table can not express it, an `HdmiControl` subclass
+  chosen in `CreateHdmiControl()`), update the README hardware notes.
 
 ## Threading
 

@@ -229,12 +229,15 @@ Pcm::~Pcm() {
 }
 
 std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stream,
-                                  const PcmConfig& config, bool is_plug) {
+                                  const PcmConfig& config, bool is_plug, int* error) {
+    int ignored = 0;
+    int& result = error != nullptr ? *error : ignored;
     snd_pcm_t* raw = nullptr;
     int err = snd_pcm_open(&raw, name.c_str(), stream, 0 /*blocking*/);
     if (err < 0) {
         LOG(WARNING) << __func__ << ": snd_pcm_open(" << name << ", " << snd_pcm_stream_name(stream)
                      << "): " << ErrorString(err);
+        result = err;
         return nullptr;
     }
     PcmHandle handle(raw);
@@ -243,9 +246,11 @@ std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stre
     bool can_pause = false;
     err = ConfigureHwParams(raw, config, !is_plug /*strict*/, &effective, &can_pause);
     if (err < 0) {
+        result = err;
         return nullptr;
     }
-    if (ConfigureSwParams(raw, stream, effective) < 0) {
+    if (err = ConfigureSwParams(raw, stream, effective); err < 0) {
+        result = err;
         return nullptr;
     }
     // Commit the configuration. On a DPCM card the back-end constraints are
@@ -255,6 +260,7 @@ std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stre
     // PCM that can never play.
     if (const int err = snd_pcm_prepare(raw); err < 0) {
         LOG(WARNING) << __func__ << ": snd_pcm_prepare(" << name << "): " << ErrorString(err);
+        result = err;
         return nullptr;
     }
     LOG(INFO) << __func__ << ": opened " << name << " (" << snd_pcm_stream_name(stream)
@@ -282,6 +288,15 @@ std::unique_ptr<Pcm> Pcm::Open(const std::string& name, snd_pcm_stream_t stream,
     LOG(ERROR) << __func__ << ": " << name << " does not accept {" << config.ToString()
                << "} in any configuration, giving up";
     return nullptr;
+}
+
+std::unique_ptr<Pcm> Pcm::OpenStrict(const std::string& name, snd_pcm_stream_t stream,
+                                     const PcmConfig& config, int* error) {
+    auto pcm = TryOpen(name, stream, config, false /*is_plug*/, error);
+    if (pcm == nullptr) {
+        LOG(ERROR) << __func__ << ": " << name << " does not accept {" << config.ToString() << "}";
+    }
+    return pcm;
 }
 
 int Pcm::Recover(int err) {
