@@ -49,6 +49,9 @@ struct Properties {
     // expect; some CTS tests fail with it.
     bool advertise_rgb = false;
 
+    // Use raw Bayer sensors through the software ISP (CPU). False: skip them.
+    bool software_isp = true;
+
     // Log verbosely (sets the minimum severity to VERBOSE instead of DEBUG).
     bool verbose_logging = false;
 
@@ -72,6 +75,9 @@ struct Properties {
         // The camera's flash LEDs: comma separated LED class device names
         // ("white:flash,yellow:flash"), or "none".
         std::optional<std::vector<std::string>> flash_led;
+        // Black level of a raw Bayer sensor, in its bit depth (e.g. 64 of
+        // 1023 at 10 bit) for the software ISP.
+        std::optional<int> black_level;
     };
 
     static Properties Load();

@@ -41,6 +41,9 @@ class V4l2SubDevice : public SubDevice {
     std::optional<int32_t> GetControl(uint32_t id) override {
         return GetV4l2Control(fd_.get(), id);
     }
+    std::optional<ControlRange> GetControlRange(uint32_t id) override {
+        return GetV4l2ControlRange(fd_.get(), id);
+    }
     bool SetControl(uint32_t id, int32_t value) override {
         return SetV4l2Control(fd_.get(), path_.c_str(), id, value);
     }

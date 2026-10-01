@@ -84,8 +84,17 @@ TEST(ProbeCaptureNodeTest, AcceptsMultiplanar) {
 }
 
 TEST(ProbeCaptureNodeTest, BayerOnlyNeedsIsp) {
-    auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_SGRBG10, 2592, 1944)});
-    EXPECT_FALSE(ProbeCaptureNode(Properties{}, nullptr, device.get()).has_value());
+    auto device = Uvc("video0", {FakeVideoDevice::Format(V4L2_PIX_FMT_SGRBG10, 2592, 1944),
+                                 FakeVideoDevice::Format(V4L2_PIX_FMT_SGRBG10DPCM8, 2592, 1944)});
+    Properties no_isp;
+    no_isp.software_isp = false;
+    EXPECT_FALSE(ProbeCaptureNode(no_isp, nullptr, device.get()).has_value());
+
+    // The software ISP takes what it can read.
+    const auto candidate = ProbeCaptureNode(Properties{}, nullptr, device.get());
+    ASSERT_TRUE(candidate.has_value());
+    ASSERT_EQ(candidate->formats.size(), 1u);
+    EXPECT_EQ(candidate->formats[0].fourcc, V4L2_PIX_FMT_SGRBG10);
 }
 
 TEST(ProbeCaptureNodeTest, KeepsOnlyUsableFormats) {

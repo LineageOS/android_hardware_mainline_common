@@ -50,11 +50,15 @@ bool SameInterval(const Fraction& a, const Fraction& b) {
 }  // namespace
 
 CaptureStream::CaptureStream(std::unique_ptr<VideoDevice> device,
-                             std::unique_ptr<PipelineController> pipeline)
+                             std::unique_ptr<PipelineController> pipeline,
+                             std::optional<int> black_level)
     : device_(std::move(device)),
       pipeline_(std::move(pipeline)),
-      controls_(pipeline_ != nullptr ? pipeline_->sensor()
-                                     : static_cast<ControlDevice*>(device_.get())) {}
+      sensor_(pipeline_ != nullptr ? pipeline_->sensor()
+                                   : static_cast<ControlDevice*>(device_.get())),
+      controls_(sensor_),
+      isp_(black_level),
+      isp_3a_(sensor_) {}
 
 CaptureStream::~CaptureStream() {
     Stop();
@@ -66,6 +70,7 @@ void CaptureStream::Configure(const CaptureMode& mode) {
     frame_size_ = mode.size;
     format_.reset();
     interval_ = {};
+    raw_ = IsIspPixelFormat(mode.fourcc);
 }
 
 Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
@@ -99,6 +104,7 @@ Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
         if (auto started = device_->StartStreaming(kPipelineMaxDepth); !started.ok()) {
             return started.error();
         }
+        if (raw_) isp_3a_.Start();
         LOG(INFO) << device_->Info().name << ": capturing " << FourccToString(mode_.fourcc) << " "
                   << frame_size_.width << "x" << frame_size_.height << " at "
                   << target.denominator / std::max(target.numerator, 1u) << " fps";
@@ -107,6 +113,7 @@ Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
     controls_.SetConstantFrameRate(settings.fps_range[0] == settings.fps_range[1]);
     controls_.SetAeLock(settings.ae_lock);
     controls_.SetAwbLock(settings.awb_lock);
+    isp_3a_.SetLocks(settings.ae_lock, settings.awb_lock);
     return {};
 }
 
@@ -132,7 +139,9 @@ Result<int64_t> CaptureStream::Capture(I420Image* image, int64_t not_before_ns) 
             continue;
         }
 
-        const bool converted = ConvertToI420(*format_, *frame, image);
+        const bool converted = raw_ ? isp_.Process(*format_, *frame, isp_3a_.params(), image)
+                                    : ConvertToI420(*format_, *frame, image);
+        if (raw_ && converted) isp_3a_.Update(isp_.stats());
         int64_t timestamp = Now(CLOCK_BOOTTIME);
         if (frame->timestamp_ns > 0) {
             // V4L2 uses CLOCK_MONOTONIC, Android CLOCK_BOOTTIME.

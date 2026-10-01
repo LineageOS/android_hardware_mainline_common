@@ -19,7 +19,7 @@ front / back facing) and external (hotpluggable) cameras.
 | JPEG outputs with EXIF and thumbnail      | done |
 | Sensors behind a media controller pipeline (Qualcomm CAMSS, vimc, ...) delivering processed images | done |
 | Flash and torch (LED class devices, V4L2 flash sub-devices) | done, at torch brightness |
-| Raw Bayer sensors (software ISP)          | not yet, detected and skipped |
+| Raw Bayer sensors (software ISP)          | done, basic (CPU) |
 
 ## Packaging
 
@@ -102,8 +102,10 @@ the video node offers (`VIDIOC_ENUM_FMT` with the media bus code) for:
 
 with the sensor's frame sizes and intervals. The path with the most formats
 wins, then the shortest, then the one with the most links enabled already.
-Sensors with raw Bayer data only, and no converting stage, need a software
-ISP, which does not exist yet; they are logged and skipped.
+Sensors with raw Bayer data only (e.g. behind Qualcomm CAMSS), and no
+converting stage, are captured raw from a path without one, in a format the
+[software ISP](#software-isp) reads (8, 10 or 12 bit, MIPI packed or not).
+With `software_isp` off they are logged and skipped.
 
 Before streaming, the session enables the path's links (disabling other links
 into the same sink pads), and sets the formats from the sensor through every
@@ -127,8 +129,8 @@ Every `/dev/videoN` node is opened and classified:
   (`V4L2_CAP_IO_MC`) are left to their media device (see above).
 * Of the remaining nodes, those offering at least one pixel format the HAL can
   convert become cameras: packed and planar YUV, RGB, grey and MJPEG / JPEG.
-  Nodes with raw Bayer formats only need a software ISP, which does not exist
-  yet; they are logged and skipped.
+  Nodes with raw Bayer formats only go through the
+  [software ISP](#software-isp) (or are skipped with `software_isp` off).
 * All capture nodes of one device (same parent in sysfs, e.g. the USB
   interface of a UVC camera, or same bus_info and card name when sysfs is not
   readable) form one camera; the lowest numbered node is used.
@@ -259,6 +261,32 @@ own thread:
 * A device that disappears while streaming ends the session with
   `ERROR_DEVICE`.
 
+## Software ISP
+
+Raw Bayer capture modes are processed on the CPU, frame by frame:
+
+1. Black level (per-device `black_level`, by default 16 at 8 bit, i.e. 64 at
+   10 bit, as on most sensors), white balance and digital gain, and the sRGB
+   gamma curve, in one lookup table per Bayer colour.
+2. Bilinear demosaicing.
+3. RGB to I420 (BT.601), with 25% extra saturation, as there is no colour
+   correction matrix.
+
+There is no lens shading correction, denoising, sharpening or colour
+correction. Statistics of every frame (mean per colour, clipped samples)
+drive:
+
+* auto white balance: gray world, smoothed;
+* auto exposure: towards 18% gray, with the sensor's `V4L2_CID_EXPOSURE`
+  first (within the current frame length, so the frame rate is kept), then
+  `V4L2_CID_ANALOGUE_GAIN` (or `V4L2_CID_GAIN`, taking its minimum as 1x),
+  then up to 4x digital gain. It waits two frames after each change for it
+  to show. Without such controls, only digital gain is used.
+
+AE and AWB locks freeze them. Capture modes are picked as for other cameras,
+so preview usually runs from a binned mode; full resolution still captures
+take correspondingly longer.
+
 ## Flash and torch
 
 A camera's flash is one or more LEDs switched together (e.g. the two LEDs of
@@ -310,6 +338,7 @@ per-device keys when the device is discovered.
 | `include_ir`           | bool | `false` | Also use infrared cameras. |
 | `prefer_rgb`           | bool | `false` | Write RGBA 8888 instead of YUV into `PRIVATE` streams that do not feed a video encoder, for GPU consumers that handle YUV buffers badly. |
 | `advertise_rgb`        | bool | `false` | Also offer RGBA 8888 output streams. Not a format camera apps expect; some CTS tests fail with it. |
+| `software_isp`         | bool | `true`  | Use raw Bayer only cameras through the software ISP; `false` skips them. |
 | `log.verbose`          | bool | `false` | VERBOSE instead of DEBUG logging. |
 
 ### Per-device properties
@@ -347,6 +376,7 @@ adb logcat -s MainlineCamera_Discovery
 | `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. |
 | `prefer_rgb` | bool | Overrides the global `prefer_rgb`. |
 | `advertise_rgb` | bool | Overrides the global `advertise_rgb`. |
+| `black_level` | int | Black level of a raw Bayer sensor in its bit depth (e.g. `64` of 1023 at 10 bit), for the software ISP. |
 | `flash_led` | string | The camera's flash LEDs: comma separated LED class device names (`white:flash,yellow:flash`), or `none`. Setting it on any camera turns off the automatic assignment. |
 
 Example: `setprop vendor.camera.device.usb:046d:082d.internal true`

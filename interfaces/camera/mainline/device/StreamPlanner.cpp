@@ -11,6 +11,7 @@
 #include <set>
 #include <tuple>
 
+#include "isp/BayerFormat.h"
 #include "v4l2/PixelFormats.h"
 
 namespace aidl::android::hardware::camera::mainline {
@@ -41,7 +42,8 @@ int64_t CaptureMode::MinFrameDurationNs() const {
 
 StreamPlanner::StreamPlanner(const std::vector<FormatDescription>& formats) {
     for (const auto& format : formats) {
-        if (!IsProcessedPixelFormat(format.fourcc)) continue;
+        // Processed formats, and raw ones through the software ISP.
+        if (!IsProcessedPixelFormat(format.fourcc) && !IsIspPixelFormat(format.fourcc)) continue;
         for (const auto& frame_size : format.sizes) {
             if (frame_size.width == 0 || frame_size.height == 0) continue;
             if (frame_size.intervals.empty()) continue;
@@ -108,8 +110,8 @@ std::optional<CaptureMode> StreamPlanner::Plan(const std::vector<Size>& outputs)
     // Lower is better.
     auto score = [](const CaptureMode& mode) {
         const int64_t duration = std::max(mode.MinFrameDurationNs(), kPreferredFrameDurationNs);
-        return std::make_tuple(duration, mode.size.Area(), IsCompressedPixelFormat(mode.fourcc),
-                               mode.emulated, mode.fourcc);
+        return std::make_tuple(duration, mode.size.Area(), IsIspPixelFormat(mode.fourcc),
+                               IsCompressedPixelFormat(mode.fourcc), mode.emulated, mode.fourcc);
     };
 
     const CaptureMode* best = nullptr;

@@ -51,6 +51,11 @@ class FakeVideoDevice : public VideoDevice {
     bool HasControl(uint32_t id) override { return controls_.count(id) != 0; }
     std::optional<int32_t> GetControl(uint32_t id) override;
     bool SetControl(uint32_t id, int32_t value) override;
+    std::optional<ControlRange> GetControlRange(uint32_t id) override {
+        auto it = ranges_.find(id);
+        if (it == ranges_.end()) return std::nullopt;
+        return it->second;
+    }
 
     ::android::base::Result<CaptureFormat> SetFormat(uint32_t fourcc, uint32_t width,
                                                      uint32_t height) override;
@@ -62,6 +67,7 @@ class FakeVideoDevice : public VideoDevice {
     ::android::base::Result<void> QueueFrame(uint32_t index) override;
 
     std::map<uint32_t, int32_t>& controls() { return controls_; }
+    std::map<uint32_t, ControlRange>& ranges() { return ranges_; }
 
     // A UVC like capture node: "videoN" of a USB camera.
     static VideoDeviceInfo UvcInfo(const std::string& name, const std::string& sysfs_device);
@@ -74,6 +80,7 @@ class FakeVideoDevice : public VideoDevice {
     std::map<uint32_t, std::vector<FormatDescription>> formats_by_code_;
     std::shared_ptr<Stream> stream_;
     std::map<uint32_t, int32_t> controls_;
+    std::map<uint32_t, ControlRange> ranges_;
     bool streaming_ = false;
     // The frame handed out last, kept alive until the next one.
     std::vector<uint8_t> current_;

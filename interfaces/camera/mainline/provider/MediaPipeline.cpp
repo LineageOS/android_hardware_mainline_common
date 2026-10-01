@@ -18,6 +18,7 @@
 #include <android-base/logging.h>
 #include <android-base/strings.h>
 
+#include "isp/BayerFormat.h"
 #include "v4l2/PixelFormats.h"
 
 namespace aidl::android::hardware::camera::mainline {
@@ -121,8 +122,11 @@ MediaPipeline BuildPipeline(const MediaTopology& topology, const std::vector<con
 
 // Works out the formats `pipeline` can deliver. Fills pipeline->formats and
 // returns the matching format descriptions with the sensor's frame sizes.
+//
+// `raw`: look for raw Bayer formats the software ISP reads instead, on paths
+// without a converting stage.
 std::vector<FormatDescription> EvaluateFormats(MediaPipeline* pipeline, SubDevice* sensor,
-                                               const DeviceOpeners& open) {
+                                               const DeviceOpeners& open, bool raw) {
     auto node = open.video(pipeline->video_node);
     if (!node.ok()) {
         LOG(WARNING) << node.error().message();
@@ -134,7 +138,12 @@ std::vector<FormatDescription> EvaluateFormats(MediaPipeline* pipeline, SubDevic
     const std::vector<uint32_t> sensor_codes = sensor->EnumerateCodes(pipeline->sensor_pad);
     const auto converter = std::find_if(pipeline->hops.begin(), pipeline->hops.end(),
                                         [](const auto& hop) { return hop.converter; });
-    if (converter != pipeline->hops.end()) {
+    if (raw) {
+        if (converter != pipeline->hops.end()) return {};
+        for (const uint32_t code : sensor_codes) {
+            if (IsBayerMbusCode(code)) candidates.emplace_back(code, 0, code);
+        }
+    } else if (converter != pipeline->hops.end()) {
         auto stage = open.subdev(converter->sink_subdev);
         if (!stage.ok()) {
             LOG(WARNING) << stage.error().message();
@@ -156,7 +165,9 @@ std::vector<FormatDescription> EvaluateFormats(MediaPipeline* pipeline, SubDevic
         // code can mean when the driver does not filter by media bus code.
         const std::vector<uint32_t> known = PixelFormatsForMbusCode(final_code);
         for (const auto& format : (*node)->EnumerateFormats(final_code)) {
-            if (!IsProcessedPixelFormat(format.fourcc)) continue;
+            if (raw ? !IsIspPixelFormat(format.fourcc) : !IsProcessedPixelFormat(format.fourcc)) {
+                continue;
+            }
             if (!known.empty() &&
                 std::find(known.begin(), known.end(), format.fourcc) == known.end()) {
                 continue;
@@ -216,12 +227,38 @@ std::vector<uint32_t> PixelFormatsForMbusCode(uint32_t code) {
             return {V4L2_PIX_FMT_RGB565};
         case MEDIA_BUS_FMT_Y8_1X8:
             return {V4L2_PIX_FMT_GREY};
+        // Raw Bayer, for the software ISP.
+        case MEDIA_BUS_FMT_SBGGR8_1X8:
+            return {V4L2_PIX_FMT_SBGGR8};
+        case MEDIA_BUS_FMT_SBGGR10_1X10:
+            return {V4L2_PIX_FMT_SBGGR10P, V4L2_PIX_FMT_SBGGR10};
+        case MEDIA_BUS_FMT_SBGGR12_1X12:
+            return {V4L2_PIX_FMT_SBGGR12P, V4L2_PIX_FMT_SBGGR12};
+        case MEDIA_BUS_FMT_SGBRG8_1X8:
+            return {V4L2_PIX_FMT_SGBRG8};
+        case MEDIA_BUS_FMT_SGBRG10_1X10:
+            return {V4L2_PIX_FMT_SGBRG10P, V4L2_PIX_FMT_SGBRG10};
+        case MEDIA_BUS_FMT_SGBRG12_1X12:
+            return {V4L2_PIX_FMT_SGBRG12P, V4L2_PIX_FMT_SGBRG12};
+        case MEDIA_BUS_FMT_SGRBG8_1X8:
+            return {V4L2_PIX_FMT_SGRBG8};
+        case MEDIA_BUS_FMT_SGRBG10_1X10:
+            return {V4L2_PIX_FMT_SGRBG10P, V4L2_PIX_FMT_SGRBG10};
+        case MEDIA_BUS_FMT_SGRBG12_1X12:
+            return {V4L2_PIX_FMT_SGRBG12P, V4L2_PIX_FMT_SGRBG12};
+        case MEDIA_BUS_FMT_SRGGB8_1X8:
+            return {V4L2_PIX_FMT_SRGGB8};
+        case MEDIA_BUS_FMT_SRGGB10_1X10:
+            return {V4L2_PIX_FMT_SRGGB10P, V4L2_PIX_FMT_SRGGB10};
+        case MEDIA_BUS_FMT_SRGGB12_1X12:
+            return {V4L2_PIX_FMT_SRGGB12P, V4L2_PIX_FMT_SRGGB12};
         default:
             return {};
     }
 }
 
-std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOpeners& open) {
+std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOpeners& open,
+                                              bool software_isp) {
     const MediaTopology& topology = media->Topology();
     std::vector<MediaCamera> cameras;
 
@@ -246,44 +283,57 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
         std::vector<std::vector<const Link*>> paths;
         FindPaths(topology, sensor.id, &visited, &current, &paths);
 
-        std::shared_ptr<MediaPipeline> best;
         bool all_bayer = true;
         for (const auto& path : paths) {
-            auto pipeline = std::make_shared<MediaPipeline>(BuildPipeline(topology, path));
-            pipeline->media_path = media->Path();
-            pipeline->media_rdev = media->Rdev();
-            pipeline->media_model = topology.model;
-            pipeline->sensor_entity = sensor.name;
-            pipeline->sensor_subdev = sensor.devnode;
-            for (const uint32_t code : (*sensor_device)->EnumerateCodes(pipeline->sensor_pad)) {
+            const uint32_t pad = topology.FindPad(path.front()->source)->index;
+            for (const uint32_t code : (*sensor_device)->EnumerateCodes(pad)) {
                 all_bayer &= IsBayerMbusCode(code);
-            }
-            auto formats = EvaluateFormats(pipeline.get(), sensor_device->get(), open);
-            LOG(DEBUG) << what << ": path to " << pipeline->video_node << " with "
-                       << pipeline->hops.size() << " link(s): " << formats.size()
-                       << " usable format(s)";
-            if (formats.empty()) continue;
-
-            // Most formats, then the shortest path, then the one closest to
-            // being set up already.
-            const auto score = [](const MediaPipeline& p, size_t count) {
-                return std::make_tuple(count, -static_cast<int64_t>(p.hops.size()),
-                                       EnabledLinks(p));
-            };
-            if (best == nullptr ||
-                score(*pipeline, formats.size()) > score(*best, camera.formats.size())) {
-                best = pipeline;
-                camera.formats = std::move(formats);
             }
         }
 
+        // The best path delivering processed (or, with `raw`, raw) formats.
+        auto pick = [&](bool raw) {
+            std::shared_ptr<MediaPipeline> best;
+            for (const auto& path : paths) {
+                auto pipeline = std::make_shared<MediaPipeline>(BuildPipeline(topology, path));
+                pipeline->media_path = media->Path();
+                pipeline->media_rdev = media->Rdev();
+                pipeline->media_model = topology.model;
+                pipeline->sensor_entity = sensor.name;
+                pipeline->sensor_subdev = sensor.devnode;
+                auto formats = EvaluateFormats(pipeline.get(), sensor_device->get(), open, raw);
+                LOG(DEBUG) << what << ": path to " << pipeline->video_node << " with "
+                           << pipeline->hops.size() << " link(s): " << formats.size() << " usable "
+                           << (raw ? "raw " : "") << "format(s)";
+                if (formats.empty()) continue;
+
+                // Most formats, then the shortest path, then the one closest
+                // to being set up already.
+                const auto score = [](const MediaPipeline& p, size_t count) {
+                    return std::make_tuple(count, -static_cast<int64_t>(p.hops.size()),
+                                           EnabledLinks(p));
+                };
+                if (best == nullptr ||
+                    score(*pipeline, formats.size()) > score(*best, camera.formats.size())) {
+                    best = pipeline;
+                    camera.formats = std::move(formats);
+                }
+            }
+            return best;
+        };
+        std::shared_ptr<MediaPipeline> best = pick(/*raw=*/false);
+        camera.raw_only = best == nullptr && all_bayer && !paths.empty();
+        if (camera.raw_only && software_isp) {
+            best = pick(/*raw=*/true);
+            if (best != nullptr) LOG(INFO) << what << ": raw Bayer only, using the software ISP";
+        }
+
         if (best == nullptr) {
-            camera.raw_only = all_bayer && !paths.empty();
             LOG(INFO) << what << ": "
-                      << (paths.empty() ? "no path to a video node"
-                          : camera.raw_only
-                                  ? "raw Bayer only, needs a software ISP (not supported yet)"
-                                  : "no usable format")
+                      << (paths.empty()      ? "no path to a video node"
+                          : !camera.raw_only ? "no usable format"
+                          : software_isp     ? "raw Bayer only, in no format the software ISP reads"
+                                             : "raw Bayer only, software ISP disabled")
                       << ", skipped";
         } else {
             LOG(INFO) << what << ": captured from " << best->video_node << " through "

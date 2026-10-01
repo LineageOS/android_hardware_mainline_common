@@ -25,6 +25,15 @@ bool HasV4l2Control(int fd, uint32_t id) {
     return Xioctl(fd, VIDIOC_QUERYCTRL, &query) == 0 && !(query.flags & V4L2_CTRL_FLAG_DISABLED);
 }
 
+std::optional<ControlRange> GetV4l2ControlRange(int fd, uint32_t id) {
+    v4l2_queryctrl query = {};
+    query.id = id;
+    if (Xioctl(fd, VIDIOC_QUERYCTRL, &query) != 0 || (query.flags & V4L2_CTRL_FLAG_DISABLED)) {
+        return std::nullopt;
+    }
+    return ControlRange{query.minimum, query.maximum, query.step, query.default_value};
+}
+
 std::optional<int32_t> GetV4l2Control(int fd, uint32_t id) {
     v4l2_control control = {};
     control.id = id;

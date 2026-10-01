@@ -12,6 +12,8 @@
 
 #include "convert/Image.h"
 #include "device/StreamPlanner.h"
+#include "isp/Isp3A.h"
+#include "isp/SoftIsp.h"
 #include "session/DeviceControls.h"
 #include "session/PipelineController.h"
 #include "session/RequestSettings.h"
@@ -25,9 +27,11 @@ class CaptureStream {
   public:
     // `pipeline` is set for a sensor behind a media controller; the pipeline
     // is configured before the video node, and the sensor gets the camera
-    // controls.
+    // controls. Raw Bayer capture modes go through the software ISP, with
+    // `black_level` (see SoftIsp).
     CaptureStream(std::unique_ptr<VideoDevice> device,
-                  std::unique_ptr<PipelineController> pipeline = nullptr);
+                  std::unique_ptr<PipelineController> pipeline = nullptr,
+                  std::optional<int> black_level = std::nullopt);
     ~CaptureStream();
 
     // Sets the capture mode for the next frames. Stops streaming; the next
@@ -53,7 +57,12 @@ class CaptureStream {
   private:
     std::unique_ptr<VideoDevice> device_;
     std::unique_ptr<PipelineController> pipeline_;
+    ControlDevice* const sensor_;
     DeviceControls controls_;
+    // For raw Bayer capture modes.
+    SoftIsp isp_;
+    Isp3A isp_3a_;
+    bool raw_ = false;
     // Differs from the mode's size when a pipeline stage scales.
     Size frame_size_;
     CaptureMode mode_;

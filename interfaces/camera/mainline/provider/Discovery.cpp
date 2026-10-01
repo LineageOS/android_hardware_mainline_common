@@ -20,6 +20,7 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 
+#include "isp/BayerFormat.h"
 #include "v4l2/PixelFormats.h"
 
 namespace aidl::android::hardware::camera::mainline {
@@ -238,6 +239,7 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
     }
 
     bool has_bayer = false;
+    std::vector<FormatDescription> raw_formats;
     for (auto& format : device->EnumerateFormats()) {
         switch (ClassifyPixelFormat(format.fourcc)) {
             case PixelFormatClass::kProcessed:
@@ -245,6 +247,9 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
                 break;
             case PixelFormatClass::kBayer:
                 has_bayer = true;
+                if (IsIspPixelFormat(format.fourcc) && !format.sizes.empty()) {
+                    raw_formats.push_back(std::move(format));
+                }
                 break;
             case PixelFormatClass::kUnsupported:
                 LOG(DEBUG) << what << ": ignoring unsupported format "
@@ -252,10 +257,16 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
                 break;
         }
     }
+    if (candidate.formats.empty() && properties.software_isp && !raw_formats.empty()) {
+        LOG(INFO) << what << ": only raw Bayer formats, using the software ISP";
+        candidate.formats = std::move(raw_formats);
+    }
     if (candidate.formats.empty()) {
         if (has_bayer) {
-            LOG(INFO) << what << ": only raw Bayer formats, needs a software ISP (not supported "
-                      << "yet), skipped";
+            LOG(INFO) << what << ": only raw Bayer formats"
+                      << (properties.software_isp ? " the software ISP can not read"
+                                                  : ", software ISP disabled")
+                      << ", skipped";
         } else {
             LOG(INFO) << what << ": no supported pixel format, skipped";
         }
@@ -281,7 +292,7 @@ std::vector<CameraCandidate> ProbeMediaDevice(const Properties& properties, Medi
                                               const DeviceOpeners& open) {
     std::vector<CameraCandidate> candidates;
     const MediaTopology& topology = media->Topology();
-    for (auto& camera : DiscoverMediaCameras(media, open)) {
+    for (auto& camera : DiscoverMediaCameras(media, open, properties.software_isp)) {
         if (camera.pipeline == nullptr) continue;
         const MediaPipeline& pipeline = *camera.pipeline;
         const std::string what = media->Path() + ": sensor \"" + pipeline.sensor_entity + "\"";

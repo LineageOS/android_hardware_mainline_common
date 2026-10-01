@@ -36,11 +36,14 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `device/StreamPlanner.*`          | Output sizes / durations, capture mode selection for a set of outputs |
 | `device/RequestTemplates.*`       | Default request settings |
 | `session/CameraDeviceSession.*`   | `BnCameraDeviceSession`: stream configuration, request validation, buffer cache, FMQs, worker thread |
-| `session/CaptureStream.*`         | The session's V4L2 device: format, frame interval, streaming, frame to I420 with boottime timestamp |
+| `session/CaptureStream.*`         | The session's V4L2 device: format, frame interval, streaming, frame to I420 (raw ones through the ISP) with boottime timestamp |
 | `session/DeviceControls.*`        | AE / AWB lock, antibanding, constant frame rate on V4L2 controls |
 | `session/PipelineController.*`    | Enables a media pipeline's links, sets its formats, sensor frame interval and controls |
 | `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern, flash), result metadata |
 | `session/FlashControl.*`          | When a session lights the flash (torch / single / auto / always, pre-flash), AE and flash states |
+| `isp/BayerFormat.*`               | Raw Bayer pixel formats the ISP reads: pattern, bit depth, packing, unpacking |
+| `isp/SoftIsp.*`                   | CPU ISP: per-colour LUTs (black level, WB, gain, gamma), bilinear demosaic, I420, statistics |
+| `isp/Isp3A.*`                     | Gray world AWB, AE on sensor exposure / analogue gain, then digital gain |
 | `flash/FlashLed.*`                | One flash LED: LED class device (sysfs) or V4L2 flash sub-device; listing flash LEDs |
 | `flash/Flash.*`                   | A camera's flash: torch state and levels, taken over by the open session, torch status listener |
 | `session/GraphicBuffers.h`, `GrallocBuffers.cpp` | Output buffer import / lock, abstract for tests |
@@ -75,6 +78,7 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
   formats); only `PipelineController` does, when a session starts streaming.
 * `ClassifyPixelFormat()` returns `kProcessed` only for formats the converter
   handles. Adding a format there means handling it in the converter too.
+  Likewise `GetBayerFormat()` lists only what `UnpackBayerRow()` reads.
 * Camera IDs must not depend on probe order: sort before allocating.
 * Placement (internal / external, facing, rotation) is decided only in
   `ResolvePlacement()` / `ApplyFacingByResolution()` in `Discovery.cpp`, in

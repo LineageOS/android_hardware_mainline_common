@@ -49,6 +49,12 @@ std::optional<int> ParseRotation(const std::string& value) {
     return rotation;
 }
 
+std::optional<int> ParseBlackLevel(const std::string& value) {
+    int level;
+    if (!::android::base::ParseInt(value, &level, 0, 65535)) return std::nullopt;
+    return level;
+}
+
 std::optional<std::vector<std::string>> ParseLedNames(const std::string& value) {
     if (value == "none") return std::vector<std::string>{};
     std::vector<std::string> names;
@@ -95,6 +101,7 @@ Properties Properties::Load() {
     props.include_ir = GetBoolProperty(Key("include_ir"), props.include_ir);
     props.prefer_rgb = GetBoolProperty(Key("prefer_rgb"), props.prefer_rgb);
     props.advertise_rgb = GetBoolProperty(Key("advertise_rgb"), props.advertise_rgb);
+    props.software_isp = GetBoolProperty(Key("software_isp"), props.software_isp);
     props.verbose_logging = GetBoolProperty(Key("log.verbose"), props.verbose_logging);
 
     LOG(INFO) << "loaded properties: " << props.ToString();
@@ -107,7 +114,7 @@ std::string Properties::ToString() const {
        << " wait_internal_ms=" << wait_internal_ms << " external_id_offset=" << external_id_offset
        << " facing_by_resolution=" << facing_by_resolution << " include_ir=" << include_ir
        << " prefer_rgb=" << prefer_rgb << " advertise_rgb=" << advertise_rgb
-       << " log.verbose=" << verbose_logging;
+       << " software_isp=" << software_isp << " log.verbose=" << verbose_logging;
     return os.str();
 }
 
@@ -125,6 +132,7 @@ Properties::DeviceProperties Properties::LoadDeviceProperties(
         Merge(&merged.prefer_rgb, prefix, "prefer_rgb", get, ParseOptionalBool);
         Merge(&merged.advertise_rgb, prefix, "advertise_rgb", get, ParseOptionalBool);
         Merge(&merged.flash_led, prefix, "flash_led", get, ParseLedNames);
+        Merge(&merged.black_level, prefix, "black_level", get, ParseBlackLevel);
     }
     return merged;
 }

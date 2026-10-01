@@ -72,8 +72,11 @@ struct MediaCamera {
 
 // Finds every camera sensor of a media device and the best pipeline to a
 // video node for each. Sensors without a usable pipeline are logged and come
-// back with an empty `pipeline`.
-std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOpeners& open);
+// back with an empty `pipeline`. With `software_isp`, raw Bayer only sensors
+// get a pipeline delivering raw formats the software ISP reads, when no path
+// processes their data.
+std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOpeners& open,
+                                              bool software_isp = false);
 
 // The pixel formats a media bus code can be captured as, ordered by
 // preference; empty when unknown.

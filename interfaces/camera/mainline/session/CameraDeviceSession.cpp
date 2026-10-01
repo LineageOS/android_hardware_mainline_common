@@ -113,7 +113,8 @@ CameraDeviceSession::CameraDeviceSession(std::string name,
       callback_(std::move(callback)),
       buffers_(std::move(buffers)),
       flash_(std::move(flash)),
-      capture_(std::move(device), std::move(pipeline)),
+      capture_(std::move(device), std::move(pipeline),
+               description_->candidate().properties.black_level),
       flash_control_(flash_ != nullptr) {
     jpeg_context_.characteristics = &description_->characteristics();
     jpeg_context_.make = ::android::base::GetProperty("ro.product.manufacturer", "");

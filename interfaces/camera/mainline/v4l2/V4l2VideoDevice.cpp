@@ -79,6 +79,9 @@ class V4l2VideoDevice : public VideoDevice {
     bool HasControl(uint32_t id) override;
     std::optional<int32_t> GetControl(uint32_t id) override;
     bool SetControl(uint32_t id, int32_t value) override;
+    std::optional<ControlRange> GetControlRange(uint32_t id) override {
+        return GetV4l2ControlRange(fd_.get(), id);
+    }
 
     Result<CaptureFormat> SetFormat(uint32_t fourcc, uint32_t width, uint32_t height) override;
     Result<Fraction> SetFrameInterval(const Fraction& interval) override;

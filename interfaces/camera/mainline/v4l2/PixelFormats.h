@@ -17,7 +17,7 @@ enum class PixelFormatClass {
     // Processed image data that FormatConverter turns into Android buffers
     // (packed/planar YUV, RGB, grey, MJPEG).
     kProcessed,
-    // Raw Bayer data. Needs a (software) ISP, which does not exist yet.
+    // Raw Bayer data, for the software ISP (see IsIspPixelFormat()).
     kBayer,
 };
 

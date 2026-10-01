@@ -182,7 +182,28 @@ TEST_F(CamssGraph, RawSensorNeedsIsp) {
     ASSERT_EQ(cameras.size(), 1u);
     EXPECT_EQ(cameras[0].pipeline, nullptr);
     EXPECT_TRUE(cameras[0].raw_only);
-    EXPECT_TRUE(ProbeMediaDevice(Properties{}, media->get(), open).empty());
+    Properties no_isp;
+    no_isp.software_isp = false;
+    EXPECT_TRUE(ProbeMediaDevice(no_isp, media->get(), open).empty());
+}
+
+TEST_F(CamssGraph, RawSensorThroughIsp) {
+    Build(MEDIA_BUS_FMT_SGRBG10_1X10);
+    auto open = graph_.Openers();
+    auto media = open.media("/dev/media0");
+    ASSERT_TRUE(media.ok());
+    const auto cameras = DiscoverMediaCameras(media->get(), open, /*software_isp=*/true);
+    ASSERT_EQ(cameras.size(), 1u);
+    ASSERT_NE(cameras[0].pipeline, nullptr);
+    EXPECT_TRUE(cameras[0].raw_only);
+    ASSERT_EQ(cameras[0].formats.size(), 2u);
+    EXPECT_EQ(cameras[0].formats[0].fourcc, V4L2_PIX_FMT_SGRBG10P);
+    EXPECT_EQ(cameras[0].formats[1].fourcc, V4L2_PIX_FMT_SGRBG10);
+    EXPECT_EQ(cameras[0].pipeline->formats[0].sensor_code, uint32_t{MEDIA_BUS_FMT_SGRBG10_1X10});
+
+    const auto candidates = ProbeMediaDevice(Properties{}, media->get(), open);
+    ASSERT_EQ(candidates.size(), 1u);
+    EXPECT_TRUE(candidates[0].internal);
 }
 
 TEST_F(CamssGraph, YuvSensor) {
@@ -265,7 +286,8 @@ TEST(PixelFormatsForMbusCodeTest, Mapping) {
     EXPECT_EQ(PixelFormatsForMbusCode(MEDIA_BUS_FMT_UYVY8_1X16),
               (std::vector<uint32_t>{V4L2_PIX_FMT_UYVY}));
     EXPECT_FALSE(PixelFormatsForMbusCode(MEDIA_BUS_FMT_RGB888_1X24).empty());
-    EXPECT_TRUE(PixelFormatsForMbusCode(MEDIA_BUS_FMT_SGRBG10_1X10).empty());
+    EXPECT_EQ(PixelFormatsForMbusCode(MEDIA_BUS_FMT_SGRBG10_1X10),
+              (std::vector<uint32_t>{V4L2_PIX_FMT_SGRBG10P, V4L2_PIX_FMT_SGRBG10}));
     EXPECT_TRUE(IsBayerMbusCode(MEDIA_BUS_FMT_SGRBG10_1X10));
     EXPECT_FALSE(IsBayerMbusCode(MEDIA_BUS_FMT_YUYV8_2X8));
 }
