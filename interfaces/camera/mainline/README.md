@@ -353,8 +353,64 @@ Example: `setprop vendor.camera.device.usb:046d:082d.internal true`
 
 ## Testing
 
-Unit tests (on the device):
+Unit tests (on the device). They cover discovery, the media pipeline, the
+request pipeline and the flash against fake devices:
 
 ```
 atest camera_provider_mainline_test
 ```
+
+The HAL against the framework's expectations:
+
+```
+atest VtsAidlHalCameraProvider_TargetTest
+atest CtsCameraTestCases
+```
+
+Properties are read when the service starts (per-device ones when a camera
+appears); restart it after changing them:
+
+```
+adb shell setprop vendor.camera.log.verbose true
+adb shell stop vendor.camera.provider-mainline
+adb shell start vendor.camera.provider-mainline
+adb logcat -s MainlineCamera_Discovery MainlineCamera_Provider MainlineCamera_Session
+```
+
+### Without camera hardware
+
+The kernel's test drivers (`CONFIG_V4L_TEST_DRIVERS`) make cameras out of
+thin air:
+
+* `vivid` (`CONFIG_VIDEO_VIVID`) creates plain capture nodes, like a USB
+  camera without the USB. One webcam-like capture node:
+
+  ```
+  adb shell modprobe vivid node_types=0x1 num_inputs=1 input_types=0x0
+  ```
+
+  It has no USB port or firmware placement, so it comes up as an external
+  camera; `vendor.camera.default_internal` or its per-device `internal`
+  property (selector `vivid`, see the discovery log) makes it internal.
+* `vimc` (`CONFIG_VIDEO_VIMC`) creates a media controller pipeline like a
+  phone's: "Sensor A" and "Sensor B" feed raw Bayer through "Debayer A/B"
+  and a "Scaler" to "RGB/YUV Capture", next to "Raw Capture 0/1".
+
+  ```
+  adb shell modprobe vimc
+  ```
+
+  Both sensors become internal cameras captured through the debayer; the
+  raw capture nodes are not used. Only one of them can be open at a time.
+
+Removing the module (`rmmod vivid`) unplugs its cameras, which exercises the
+hotplug path.
+
+### Flash without a flash LED
+
+Any LED class device can stand in for a flash: set the `flash_led` property
+of an internal camera to its name (`ls /sys/class/leds`), e.g. a keyboard
+LED on a laptop or the vivid camera marked internal. Outside the `*:flash*`
+/ `*:torch*` names it is not writable by the HAL's user; use `run_as_root`
+(and permissive SELinux) for that. The torch tile in quick settings then
+drives it, and flash captures light it.
