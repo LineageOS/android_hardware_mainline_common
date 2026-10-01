@@ -12,6 +12,8 @@
 #include <linux/videodev2.h>
 
 #include <algorithm>
+#include <map>
+#include <optional>
 #include <set>
 #include <tuple>
 
@@ -120,19 +122,41 @@ MediaPipeline BuildPipeline(const MediaTopology& topology, const std::vector<con
     return pipeline;
 }
 
+// What video nodes deliver for media bus codes, looked up once per scan: the
+// many paths of a media device (72 for a CAMSS sensor) share a few video
+// nodes.
+class VideoFormatCache {
+  public:
+    explicit VideoFormatCache(const DeviceOpeners& open) : open_(open) {}
+
+    // Null when the node can not be opened (logged once).
+    const std::vector<FormatDescription>* Formats(const std::string& node, uint32_t code) {
+        auto [it, added] = cache_.try_emplace({node, code});
+        if (added) {
+            auto device = open_.video(node);
+            if (device.ok()) {
+                it->second = (*device)->EnumerateFormats(code);
+            } else {
+                LOG(WARNING) << device.error().message();
+            }
+        }
+        return it->second.has_value() ? &*it->second : nullptr;
+    }
+
+  private:
+    const DeviceOpeners& open_;
+    std::map<std::pair<std::string, uint32_t>, std::optional<std::vector<FormatDescription>>>
+            cache_;
+};
+
 // Works out the formats `pipeline` can deliver. Fills pipeline->formats and
 // returns the matching format descriptions with the sensor's frame sizes.
 //
 // `raw`: look for raw Bayer formats the software ISP reads instead, on paths
 // without a converting stage.
 std::vector<FormatDescription> EvaluateFormats(MediaPipeline* pipeline, SubDevice* sensor,
-                                               const DeviceOpeners& open, bool raw) {
-    auto node = open.video(pipeline->video_node);
-    if (!node.ok()) {
-        LOG(WARNING) << node.error().message();
-        return {};
-    }
-
+                                               const DeviceOpeners& open, VideoFormatCache* cache,
+                                               bool raw) {
     // (sensor code, output code at the converters, code at the video node)
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> candidates;
     const std::vector<uint32_t> sensor_codes = sensor->EnumerateCodes(pipeline->sensor_pad);
@@ -164,7 +188,9 @@ std::vector<FormatDescription> EvaluateFormats(MediaPipeline* pipeline, SubDevic
         // What the video node makes of the code, cross-checked with what the
         // code can mean when the driver does not filter by media bus code.
         const std::vector<uint32_t> known = PixelFormatsForMbusCode(final_code);
-        for (const auto& format : (*node)->EnumerateFormats(final_code)) {
+        const auto* node_formats = cache->Formats(pipeline->video_node, final_code);
+        if (node_formats == nullptr) return {};
+        for (const auto& format : *node_formats) {
             if (raw ? !IsIspPixelFormat(format.fourcc) : !IsProcessedPixelFormat(format.fourcc)) {
                 continue;
             }
@@ -261,6 +287,7 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
                                               bool software_isp) {
     const MediaTopology& topology = media->Topology();
     std::vector<MediaCamera> cameras;
+    VideoFormatCache cache(open);
 
     for (const auto& sensor : topology.entities) {
         if (sensor.function != MEDIA_ENT_F_CAM_SENSOR) continue;
@@ -294,6 +321,7 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
         // The best path delivering processed (or, with `raw`, raw) formats.
         auto pick = [&](bool raw) {
             std::shared_ptr<MediaPipeline> best;
+            size_t usable = 0;
             for (const auto& path : paths) {
                 auto pipeline = std::make_shared<MediaPipeline>(BuildPipeline(topology, path));
                 pipeline->media_path = media->Path();
@@ -301,11 +329,13 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
                 pipeline->media_model = topology.model;
                 pipeline->sensor_entity = sensor.name;
                 pipeline->sensor_subdev = sensor.devnode;
-                auto formats = EvaluateFormats(pipeline.get(), sensor_device->get(), open, raw);
-                LOG(DEBUG) << what << ": path to " << pipeline->video_node << " with "
-                           << pipeline->hops.size() << " link(s): " << formats.size() << " usable "
-                           << (raw ? "raw " : "") << "format(s)";
+                auto formats =
+                        EvaluateFormats(pipeline.get(), sensor_device->get(), open, &cache, raw);
+                LOG(VERBOSE) << what << ": path to " << pipeline->video_node << " with "
+                             << pipeline->hops.size() << " link(s): " << formats.size()
+                             << " usable " << (raw ? "raw " : "") << "format(s)";
                 if (formats.empty()) continue;
+                ++usable;
 
                 // Most formats, then the shortest path, then the one closest
                 // to being set up already.
@@ -319,6 +349,8 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
                     camera.formats = std::move(formats);
                 }
             }
+            LOG(DEBUG) << what << ": " << usable << " of " << paths.size() << " path(s) deliver "
+                       << (raw ? "raw" : "processed") << " formats";
             return best;
         };
         std::shared_ptr<MediaPipeline> best = pick(/*raw=*/false);
