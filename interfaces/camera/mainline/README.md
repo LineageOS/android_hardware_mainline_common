@@ -11,6 +11,8 @@ front / back facing) and external (hotpluggable) cameras.
 
 ## Status
 
+Verification status, known issues and what is left: `TODO.md`.
+
 | Feature                                   | State |
 |-------------------------------------------|-------|
 | Discovery and hotplug of capture nodes    | done |

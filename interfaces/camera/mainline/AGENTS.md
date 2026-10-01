@@ -8,6 +8,10 @@ the rules to follow when changing it.
 > and `docs/` for shared code style, formatting, workflow, and commit
 > conventions. This file only covers what's specific to this directory.
 
+Before starting work, read `TODO.md`: what works and where it was verified,
+known issues, and the list of what is left, in order. Update it in the same
+commit when you change any of that.
+
 ## What this is
 
 `android.hardware.camera.provider` (AIDL V4, `camera.device` V4) HAL for
