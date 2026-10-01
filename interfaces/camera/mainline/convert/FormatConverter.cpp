@@ -319,4 +319,20 @@ void FillBlack(I420Image* image) {
     image->full_range = true;
 }
 
+int MeanLuma(const I420Image& image) {
+    // Every 8th pixel of every 8th row is plenty for an average.
+    constexpr int kStep = 8;
+    int64_t sum = 0;
+    int64_t count = 0;
+    for (int y = 0; y < image.height(); y += kStep) {
+        const uint8_t* row = image.y() + static_cast<size_t>(y) * image.y_stride();
+        for (int x = 0; x < image.width(); x += kStep) sum += row[x];
+        count += (image.width() + kStep - 1) / kStep;
+    }
+    if (count == 0) return 0;
+    const int mean = static_cast<int>(sum / count);
+    // Video range: 16-235.
+    return image.full_range ? mean : std::clamp((mean - 16) * 255 / 219, 0, 255);
+}
+
 }  // namespace aidl::android::hardware::camera::mainline

@@ -14,6 +14,7 @@
 
 #include "Properties.h"
 #include "config/CameraHwdb.h"
+#include "flash/FlashLed.h"
 #include "provider/MediaPipeline.h"
 #include "v4l2/DeviceOpeners.h"
 
@@ -49,6 +50,8 @@ struct CameraCandidate {
     // For a sensor behind a media controller: the pipeline to set up before
     // capturing from `info`. Null for plain capture nodes.
     std::shared_ptr<const MediaPipeline> pipeline;
+    // Flash LEDs, as OpenFlashLed() takes them; see AssignFlashLeds().
+    std::vector<std::string> flash_leds;
 };
 
 struct DiscoveryResult {
@@ -66,7 +69,17 @@ struct DiscoveryResult {
 DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
                                 const std::vector<CameraCandidate>& known,
                                 const DeviceOpeners& open = DeviceOpeners(),
-                                const std::string& dev_dir = "/dev");
+                                const std::string& dev_dir = "/dev",
+                                const std::string& leds_dir = kLedClassDir);
+
+// Gives cameras their flash LEDs (CameraCandidate::flash_leds):
+//   - the LED class devices named by the camera's "flash_led" property;
+//   - otherwise the V4L2 flash sub-devices linked to its sensor.
+// When neither applies to any camera, all flash LEDs of `led_class` (see
+// ListFlashLeds()) go to the first internal back facing camera, by key,
+// which is the order IDs are given in.
+void AssignFlashLeds(std::vector<CameraCandidate>* cameras,
+                     const std::vector<std::string>& led_class);
 
 // Builds cameras from the sensors of a media device that have a usable
 // pipeline.

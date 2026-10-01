@@ -11,11 +11,13 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 
 #include <aidl/android/hardware/graphics/common/BufferUsage.h>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android/sync.h>
+#include <system/camera_metadata.h>
 
 #include "convert/FormatConverter.h"
 #include "device/RequestTemplates.h"
@@ -67,7 +69,7 @@ PixelFormat EffectiveFormat(const device::Stream& stream, bool prefer_rgb) {
 std::shared_ptr<CameraDeviceSession> CameraDeviceSession::Create(
         std::string name, std::shared_ptr<const CameraDescription> description,
         std::shared_ptr<device::ICameraDeviceCallback> callback, const DeviceOpeners& open,
-        std::shared_ptr<GraphicBuffers> buffers, Status* status) {
+        std::shared_ptr<GraphicBuffers> buffers, Status* status, std::shared_ptr<Flash> flash) {
     auto failed = [&](const ::android::base::ResultError<>& error) {
         LOG(ERROR) << name << ": " << error.message();
         const int code = error.code().value();
@@ -88,7 +90,7 @@ std::shared_ptr<CameraDeviceSession> CameraDeviceSession::Create(
 
     auto session = ::ndk::SharedRefBase::make<CameraDeviceSession>(
             std::move(name), std::move(description), std::move(callback), std::move(*device),
-            std::move(pipeline), std::move(buffers));
+            std::move(pipeline), std::move(buffers), std::move(flash));
     if (session->request_queue_ == nullptr || session->result_queue_ == nullptr) {
         *status = Status::INTERNAL_ERROR;
         return nullptr;
@@ -104,12 +106,15 @@ CameraDeviceSession::CameraDeviceSession(std::string name,
                                          std::shared_ptr<device::ICameraDeviceCallback> callback,
                                          std::unique_ptr<VideoDevice> device,
                                          std::unique_ptr<PipelineController> pipeline,
-                                         std::shared_ptr<GraphicBuffers> buffers)
+                                         std::shared_ptr<GraphicBuffers> buffers,
+                                         std::shared_ptr<Flash> flash)
     : name_(std::move(name)),
       description_(std::move(description)),
       callback_(std::move(callback)),
       buffers_(std::move(buffers)),
-      capture_(std::move(device), std::move(pipeline)) {
+      flash_(std::move(flash)),
+      capture_(std::move(device), std::move(pipeline)),
+      flash_control_(flash_ != nullptr) {
     jpeg_context_.characteristics = &description_->characteristics();
     jpeg_context_.make = ::android::base::GetProperty("ro.product.manufacturer", "");
     // External cameras are their own product.
@@ -149,6 +154,7 @@ bool CameraDeviceSession::IsClosed() {
 
     std::lock_guard<std::mutex> lock(lock_);
     capture_.Stop();
+    if (flash_ != nullptr) flash_->Release();
     FreeAllBuffersLocked();
     streams_.clear();
     closed_ = true;
@@ -428,10 +434,20 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
     }
 
     const RequestSettings parsed = ParseSettings(*request.settings, *description_);
+    const FlashControl::Plan flash = flash_control_.Begin(
+            parsed, std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count());
+    LightFlash(flash.lit);
     const ::android::base::Result<int64_t> captured = [&]() -> ::android::base::Result<int64_t> {
         if (auto prepared = capture_.Prepare(parsed); !prepared.ok()) return prepared.error();
-        return capture_.Capture(&frame_);
+        return capture_.Capture(&frame_, flash.not_before_ns);
     }();
+    if (flash.lit && !flash.keep_lit) {
+        // Fired for this frame only.
+        LightFlash(false);
+        flash_control_.Unlit();
+    }
     if (!captured.ok()) {
         LOG(ERROR) << name_ << ": request " << request.frame_number << ": "
                    << captured.error().message();
@@ -447,6 +463,7 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
         return;
     }
     const int64_t timestamp = *captured;
+    if (flash_control_.WantsBrightness(parsed)) flash_control_.SetBrightness(MeanLuma(frame_));
 
     NotifyMsg shutter;
     shutter.set<NotifyMsg::Tag::shutter>(ShutterMsg{.frameNumber = request.frame_number,
@@ -477,8 +494,16 @@ void CameraDeviceSession::Process(PendingRequest& request, uint8_t pipeline_dept
     }
     if (!errors.empty()) Notify(errors);
 
-    const Metadata metadata = BuildResult(*request.settings, parsed, timestamp, pipeline_depth);
+    Metadata metadata = BuildResult(*request.settings, parsed, timestamp, pipeline_depth);
+    metadata.SetU8(ANDROID_CONTROL_AE_STATE, flash.ae_state);
+    metadata.SetU8(ANDROID_FLASH_STATE, flash.flash_state);
     SendResult(std::move(result), &metadata);
+}
+
+void CameraDeviceSession::LightFlash(bool lit) {
+    if (flash_ == nullptr || lit == flash_lit_) return;
+    flash_->SetLit(lit);
+    flash_lit_ = lit;
 }
 
 bool CameraDeviceSession::WriteOutput(OutputBuffer& output, const I420Image& image,

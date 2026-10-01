@@ -213,6 +213,24 @@ TEST_F(CamssGraph, YuvSensor) {
               changes.end());
 }
 
+TEST_F(CamssGraph, LinkedFlash) {
+    Build(MEDIA_BUS_FMT_YUYV8_2X8);
+    const uint32_t flash =
+            graph_.AddEntity("qcom-flash 1-d300", MEDIA_ENT_F_FLASH, "/dev/v4l-subdev20", 0, 0);
+    graph_.topology().links.push_back(
+            {.id = 999,
+             .source = sensor_,
+             .sink = flash,
+             .flags = MEDIA_LNK_FL_ANCILLARY_LINK | MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE});
+    auto open = graph_.Openers();
+    auto media = open.media("/dev/media0");
+    ASSERT_TRUE(media.ok());
+    auto cameras = DiscoverMediaCameras(media->get(), open);
+    ASSERT_EQ(cameras.size(), 1u);
+    ASSERT_NE(cameras[0].pipeline, nullptr);
+    EXPECT_EQ(cameras[0].pipeline->flash_subdevs, std::vector<std::string>{"/dev/v4l-subdev20"});
+}
+
 TEST_F(CamssGraph, DisablesCompetingLinks) {
     Build(MEDIA_BUS_FMT_YUYV8_2X8);
     auto open = graph_.Openers();

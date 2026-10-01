@@ -33,13 +33,17 @@ constexpr uint8_t kPipelineMaxDepth = 4;
 // the camera device, its sessions and the request templates.
 class CameraDescription {
   public:
-    static std::shared_ptr<const CameraDescription> Create(const CameraCandidate& candidate);
+    // `flash_levels`: torch strength levels of the camera's flash, 0 if it
+    // has none.
+    static std::shared_ptr<const CameraDescription> Create(const CameraCandidate& candidate,
+                                                           int32_t flash_levels = 0);
 
     const CameraCandidate& candidate() const { return candidate_; }
     const StreamPlanner& planner() const { return planner_; }
     const Metadata& characteristics() const { return characteristics_; }
 
     bool internal() const { return candidate_.internal; }
+    bool has_flash() const { return flash_levels_ > 0; }
     // The full field of view: ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE.
     Size active_array() const { return planner_.MaxSize(); }
     float max_zoom() const { return max_zoom_; }
@@ -55,10 +59,11 @@ class CameraDescription {
                                            std::string* why) const;
 
   private:
-    explicit CameraDescription(const CameraCandidate& candidate);
+    CameraDescription(const CameraCandidate& candidate, int32_t flash_levels);
     void BuildCharacteristics();
 
     CameraCandidate candidate_;
+    const int32_t flash_levels_;
     StreamPlanner planner_;
     float max_zoom_ = 1.0f;
     std::vector<std::array<int32_t, 2>> fps_ranges_;

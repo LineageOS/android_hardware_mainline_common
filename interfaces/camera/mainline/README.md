@@ -18,6 +18,7 @@ front / back facing) and external (hotpluggable) cameras.
 | Capture sessions, YUV and RGBA outputs    | done |
 | JPEG outputs with EXIF and thumbnail      | done |
 | Sensors behind a media controller pipeline (Qualcomm CAMSS, vimc, ...) delivering processed images | done |
+| Flash and torch (LED class devices, V4L2 flash sub-devices) | done, at torch brightness |
 | Raw Bayer sensors (software ISP)          | not yet, detected and skipped |
 
 ## Packaging
@@ -70,8 +71,9 @@ Soong config variables (namespace `camera_hal_mainline`):
 
 The feature XMLs claim what the device has, not what the HAL can do. Without
 `include_all_permission_xmls`, the product installs the ones matching its
-cameras itself. No XML claims autofocus, flash or a capability level above
-`LIMITED`, as the HAL does not provide them.
+cameras itself. No XML claims autofocus or a capability level above `LIMITED`,
+as the HAL does not provide them. AOSP has no feature XML for a flash alone
+(`android.hardware.camera.flash-autofocus` claims autofocus as well).
 
 Example:
 
@@ -210,7 +212,10 @@ Everything is derived from what the capture node offers:
 * AE target fps ranges: a fixed range for every frame rate the device offers,
   plus a variable one from 15 fps up.
 * Digital zoom up to 4x, center crop only.
-* Fixed focus, no flash (yet), no manual sensor or post processing controls.
+* Fixed focus, no manual sensor or post processing controls.
+* With a flash (see [Flash and torch](#flash-and-torch)): `FLASH_INFO_AVAILABLE`,
+  the AE modes `ON_AUTO_FLASH` and `ON_ALWAYS_FLASH`, and torch strength
+  levels when the LEDs have more than one.
 * V4L2 does not describe optics. Focal length, aperture and physical sensor
   size are nominal values of a typical webcam (3.6 mm wide sensor, 70 degree
   horizontal field of view, f/2.0); they only affect field of view
@@ -244,14 +249,51 @@ own thread:
 * AE and AWB locks use `V4L2_CID_3A_LOCK`, or freeze the automatic exposure /
   white balance by switching to manual mode with the current value. Power
   line frequency (antibanding) is set to automatic where the device offers it.
-  AE and AWB always report converged (or locked); there is no precapture
-  metering or focus control.
+  AE and AWB report converged (or locked); there is no precapture metering
+  or focus control. Cameras with a flash run a short precapture sequence, see
+  below.
 * The `BLACK` and `SOLID_COLOR` test patterns output black frames, JPEGs
   included (camera privacy mode); `SOLID_COLOR` ignores the requested color.
 * Timestamps are the driver's frame timestamps converted to
   `CLOCK_BOOTTIME`.
 * A device that disappears while streaming ends the session with
   `ERROR_DEVICE`.
+
+## Flash and torch
+
+A camera's flash is one or more LEDs switched together (e.g. the two LEDs of
+a dual tone flash). They come from, in this order:
+
+1. the per-device property `flash_led`: LED class device names, or `none`;
+2. V4L2 flash sub-devices linked to the camera's sensor in the media graph
+   (an ancillary link, from the sensor's `flash-leds` in the device tree);
+3. when neither applies to any camera: every LED class device whose name
+   says flash or torch (`white:flash`, `led:torch_0`, ...) goes to the first
+   internal back camera.
+
+Mainline flash drivers (`leds-qcom-flash`, `leds-qcom-flash-v1`, ...)
+register an LED class device; the HAL sets its `brightness` (levels up to
+`max_brightness`). V4L2 flash sub-devices are driven in torch mode with
+`V4L2_CID_FLASH_TORCH_INTENSITY` steps as levels; the HAL keeps them open, which
+disables the LED's sysfs interface.
+
+* The torch (`setTorchMode()`, strength levels) works while the camera is
+  closed, and becomes unavailable (and off) while it is open. Status changes
+  are reported to the framework.
+* There is no strobe synchronized with the sensor. Firing the flash lights
+  the LEDs at full torch brightness and captures a frame that started at
+  least 150 ms after they came on:
+  * `FLASH_MODE_TORCH` lights them while requested, `FLASH_MODE_SINGLE` for
+    the request's frame.
+  * With `AE_MODE_ON_ALWAYS_FLASH` / `ON_AUTO_FLASH`, still captures fire the
+    flash (always, or when the preview is dark: mean luma below 60 of 255);
+    `AE_STATE` is `FLASH_REQUIRED` while it is dark. A precapture trigger
+    lights the LEDs ahead (pre-flash, `AE_STATE_PRECAPTURE` for 500 ms), so
+    that the camera's auto exposure adapts; they stay lit up to 3 s waiting
+    for the still capture.
+* Device side: the LEDs' sysfs attributes have to be writable by the HAL's
+  user (`ueventd.rc`) and labelled for it (SELinux). The `device/mainline/common`
+  tree does both for LEDs named `*:flash*` / `*:torch*`.
 
 ## Properties
 
@@ -305,6 +347,7 @@ adb logcat -s MainlineCamera_Discovery
 | `rotation` | int  | `ANDROID_SENSOR_ORIENTATION` of an internal camera: clockwise rotation (0, 90, 180, 270) that makes the image upright on the display in its natural orientation. |
 | `prefer_rgb` | bool | Overrides the global `prefer_rgb`. |
 | `advertise_rgb` | bool | Overrides the global `advertise_rgb`. |
+| `flash_led` | string | The camera's flash LEDs: comma separated LED class device names (`white:flash,yellow:flash`), or `none`. Setting it on any camera turns off the automatic assignment. |
 
 Example: `setprop vendor.camera.device.usb:046d:082d.internal true`
 

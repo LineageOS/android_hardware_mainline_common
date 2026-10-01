@@ -55,6 +55,8 @@ struct MediaPipeline {
     std::vector<Hop> hops;
     std::string video_node;
     std::vector<Format> formats;
+    // V4L2 flash sub-devices linked to the sensor (ancillary links).
+    std::vector<std::string> flash_subdevs;
 
     const Format* FindFormat(uint32_t fourcc) const;
 };

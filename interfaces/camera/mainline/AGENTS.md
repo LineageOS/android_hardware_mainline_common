@@ -26,7 +26,7 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `main.cpp`                        | Loads properties, starts the provider, optionally waits for internal cameras, registers the service |
 | `Properties.{h,cpp}`              | `vendor.camera.*` -> `struct Properties`, per-device selectors |
 | `provider/CameraProvider.*`       | `BnCameraProvider`: camera list, IDs, status callbacks |
-| `provider/Discovery.*`            | Classifies `/dev/video*` nodes into `CameraCandidate`s |
+| `provider/Discovery.*`            | Classifies `/dev/video*` nodes into `CameraCandidate`s, assigns flash LEDs |
 | `provider/DeviceMonitor.*`        | inotify on `/dev`, debounced rescans with retry |
 | `provider/CameraIdAllocator.*`    | Stable numerical camera IDs |
 | `provider/MediaPipeline.*`        | Media controller sensors: paths to video nodes, deliverable formats (`DiscoverMediaCameras()`) |
@@ -39,7 +39,10 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `session/CaptureStream.*`         | The session's V4L2 device: format, frame interval, streaming, frame to I420 with boottime timestamp |
 | `session/DeviceControls.*`        | AE / AWB lock, antibanding, constant frame rate on V4L2 controls |
 | `session/PipelineController.*`    | Enables a media pipeline's links, sets its formats, sensor frame interval and controls |
-| `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern), result metadata |
+| `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern, flash), result metadata |
+| `session/FlashControl.*`          | When a session lights the flash (torch / single / auto / always, pre-flash), AE and flash states |
+| `flash/FlashLed.*`                | One flash LED: LED class device (sysfs) or V4L2 flash sub-device; listing flash LEDs |
+| `flash/Flash.*`                   | A camera's flash: torch state and levels, taken over by the open session, torch status listener |
 | `session/GraphicBuffers.h`, `GrallocBuffers.cpp` | Output buffer import / lock, abstract for tests |
 | `convert/`                        | V4L2 formats to I420, crop / scale to YUV and RGBA outputs (libyuv) |
 | `jpeg/JpegEncoder.*`              | I420 to JPEG with libjpeg (raw 4:2:0 input; errors `longjmp` back, never `exit()`) |
@@ -65,9 +68,9 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 * Never hard-code device specific values. Derive them from V4L2 / sysfs at
   runtime, or make them per-device properties (see below).
 * Only `V4l2VideoDevice.cpp`, `MediaDevice.cpp` and `SubDevice.cpp` talk to
-  device nodes. Code above them uses the abstract classes, opened through
-  `DeviceOpeners`, so that it can be unit tested with `FakeVideoDevice` and
-  `FakeMediaGraph`.
+  device nodes, plus `FlashLed.cpp` for flash LEDs. Code above them uses the
+  abstract classes, opened through `DeviceOpeners` (or `OpenFlashLed()`), so
+  that it can be unit tested with `FakeVideoDevice` and `FakeMediaGraph`.
 * Media pipelines: discovery must not change the graph (no link setup, no
   formats); only `PipelineController` does, when a session starts streaming.
 * `ClassifyPixelFormat()` returns `kProcessed` only for formats the converter
@@ -88,7 +91,12 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 * Characteristics describe the device, not a session. Anything a session can
   not deliver for every advertised stream combination must not be advertised.
 * Calls into the framework (`ICameraProviderCallback`) are made without
-  `CameraProvider::lock_` held, serialized by `callback_lock_`.
+  `CameraProvider::lock_` held, serialized by `callback_lock_`. Torch status
+  changes are reported from inside `Flash` calls, so never call into a
+  `Flash` with `lock_` held (`Detach()` excepted, it reports nothing).
+* A camera's flash belongs to its open session (`Flash::Acquire()` in
+  `CameraDevice::open()`, `Release()` in the session's `close()`); the torch
+  API is refused meanwhile.
 * Do not crash when there is no camera, or when a device disappears at any
   point; log and carry on.
 

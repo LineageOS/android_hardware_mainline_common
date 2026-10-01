@@ -72,6 +72,8 @@ class CameraProvider : public provider::BnCameraProvider {
     // wants to run again later.
     bool Rescan();
     void Notify(const std::vector<StatusChange>& changes);
+    void NotifyTorch(const std::string& name,
+                     ::aidl::android::hardware::camera::common::TorchModeStatus status);
     int InternalCountLocked() const;
 
     const Properties properties_;

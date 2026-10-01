@@ -29,15 +29,17 @@ constexpr int32_t kPipelineResourceCost = 100;
 }  // namespace
 
 CameraDevice::CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description,
-                           DeviceOpeners open,
+                           std::shared_ptr<Flash> flash, DeviceOpeners open,
                            std::function<std::shared_ptr<GraphicBuffers>()> buffers)
     : name_(std::move(name)),
       description_(std::move(description)),
+      flash_(std::move(flash)),
       open_(std::move(open)),
       buffers_(std::move(buffers)) {}
 
 void CameraDevice::Disconnect() {
     disconnected_ = true;
+    if (flash_ != nullptr) flash_->Detach();
 }
 
 ::ndk::ScopedAStatus CameraDevice::getCameraCharacteristics(
@@ -81,10 +83,15 @@ void CameraDevice::Disconnect() {
         LOG(ERROR) << name_ << ": already open";
         return ToBinderStatus(Status::CAMERA_IN_USE);
     }
+    // The torch goes off and is unavailable while the camera is open.
+    if (flash_ != nullptr) flash_->Acquire();
     Status status;
-    auto opened =
-            CameraDeviceSession::Create(name_, description_, callback, open_, buffers_(), &status);
-    if (opened == nullptr) return ToBinderStatus(status);
+    auto opened = CameraDeviceSession::Create(name_, description_, callback, open_, buffers_(),
+                                              &status, flash_);
+    if (opened == nullptr) {
+        if (flash_ != nullptr) flash_->Release();
+        return ToBinderStatus(status);
+    }
     session_ = opened;
     *session = opened;
     return ::ndk::ScopedAStatus::ok();
@@ -97,16 +104,22 @@ void CameraDevice::Disconnect() {
     return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
 }
 
-::ndk::ScopedAStatus CameraDevice::setTorchMode(bool /*on*/) {
-    return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+::ndk::ScopedAStatus CameraDevice::setTorchMode(bool on) {
+    if (flash_ == nullptr) return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+    if (disconnected_) return ToBinderStatus(Status::CAMERA_DISCONNECTED);
+    return ToBinderStatus(flash_->SetTorch(on));
 }
 
-::ndk::ScopedAStatus CameraDevice::turnOnTorchWithStrengthLevel(int32_t /*level*/) {
-    return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+::ndk::ScopedAStatus CameraDevice::turnOnTorchWithStrengthLevel(int32_t level) {
+    if (flash_ == nullptr) return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+    if (disconnected_) return ToBinderStatus(Status::CAMERA_DISCONNECTED);
+    return ToBinderStatus(flash_->SetTorchLevel(level));
 }
 
-::ndk::ScopedAStatus CameraDevice::getTorchStrengthLevel(int32_t* /*level*/) {
-    return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+::ndk::ScopedAStatus CameraDevice::getTorchStrengthLevel(int32_t* level) {
+    if (flash_ == nullptr) return ToBinderStatus(Status::OPERATION_NOT_SUPPORTED);
+    *level = flash_->torch_level();
+    return ::ndk::ScopedAStatus::ok();
 }
 
 ::ndk::ScopedAStatus CameraDevice::constructDefaultRequestSettings(

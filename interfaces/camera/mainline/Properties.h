@@ -69,6 +69,9 @@ struct Properties {
         // Override the global prefer_rgb / advertise_rgb.
         std::optional<bool> prefer_rgb;
         std::optional<bool> advertise_rgb;
+        // The camera's flash LEDs: comma separated LED class device names
+        // ("white:flash,yellow:flash"), or "none".
+        std::optional<std::vector<std::string>> flash_led;
     };
 
     static Properties Load();

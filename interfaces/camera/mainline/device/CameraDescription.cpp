@@ -108,9 +108,9 @@ bool IsJpegDataspace(Dataspace dataspace) {
 
 }  // namespace
 
-std::shared_ptr<const CameraDescription> CameraDescription::Create(
-        const CameraCandidate& candidate) {
-    std::shared_ptr<CameraDescription> description(new CameraDescription(candidate));
+std::shared_ptr<const CameraDescription> CameraDescription::Create(const CameraCandidate& candidate,
+                                                                   int32_t flash_levels) {
+    std::shared_ptr<CameraDescription> description(new CameraDescription(candidate, flash_levels));
     if (description->planner_.OutputSizes().empty()) {
         LOG(ERROR) << candidate.key << ": no usable output size";
         return nullptr;
@@ -119,8 +119,8 @@ std::shared_ptr<const CameraDescription> CameraDescription::Create(
     return description;
 }
 
-CameraDescription::CameraDescription(const CameraCandidate& candidate)
-    : candidate_(candidate), planner_(candidate.formats) {}
+CameraDescription::CameraDescription(const CameraCandidate& candidate, int32_t flash_levels)
+    : candidate_(candidate), flash_levels_(flash_levels), planner_(candidate.formats) {}
 
 void CameraDescription::BuildCharacteristics() {
     const Size array = planner_.MaxSize();
@@ -159,7 +159,12 @@ void CameraDescription::BuildCharacteristics() {
     // android.control
     m.Set(ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES,
           std::vector<uint8_t>{ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO});
-    m.Set(ANDROID_CONTROL_AE_AVAILABLE_MODES, std::vector<uint8_t>{ANDROID_CONTROL_AE_MODE_ON});
+    std::vector<uint8_t> ae_modes = {ANDROID_CONTROL_AE_MODE_ON};
+    if (has_flash()) {
+        ae_modes.push_back(ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH);
+        ae_modes.push_back(ANDROID_CONTROL_AE_MODE_ON_ALWAYS_FLASH);
+    }
+    m.Set(ANDROID_CONTROL_AE_AVAILABLE_MODES, ae_modes);
     std::vector<int32_t> fps_ranges;
     for (const auto& range : fps_ranges_) {
         fps_ranges.push_back(range[0]);
@@ -189,8 +194,14 @@ void CameraDescription::BuildCharacteristics() {
           std::vector<uint8_t>{ANDROID_NOISE_REDUCTION_MODE_OFF});
     m.Set(ANDROID_SHADING_AVAILABLE_MODES, std::vector<uint8_t>{ANDROID_SHADING_MODE_OFF});
 
-    // android.flash
-    m.SetU8(ANDROID_FLASH_INFO_AVAILABLE, ANDROID_FLASH_INFO_AVAILABLE_FALSE);
+    // android.flash: LEDs at torch brightness, also for flash captures.
+    m.SetU8(ANDROID_FLASH_INFO_AVAILABLE,
+            has_flash() ? ANDROID_FLASH_INFO_AVAILABLE_TRUE : ANDROID_FLASH_INFO_AVAILABLE_FALSE);
+    if (flash_levels_ > 1) {
+        // Torch strength control.
+        m.SetI32(ANDROID_FLASH_INFO_STRENGTH_MAXIMUM_LEVEL, flash_levels_);
+        m.SetI32(ANDROID_FLASH_INFO_STRENGTH_DEFAULT_LEVEL, flash_levels_);
+    }
 
     // android.info
     m.SetU8(ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL,

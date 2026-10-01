@@ -51,6 +51,16 @@ TEST_F(DevicePropertiesTest, InvalidValueFallsThrough) {
     EXPECT_EQ(Load({"video0", "card"}).internal, true);
 }
 
+TEST_F(DevicePropertiesTest, FlashLed) {
+    values_["vendor.camera.device.a.flash_led"] = "white:flash, yellow:flash";
+    values_["vendor.camera.device.b.flash_led"] = "none";
+    values_["vendor.camera.device.c.flash_led"] = "../../brightness";
+    EXPECT_EQ(Load({"a"}).flash_led, (std::vector<std::string>{"white:flash", "yellow:flash"}));
+    EXPECT_EQ(Load({"b"}).flash_led, std::vector<std::string>{});
+    EXPECT_FALSE(Load({"c"}).flash_led.has_value());
+    EXPECT_FALSE(Load({"d"}).flash_led.has_value());
+}
+
 TEST_F(DevicePropertiesTest, EmptySelectorIgnored) {
     values_["vendor.camera.device..internal"] = "true";
     EXPECT_FALSE(Load({""}).internal.has_value());

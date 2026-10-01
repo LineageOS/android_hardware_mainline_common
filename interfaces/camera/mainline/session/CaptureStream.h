@@ -40,8 +40,10 @@ class CaptureStream {
 
     // Waits for the next usable frame and converts it into `image`. Returns
     // its CLOCK_BOOTTIME timestamp. Frames the driver flags as corrupt or
-    // that fail to decode are skipped. ENODEV means the device is gone.
-    ::android::base::Result<int64_t> Capture(I420Image* image);
+    // that fail to decode are skipped, and so are frames that started before
+    // `not_before_ns` (CLOCK_MONOTONIC, e.g. before the flash came on).
+    // ENODEV means the device is gone.
+    ::android::base::Result<int64_t> Capture(I420Image* image, int64_t not_before_ns = 0);
 
     void Stop();
 

@@ -24,6 +24,14 @@ struct RequestSettings {
     // BLACK or SOLID_COLOR test pattern: output black frames.
     bool black = false;
 
+    // For the flash: ANDROID_CONTROL_AE_MODE, ANDROID_FLASH_MODE,
+    // ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER, and whether the capture intent
+    // is STILL_CAPTURE.
+    uint8_t ae_mode = 0;
+    uint8_t flash_mode = 0;
+    uint8_t precapture_trigger = 0;
+    bool still_capture = false;
+
     // Field of view to output, in active array coordinates.
     Rect region;
     // What the result reports for it.

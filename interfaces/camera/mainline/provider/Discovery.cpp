@@ -340,9 +340,38 @@ std::vector<std::string> MediaSelectors(const MediaPipeline& pipeline) {
     return selectors;
 }
 
+void AssignFlashLeds(std::vector<CameraCandidate>* cameras,
+                     const std::vector<std::string>& led_class) {
+    bool configured = false;
+    for (auto& camera : *cameras) {
+        camera.flash_leds.clear();
+        if (camera.properties.flash_led.has_value()) {
+            camera.flash_leds = *camera.properties.flash_led;
+            configured = true;
+        } else if (camera.pipeline != nullptr && !camera.pipeline->flash_subdevs.empty()) {
+            camera.flash_leds = camera.pipeline->flash_subdevs;
+            configured = true;
+        }
+    }
+    if (configured || led_class.empty()) return;
+
+    CameraCandidate* back = nullptr;
+    for (auto& camera : *cameras) {
+        if (!camera.internal || camera.facing != Facing::kBack) continue;
+        if (back == nullptr || camera.key < back->key) back = &camera;
+    }
+    if (back == nullptr) {
+        LOG(DEBUG) << "no internal back camera for flash LED(s) "
+                   << ::android::base::Join(led_class, ", ");
+        return;
+    }
+    back->flash_leds = led_class;
+}
+
 DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
                                 const std::vector<CameraCandidate>& known,
-                                const DeviceOpeners& open, const std::string& dev_dir) {
+                                const DeviceOpeners& open, const std::string& dev_dir,
+                                const std::string& leds_dir) {
     DiscoveryResult result;
     std::set<std::string> keys;
     auto add = [&](CameraCandidate candidate) {
@@ -414,6 +443,13 @@ DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* 
         add(std::move(*candidate));
     }
     if (properties.facing_by_resolution) ApplyFacingByResolution(&result.cameras);
+    AssignFlashLeds(&result.cameras, ListFlashLeds(leds_dir));
+    for (const auto& camera : result.cameras) {
+        if (!camera.flash_leds.empty()) {
+            LOG(DEBUG) << camera.key << ": flash "
+                       << ::android::base::Join(camera.flash_leds, ", ");
+        }
+    }
     return result;
 }
 

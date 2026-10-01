@@ -5,20 +5,26 @@
 
 #include <linux/videodev2.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <functional>
 #include <mutex>
+#include <optional>
 
 #include <aidl/android/hardware/camera/device/BnCameraDeviceCallback.h>
 #include <aidl/android/hardware/camera/device/CameraBlob.h>
 #include <aidl/android/hardware/camera/device/CameraBlobId.h>
 #include <aidl/android/hardware/graphics/common/BufferUsage.h>
+#include <fmq/AidlMessageQueue.h>
 #include <gtest/gtest.h>
 #include <system/camera_metadata.h>
 
+#include "device/CameraDevice.h"
 #include "device/RequestTemplates.h"
 #include "session/CameraDeviceSession.h"
+#include "tests/FakeFlashLed.h"
 #include "tests/FakeGraphicBuffers.h"
 #include "tests/FakeVideoDevice.h"
 
@@ -26,6 +32,8 @@ namespace aidl::android::hardware::camera::mainline {
 namespace {
 
 using ::aidl::android::hardware::camera::common::Status;
+using ::aidl::android::hardware::common::fmq::MQDescriptor;
+using ::aidl::android::hardware::common::fmq::SynchronizedReadWrite;
 using ::aidl::android::hardware::graphics::common::BufferUsage;
 using ::aidl::android::hardware::graphics::common::Dataspace;
 using ::aidl::android::hardware::graphics::common::PixelFormat;
@@ -59,7 +67,11 @@ struct RecordedResult {
     device::CameraMetadata result;
     int32_t partialResult;
     std::vector<Buffer> outputBuffers;
+    // The result metadata, from the FMQ or inline.
+    std::optional<Metadata> metadata;
 };
+
+using ResultQueue = ::android::AidlMessageQueue<int8_t, SynchronizedReadWrite>;
 
 class FakeCallback : public device::BnCameraDeviceCallback {
   public:
@@ -77,7 +89,18 @@ class FakeCallback : public device::BnCameraDeviceCallback {
                                            result.fmqResultSize,
                                            result.result,
                                            result.partialResult,
-                                           {}};
+                                           {},
+                                           std::nullopt};
+                if (result.fmqResultSize > 0 && result_queue_ != nullptr) {
+                    device::CameraMetadata raw;
+                    raw.metadata.resize(static_cast<size_t>(result.fmqResultSize));
+                    if (result_queue_->read(reinterpret_cast<int8_t*>(raw.metadata.data()),
+                                            raw.metadata.size())) {
+                        recorded.metadata = Metadata::FromAidl(raw);
+                    }
+                } else if (!result.result.metadata.empty()) {
+                    recorded.metadata = Metadata::FromAidl(result.result);
+                }
                 for (const auto& buffer : result.outputBuffers) {
                     recorded.outputBuffers.push_back(
                             {buffer.streamId, buffer.bufferId, buffer.status});
@@ -99,6 +122,12 @@ class FakeCallback : public device::BnCameraDeviceCallback {
     ::ndk::ScopedAStatus returnStreamBuffers(
             const std::vector<StreamBuffer>& /*buffers*/) override {
         return ::ndk::ScopedAStatus::ok();
+    }
+
+    // Reads result metadata sent through the session's FMQ.
+    void SetResultQueue(std::unique_ptr<ResultQueue> queue) {
+        std::lock_guard<std::mutex> lock(lock_);
+        result_queue_ = std::move(queue);
     }
 
     // Waits until `count` results arrived.
@@ -131,6 +160,7 @@ class FakeCallback : public device::BnCameraDeviceCallback {
     std::condition_variable changed_;
     std::vector<NotifyMsg> messages_;
     std::vector<RecordedResult> results_;
+    std::unique_ptr<ResultQueue> result_queue_;
 };
 
 Stream MakeStream(int id, int width, int height, PixelFormat format,
@@ -177,13 +207,14 @@ class SessionTest : public ::testing::Test {
   protected:
     void SetUp() override { Open(false); }
 
-    void Open(bool prefer_rgb) {
+    // `flash`: give the camera a flash, acquired for the session.
+    void Open(bool prefer_rgb, std::shared_ptr<Flash> flash = nullptr) {
         CameraCandidate candidate;
         candidate.key = "/sys/devices/test";
         candidate.info = FakeVideoDevice::UvcInfo("video0", candidate.key);
         candidate.formats = {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, kWidth, kHeight)};
         candidate.prefer_rgb = prefer_rgb;
-        description_ = CameraDescription::Create(candidate);
+        description_ = CameraDescription::Create(candidate, flash ? flash->max_level() : 0);
         ASSERT_NE(description_, nullptr);
 
         // A YUYV frame of Y 100, U 50, V 200.
@@ -203,10 +234,14 @@ class SessionTest : public ::testing::Test {
                 [=](const std::string&) -> ::android::base::Result<std::unique_ptr<VideoDevice>> {
             return std::make_unique<FakeVideoDevice>(info, formats, stream);
         };
+        if (flash != nullptr) flash->Acquire();
         session_ = CameraDeviceSession::Create("test", description_, callback_, open, buffers_,
-                                               &status);
+                                               &status, flash);
         ASSERT_EQ(status, Status::OK);
         ASSERT_NE(session_, nullptr);
+        MQDescriptor<int8_t, SynchronizedReadWrite> queue;
+        ASSERT_TRUE(session_->getCaptureResultMetadataQueue(&queue).isOk());
+        callback_->SetResultQueue(std::make_unique<ResultQueue>(queue));
     }
 
     void TearDown() override {
@@ -223,6 +258,26 @@ class SessionTest : public ::testing::Test {
         }
         request.outputBuffers = std::move(buffers);
         return request;
+    }
+
+    // A request whose template settings are changed by `edit`.
+    CaptureRequest RequestWith(int32_t frame, std::vector<StreamBuffer> buffers,
+                               const std::function<void(Metadata*)>& edit) {
+        CaptureRequest request = Request(frame, std::move(buffers));
+        auto settings = Metadata::FromAidl(request.settings);
+        EXPECT_TRUE(settings.has_value());
+        if (!settings.has_value()) return request;
+        edit(&*settings);
+        request.settings = settings->ToAidl();
+        return request;
+    }
+
+    void ConfigureYuv() {
+        std::vector<HalStream> hal;
+        ASSERT_TRUE(session_->configureStreams(Config({MakeStream(0, kWidth, kHeight,
+                                                                  PixelFormat::YCBCR_420_888)}),
+                                               &hal)
+                            .isOk());
     }
 
     ::ndk::ScopedAStatus Submit(CaptureRequest request) {
@@ -492,6 +547,165 @@ TEST_F(SessionTest, FlushAndClose) {
     EXPECT_TRUE(session_->IsClosed());
     EXPECT_FALSE(Submit(Request(4, BufferList(Buffer(0, 1, false)))).isOk());
     session_ = nullptr;
+}
+
+TEST_F(SessionTest, ResultsWithoutFlash) {
+    ConfigureYuv();
+    ASSERT_TRUE(Submit(RequestWith(1, BufferList(Buffer(0, 1)), [](Metadata* m) {
+                    m->SetU8(ANDROID_FLASH_MODE, ANDROID_FLASH_MODE_TORCH);
+                })).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(1));
+    const auto results = callback_->results();
+    ASSERT_TRUE(results[0].metadata.has_value());
+    EXPECT_EQ(results[0].metadata->GetU8(ANDROID_FLASH_STATE), ANDROID_FLASH_STATE_UNAVAILABLE);
+    EXPECT_EQ(results[0].metadata->GetU8(ANDROID_CONTROL_AE_STATE),
+              ANDROID_CONTROL_AE_STATE_CONVERGED);
+}
+
+class FlashSessionTest : public SessionTest {
+  protected:
+    void SetUp() override {
+        std::vector<std::unique_ptr<FlashLed>> leds;
+        leds.push_back(std::make_unique<FakeFlashLed>("white:flash", 10, level_));
+        flash_ = std::make_shared<Flash>(std::move(leds));
+        Open(false, flash_);
+    }
+
+    std::shared_ptr<std::atomic<int32_t>> level_ = std::make_shared<std::atomic<int32_t>>(-1);
+    std::shared_ptr<Flash> flash_;
+};
+
+TEST_F(FlashSessionTest, Torch) {
+    // The session has the flash: no torch meanwhile.
+    EXPECT_EQ(flash_->SetTorch(true), Status::CAMERA_IN_USE);
+    ConfigureYuv();
+
+    ASSERT_TRUE(Submit(RequestWith(1, BufferList(Buffer(0, 1)), [](Metadata* m) {
+                    m->SetU8(ANDROID_FLASH_MODE, ANDROID_FLASH_MODE_TORCH);
+                })).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(1));
+    EXPECT_EQ(level_->load(), 10);
+    auto results = callback_->results();
+    ASSERT_TRUE(results[0].metadata.has_value());
+    EXPECT_EQ(results[0].metadata->GetU8(ANDROID_FLASH_STATE), ANDROID_FLASH_STATE_FIRED);
+
+    ASSERT_TRUE(Submit(Request(2, BufferList(Buffer(0, 2)))).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(2));
+    EXPECT_EQ(level_->load(), 0);
+    results = callback_->results();
+    ASSERT_TRUE(results[1].metadata.has_value());
+    EXPECT_EQ(results[1].metadata->GetU8(ANDROID_FLASH_STATE), ANDROID_FLASH_STATE_READY);
+
+    // Closing hands the torch back.
+    ASSERT_TRUE(session_->close().isOk());
+    session_ = nullptr;
+    EXPECT_EQ(flash_->SetTorch(true), Status::OK);
+}
+
+TEST_F(FlashSessionTest, SingleFlashGoesOffAfterItsFrame) {
+    ConfigureYuv();
+    ASSERT_TRUE(Submit(RequestWith(1, BufferList(Buffer(0, 1)), [](Metadata* m) {
+                    m->SetU8(ANDROID_FLASH_MODE, ANDROID_FLASH_MODE_SINGLE);
+                })).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(1));
+    EXPECT_EQ(level_->load(), 0);
+    const auto results = callback_->results();
+    ASSERT_TRUE(results[0].metadata.has_value());
+    EXPECT_EQ(results[0].metadata->GetU8(ANDROID_FLASH_STATE), ANDROID_FLASH_STATE_FIRED);
+}
+
+TEST_F(FlashSessionTest, AutoFlashInTheDark) {
+    // A black YUYV frame (video range).
+    std::vector<uint8_t> dark;
+    for (int i = 0; i < kWidth * kHeight / 2; ++i) dark.insert(dark.end(), {16, 128, 16, 128});
+    stream_->frames = {dark};
+    ConfigureYuv();
+    ASSERT_TRUE(Submit(RequestWith(1, BufferList(Buffer(0, 1)), [](Metadata* m) {
+                    m->SetU8(ANDROID_CONTROL_AE_MODE, ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH);
+                })).isOk());
+    ASSERT_TRUE(Submit(RequestWith(2, BufferList(Buffer(0, 2)), [](Metadata* m) {
+                    m->SetU8(ANDROID_CONTROL_AE_MODE, ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH);
+                })).isOk());
+    ASSERT_TRUE(callback_->WaitForResults(2));
+    const auto results = callback_->results();
+    ASSERT_TRUE(results[1].metadata.has_value());
+    EXPECT_EQ(results[1].metadata->GetU8(ANDROID_CONTROL_AE_STATE),
+              ANDROID_CONTROL_AE_STATE_FLASH_REQUIRED);
+    EXPECT_EQ(results[1].metadata->GetU8(ANDROID_FLASH_STATE), ANDROID_FLASH_STATE_READY);
+}
+
+// CameraDevice: the torch API and how an open session takes the flash over.
+class TorchTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        CameraCandidate candidate;
+        candidate.key = "/sys/devices/test";
+        candidate.internal = true;
+        candidate.info = FakeVideoDevice::UvcInfo("video0", candidate.key);
+        candidate.formats = {FakeVideoDevice::Format(V4L2_PIX_FMT_YUYV, kWidth, kHeight)};
+        std::vector<std::unique_ptr<FlashLed>> leds;
+        leds.push_back(std::make_unique<FakeFlashLed>("white:flash", 8, level_));
+        auto flash = std::make_shared<Flash>(std::move(leds));
+        auto description = CameraDescription::Create(candidate, flash->max_level());
+        ASSERT_NE(description, nullptr);
+
+        DeviceOpeners open;
+        auto info = candidate.info;
+        auto formats = candidate.formats;
+        open.video =
+                [=](const std::string&) -> ::android::base::Result<std::unique_ptr<VideoDevice>> {
+            return std::make_unique<FakeVideoDevice>(info, formats);
+        };
+        device_ = ::ndk::SharedRefBase::make<CameraDevice>(
+                "device@1.1/internal/0", description, flash, open,
+                [] { return std::make_shared<FakeGraphicBuffers>(); });
+        no_flash_ = ::ndk::SharedRefBase::make<CameraDevice>("device@1.1/internal/1", description);
+    }
+
+    static int32_t Code(const ::ndk::ScopedAStatus& status) {
+        return status.getServiceSpecificError();
+    }
+
+    std::shared_ptr<std::atomic<int32_t>> level_ = std::make_shared<std::atomic<int32_t>>(-1);
+    std::shared_ptr<CameraDevice> device_;
+    std::shared_ptr<CameraDevice> no_flash_;
+};
+
+TEST_F(TorchTest, Torch) {
+    ASSERT_TRUE(device_->setTorchMode(true).isOk());
+    EXPECT_EQ(level_->load(), 8);
+    ASSERT_TRUE(device_->turnOnTorchWithStrengthLevel(3).isOk());
+    EXPECT_EQ(level_->load(), 3);
+    int32_t level = 0;
+    ASSERT_TRUE(device_->getTorchStrengthLevel(&level).isOk());
+    EXPECT_EQ(level, 3);
+    EXPECT_EQ(Code(device_->turnOnTorchWithStrengthLevel(9)),
+              static_cast<int32_t>(Status::ILLEGAL_ARGUMENT));
+    ASSERT_TRUE(device_->setTorchMode(false).isOk());
+    EXPECT_EQ(level_->load(), 0);
+
+    EXPECT_EQ(Code(no_flash_->setTorchMode(true)),
+              static_cast<int32_t>(Status::OPERATION_NOT_SUPPORTED));
+}
+
+TEST_F(TorchTest, UnavailableWhileOpen) {
+    ASSERT_TRUE(device_->setTorchMode(true).isOk());
+    std::shared_ptr<device::ICameraDeviceSession> session;
+    ASSERT_TRUE(device_->open(::ndk::SharedRefBase::make<FakeCallback>(), &session).isOk());
+    ASSERT_NE(session, nullptr);
+    EXPECT_EQ(level_->load(), 0);
+    EXPECT_EQ(Code(device_->setTorchMode(true)), static_cast<int32_t>(Status::CAMERA_IN_USE));
+
+    ASSERT_TRUE(session->close().isOk());
+    ASSERT_TRUE(device_->setTorchMode(true).isOk());
+    EXPECT_EQ(level_->load(), 8);
+}
+
+TEST_F(TorchTest, Disconnected) {
+    ASSERT_TRUE(device_->setTorchMode(true).isOk());
+    device_->Disconnect();
+    EXPECT_EQ(level_->load(), 0);
+    EXPECT_EQ(Code(device_->setTorchMode(true)), static_cast<int32_t>(Status::CAMERA_DISCONNECTED));
 }
 
 }  // namespace

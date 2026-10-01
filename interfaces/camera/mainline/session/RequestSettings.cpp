@@ -40,6 +40,13 @@ RequestSettings ParseSettings(const Metadata& settings, const CameraDescription&
     parsed.ae_lock = settings.GetU8(ANDROID_CONTROL_AE_LOCK) == ANDROID_CONTROL_AE_LOCK_ON;
     parsed.awb_lock = settings.GetU8(ANDROID_CONTROL_AWB_LOCK) == ANDROID_CONTROL_AWB_LOCK_ON;
 
+    parsed.ae_mode = settings.GetU8(ANDROID_CONTROL_AE_MODE).value_or(ANDROID_CONTROL_AE_MODE_ON);
+    parsed.flash_mode = settings.GetU8(ANDROID_FLASH_MODE).value_or(ANDROID_FLASH_MODE_OFF);
+    parsed.precapture_trigger = settings.GetU8(ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER)
+                                        .value_or(ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER_IDLE);
+    parsed.still_capture = settings.GetU8(ANDROID_CONTROL_CAPTURE_INTENT) ==
+                           ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE;
+
     const auto pattern = settings.GetI32(ANDROID_SENSOR_TEST_PATTERN_MODE);
     parsed.black = pattern == ANDROID_SENSOR_TEST_PATTERN_MODE_SOLID_COLOR ||
                    pattern == ANDROID_SENSOR_TEST_PATTERN_MODE_BLACK;

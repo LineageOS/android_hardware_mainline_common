@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include <android-base/logging.h>
+#include <android-base/strings.h>
 
 #include "utils/Status.h"
 
@@ -19,6 +20,7 @@ namespace {
 
 using ::aidl::android::hardware::camera::common::CameraDeviceStatus;
 using ::aidl::android::hardware::camera::common::Status;
+using ::aidl::android::hardware::camera::common::TorchModeStatus;
 
 constexpr char kDeviceNamePrefix[] = "device@1.1/internal/";
 
@@ -102,7 +104,8 @@ bool CameraProvider::Rescan() {
                       return a.key < b.key;
                   });
         for (auto& candidate : added) {
-            auto description = CameraDescription::Create(candidate);
+            auto flash = candidate.flash_leds.empty() ? nullptr : Flash::Open(candidate.flash_leds);
+            auto description = CameraDescription::Create(candidate, flash ? flash->max_level() : 0);
             if (description == nullptr) {
                 LOG(ERROR) << "camera " << candidate.key << " is not usable, skipped";
                 continue;
@@ -110,7 +113,15 @@ bool CameraProvider::Rescan() {
             Camera camera;
             camera.id = ids_.Allocate(candidate.key, candidate.internal);
             camera.name = kDeviceNamePrefix + std::to_string(camera.id);
-            camera.device = ndk::SharedRefBase::make<CameraDevice>(camera.name, description);
+            if (flash != nullptr) {
+                LOG(INFO) << "camera " << camera.name << ": flash "
+                          << ::android::base::Join(candidate.flash_leds, ", ") << ", "
+                          << flash->max_level() << " torch level(s)";
+                flash->SetTorchListener([this, name = camera.name](TorchModeStatus status) {
+                    NotifyTorch(name, status);
+                });
+            }
+            camera.device = ndk::SharedRefBase::make<CameraDevice>(camera.name, description, flash);
             camera.candidate = std::move(candidate);
             LOG(INFO) << "camera " << camera.name << " (" << camera.candidate.key << ") added, "
                       << (camera.candidate.internal ? "internal" : "external");
@@ -132,6 +143,14 @@ void CameraProvider::Notify(const std::vector<StatusChange>& changes) {
             LOG(WARNING) << "cameraDeviceStatusChange(" << change.name
                          << "): " << status.getDescription();
         }
+    }
+}
+
+void CameraProvider::NotifyTorch(const std::string& name, TorchModeStatus status) {
+    std::lock_guard<std::mutex> lock(callback_lock_);
+    if (callback_ == nullptr) return;
+    if (const auto result = callback_->torchModeStatusChange(name, status); !result.isOk()) {
+        LOG(WARNING) << "torchModeStatusChange(" << name << "): " << result.getDescription();
     }
 }
 

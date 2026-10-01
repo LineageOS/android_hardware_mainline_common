@@ -32,4 +32,7 @@ void ScaleToI420(const I420Image& source, const Rect& crop, I420Image* destinati
 // patterns (camera privacy).
 void FillBlack(I420Image* image);
 
+// Average luma of an image (sampled), in full range 0-255.
+int MeanLuma(const I420Image& image);
+
 }  // namespace aidl::android::hardware::camera::mainline

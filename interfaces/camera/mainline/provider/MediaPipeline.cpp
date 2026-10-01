@@ -41,6 +41,21 @@ bool IsUsable(const Link& link) {
     return (link.flags & MEDIA_LNK_FL_ENABLED) || !(link.flags & MEDIA_LNK_FL_IMMUTABLE);
 }
 
+// Device nodes of the flash sub-devices with an ancillary link from a sensor
+// (the "flash-leds" of the sensor's firmware node).
+std::vector<std::string> LinkedFlashes(const MediaTopology& topology, uint32_t sensor) {
+    std::vector<std::string> flashes;
+    for (const auto& link : topology.links) {
+        if ((link.flags & MEDIA_LNK_FL_LINK_TYPE) != MEDIA_LNK_FL_ANCILLARY_LINK) continue;
+        if (link.source != sensor) continue;
+        const auto* flash = topology.FindEntity(link.sink);
+        if (flash != nullptr && flash->function == MEDIA_ENT_F_FLASH && !flash->devnode.empty()) {
+            flashes.push_back(flash->devnode);
+        }
+    }
+    return flashes;
+}
+
 bool IsVideoNode(const MediaTopology::Entity& entity) {
     const std::string base = entity.devnode.substr(entity.devnode.rfind('/') + 1);
     return entity.function == MEDIA_ENT_F_IO_V4L || ::android::base::StartsWith(base, "video");
@@ -273,6 +288,10 @@ std::vector<MediaCamera> DiscoverMediaCameras(MediaDevice* media, const DeviceOp
         } else {
             LOG(INFO) << what << ": captured from " << best->video_node << " through "
                       << best->hops.size() - 1 << " stage(s)";
+            best->flash_subdevs = LinkedFlashes(topology, sensor.id);
+            for (const auto& flash : best->flash_subdevs) {
+                LOG(INFO) << what << ": flash " << flash;
+            }
             camera.pipeline = std::move(best);
         }
         cameras.push_back(std::move(camera));

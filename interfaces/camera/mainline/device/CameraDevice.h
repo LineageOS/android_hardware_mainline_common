@@ -14,6 +14,7 @@
 #include <aidl/android/hardware/camera/device/BnCameraDevice.h>
 
 #include "device/CameraDescription.h"
+#include "flash/Flash.h"
 #include "session/CameraDeviceSession.h"
 #include "session/GraphicBuffers.h"
 
@@ -21,8 +22,9 @@ namespace aidl::android::hardware::camera::mainline {
 
 class CameraDevice : public device::BnCameraDevice {
   public:
+    // `flash` is the camera's flash, null if it has none.
     CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description,
-                 DeviceOpeners open = DeviceOpeners(),
+                 std::shared_ptr<Flash> flash = nullptr, DeviceOpeners open = DeviceOpeners(),
                  std::function<std::shared_ptr<GraphicBuffers>()> buffers = CreateGrallocBuffers);
 
     // The device went away. Further calls fail with CAMERA_DISCONNECTED.
@@ -56,6 +58,7 @@ class CameraDevice : public device::BnCameraDevice {
   private:
     const std::string name_;
     const std::shared_ptr<const CameraDescription> description_;
+    const std::shared_ptr<Flash> flash_;
     const DeviceOpeners open_;
     const std::function<std::shared_ptr<GraphicBuffers>()> buffers_;
     std::atomic<bool> disconnected_ = false;

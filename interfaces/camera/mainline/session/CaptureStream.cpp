@@ -28,6 +28,9 @@ using ::android::base::Result;
 // Frames to skip at most (corrupt or undecodable) before giving up on a
 // request.
 constexpr int kMaxSkippedFrames = 4;
+// Frames older than requested to skip at most (frames queued before the flash
+// came on, plus its settling time).
+constexpr int kMaxStaleFrames = 30;
 
 // Shortest time to wait for a frame; some devices take a while to deliver the
 // first one after streaming starts.
@@ -107,16 +110,27 @@ Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
     return {};
 }
 
-Result<int64_t> CaptureStream::Capture(I420Image* image) {
+Result<int64_t> CaptureStream::Capture(I420Image* image, int64_t not_before_ns) {
     if (!format_.has_value() || !device_->IsStreaming()) {
         return Error(EINVAL) << device_->Info().name << ": not streaming";
     }
     const auto timeout = std::max(
             kMinFrameTimeout, std::chrono::milliseconds(3 * interval_.ToNanoseconds() / 1'000'000));
 
+    int stale = 0;
     for (int attempt = 0; attempt <= kMaxSkippedFrames; ++attempt) {
         auto frame = device_->DequeueFrame(timeout);
         if (!frame.ok()) return frame.error();
+
+        if (frame->timestamp_ns > 0 && frame->timestamp_ns < not_before_ns &&
+            stale++ < kMaxStaleFrames) {
+            if (auto queued = device_->QueueFrame(frame->index); !queued.ok()) {
+                if (queued.error().code().value() == ENODEV) return queued.error();
+                LOG(WARNING) << queued.error().message();
+            }
+            --attempt;
+            continue;
+        }
 
         const bool converted = ConvertToI420(*format_, *frame, image);
         int64_t timestamp = Now(CLOCK_BOOTTIME);

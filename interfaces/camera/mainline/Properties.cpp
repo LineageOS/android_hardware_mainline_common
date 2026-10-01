@@ -14,6 +14,7 @@
 #include <android-base/parsebool.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
+#include <android-base/strings.h>
 
 namespace aidl::android::hardware::camera::mainline {
 
@@ -46,6 +47,17 @@ std::optional<int> ParseRotation(const std::string& value) {
     if (!::android::base::ParseInt(value, &rotation)) return std::nullopt;
     if (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) return std::nullopt;
     return rotation;
+}
+
+std::optional<std::vector<std::string>> ParseLedNames(const std::string& value) {
+    if (value == "none") return std::vector<std::string>{};
+    std::vector<std::string> names;
+    for (auto& name : ::android::base::Split(value, ",")) {
+        name = ::android::base::Trim(name);
+        if (name.empty() || name.find('/') != std::string::npos) return std::nullopt;
+        names.push_back(std::move(name));
+    }
+    return names;
 }
 
 // Sets `field` from the property `key` of the selector at `prefix` with
@@ -112,6 +124,7 @@ Properties::DeviceProperties Properties::LoadDeviceProperties(
         Merge(&merged.rotation, prefix, "rotation", get, ParseRotation);
         Merge(&merged.prefer_rgb, prefix, "prefer_rgb", get, ParseOptionalBool);
         Merge(&merged.advertise_rgb, prefix, "advertise_rgb", get, ParseOptionalBool);
+        Merge(&merged.flash_led, prefix, "flash_led", get, ParseLedNames);
     }
     return merged;
 }

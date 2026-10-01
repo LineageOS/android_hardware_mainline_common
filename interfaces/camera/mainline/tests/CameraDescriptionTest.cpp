@@ -93,6 +93,40 @@ TEST(CameraDescriptionTest, InternalCharacteristics) {
     EXPECT_EQ(back->characteristics().GetU8(ANDROID_LENS_FACING), ANDROID_LENS_FACING_BACK);
 }
 
+std::vector<uint8_t> U8s(const Metadata& m, uint32_t tag) {
+    const auto entry = m.Find(tag);
+    if (!entry.has_value()) return {};
+    return std::vector<uint8_t>(entry->data.u8, entry->data.u8 + entry->count);
+}
+
+TEST(CameraDescriptionTest, Flash) {
+    auto none = CameraDescription::Create(Webcam(true, Facing::kBack, 90));
+    ASSERT_NE(none, nullptr);
+    EXPECT_FALSE(none->has_flash());
+    EXPECT_EQ(none->characteristics().GetU8(ANDROID_FLASH_INFO_AVAILABLE),
+              ANDROID_FLASH_INFO_AVAILABLE_FALSE);
+    EXPECT_EQ(U8s(none->characteristics(), ANDROID_CONTROL_AE_AVAILABLE_MODES),
+              std::vector<uint8_t>{ANDROID_CONTROL_AE_MODE_ON});
+
+    auto flash = CameraDescription::Create(Webcam(true, Facing::kBack, 90), 40);
+    ASSERT_NE(flash, nullptr);
+    const Metadata& m = flash->characteristics();
+    EXPECT_EQ(m.GetU8(ANDROID_FLASH_INFO_AVAILABLE), ANDROID_FLASH_INFO_AVAILABLE_TRUE);
+    EXPECT_EQ(m.GetI32(ANDROID_FLASH_INFO_STRENGTH_MAXIMUM_LEVEL), 40);
+    EXPECT_EQ(m.GetI32(ANDROID_FLASH_INFO_STRENGTH_DEFAULT_LEVEL), 40);
+    EXPECT_EQ(
+            U8s(m, ANDROID_CONTROL_AE_AVAILABLE_MODES),
+            (std::vector<uint8_t>{ANDROID_CONTROL_AE_MODE_ON, ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH,
+                                  ANDROID_CONTROL_AE_MODE_ON_ALWAYS_FLASH}));
+
+    // A single level: no strength control.
+    auto single = CameraDescription::Create(Webcam(true, Facing::kBack, 90), 1);
+    ASSERT_NE(single, nullptr);
+    EXPECT_FALSE(single->characteristics()
+                         .GetI32(ANDROID_FLASH_INFO_STRENGTH_MAXIMUM_LEVEL)
+                         .has_value());
+}
+
 TEST(CameraDescriptionTest, CharacteristicsKeysListEveryKey) {
     auto description = CameraDescription::Create(Webcam());
     ASSERT_NE(description, nullptr);

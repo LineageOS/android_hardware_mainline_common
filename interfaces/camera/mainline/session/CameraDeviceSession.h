@@ -22,8 +22,10 @@
 
 #include "convert/Image.h"
 #include "device/CameraDescription.h"
+#include "flash/Flash.h"
 #include "jpeg/JpegOutput.h"
 #include "session/CaptureStream.h"
+#include "session/FlashControl.h"
 #include "session/GraphicBuffers.h"
 #include "session/PipelineController.h"
 #include "utils/Metadata.h"
@@ -35,19 +37,21 @@ namespace aidl::android::hardware::camera::mainline {
 class CameraDeviceSession : public device::BnCameraDeviceSession {
   public:
     // Opens the capture device. Returns nullptr (and the reason in `status`)
-    // on failure.
+    // on failure. `flash` is the camera's flash, if it has one; the caller
+    // acquired it, the session releases it when it closes.
     static std::shared_ptr<CameraDeviceSession> Create(
             std::string name, std::shared_ptr<const CameraDescription> description,
             std::shared_ptr<device::ICameraDeviceCallback> callback, const DeviceOpeners& open,
             std::shared_ptr<GraphicBuffers> buffers,
-            ::aidl::android::hardware::camera::common::Status* status);
+            ::aidl::android::hardware::camera::common::Status* status,
+            std::shared_ptr<Flash> flash = nullptr);
 
     // Use Create(); public for ndk::SharedRefBase::make() only.
     CameraDeviceSession(std::string name, std::shared_ptr<const CameraDescription> description,
                         std::shared_ptr<device::ICameraDeviceCallback> callback,
                         std::unique_ptr<VideoDevice> device,
                         std::unique_ptr<PipelineController> pipeline,
-                        std::shared_ptr<GraphicBuffers> buffers);
+                        std::shared_ptr<GraphicBuffers> buffers, std::shared_ptr<Flash> flash);
     ~CameraDeviceSession() override;
 
     bool IsClosed();
@@ -119,6 +123,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     // Worker thread.
     void Run();
     void Process(PendingRequest& request, uint8_t pipeline_depth);
+    // Lights the flash or turns it off.
+    void LightFlash(bool lit);
     // Returns all buffers of a request with an error.
     void Fail(PendingRequest& request, device::ErrorCode code);
     // Writes one output; false if the buffer has to be returned with an error.
@@ -132,6 +138,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     const std::shared_ptr<const CameraDescription> description_;
     const std::shared_ptr<device::ICameraDeviceCallback> callback_;
     const std::shared_ptr<GraphicBuffers> buffers_;
+    // May be null.
+    const std::shared_ptr<Flash> flash_;
     std::unique_ptr<MetadataQueue> request_queue_;
     std::unique_ptr<MetadataQueue> result_queue_;
 
@@ -157,6 +165,8 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     JpegContext jpeg_context_;
     JpegWorkspace jpeg_workspace_;
     bool device_lost_ = false;
+    FlashControl flash_control_;
+    bool flash_lit_ = false;
 
     // Serializes results written to result_queue_ and sent to the framework.
     std::mutex result_lock_;
