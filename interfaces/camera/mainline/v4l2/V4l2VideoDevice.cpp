@@ -51,10 +51,6 @@ constexpr uint32_t kStandardFrameRates[] = {60, 30, 15};
 // Frame interval assumed when the driver does not report any.
 constexpr Fraction kDefaultInterval = {1, 30};
 
-int Xioctl(int fd, unsigned request, void* arg) {
-    return TEMP_FAILURE_RETRY(ioctl(fd, request, arg));
-}
-
 std::string CString(const uint8_t* data, size_t size) {
     const char* chars = reinterpret_cast<const char*>(data);
     return std::string(chars, strnlen(chars, size));
@@ -78,7 +74,7 @@ class V4l2VideoDevice : public VideoDevice {
 
     const VideoDeviceInfo& Info() const override { return info_; }
 
-    std::vector<FormatDescription> EnumerateFormats() override;
+    std::vector<FormatDescription> EnumerateFormats(uint32_t mbus_code) override;
 
     bool HasControl(uint32_t id) override;
     std::optional<int32_t> GetControl(uint32_t id) override;
@@ -122,12 +118,13 @@ class V4l2VideoDevice : public VideoDevice {
     bool streaming_ = false;
 };
 
-std::vector<FormatDescription> V4l2VideoDevice::EnumerateFormats() {
+std::vector<FormatDescription> V4l2VideoDevice::EnumerateFormats(uint32_t mbus_code) {
     std::vector<FormatDescription> formats;
     for (uint32_t index = 0;; ++index) {
         v4l2_fmtdesc desc = {};
         desc.index = index;
         desc.type = BufferType();
+        desc.mbus_code = mbus_code;
         if (Xioctl(fd_.get(), VIDIOC_ENUM_FMT, &desc) != 0) break;
 
         FormatDescription format;
@@ -268,29 +265,15 @@ std::optional<FrameSize> V4l2VideoDevice::TryMaximumSize(uint32_t fourcc) {
 }
 
 bool V4l2VideoDevice::HasControl(uint32_t id) {
-    v4l2_queryctrl query = {};
-    query.id = id;
-    return Xioctl(fd_.get(), VIDIOC_QUERYCTRL, &query) == 0 &&
-           !(query.flags & V4L2_CTRL_FLAG_DISABLED);
+    return HasV4l2Control(fd_.get(), id);
 }
 
 std::optional<int32_t> V4l2VideoDevice::GetControl(uint32_t id) {
-    v4l2_control control = {};
-    control.id = id;
-    if (Xioctl(fd_.get(), VIDIOC_G_CTRL, &control) != 0) return std::nullopt;
-    return control.value;
+    return GetV4l2Control(fd_.get(), id);
 }
 
 bool V4l2VideoDevice::SetControl(uint32_t id, int32_t value) {
-    v4l2_control control = {};
-    control.id = id;
-    control.value = value;
-    if (Xioctl(fd_.get(), VIDIOC_S_CTRL, &control) != 0) {
-        PLOG(WARNING) << info_.name << ": failed to set control 0x" << std::hex << id << " to "
-                      << std::dec << value;
-        return false;
-    }
-    return true;
+    return SetV4l2Control(fd_.get(), info_.name.c_str(), id, value);
 }
 
 Result<CaptureFormat> V4l2VideoDevice::SetFormat(uint32_t fourcc, uint32_t width, uint32_t height) {

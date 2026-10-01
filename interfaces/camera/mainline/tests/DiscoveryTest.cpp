@@ -206,10 +206,10 @@ class DiscoverCamerasTest : public ::testing::Test {
         return std::move(it->second);
     }
 
-    DiscoveryResult Discover(const std::map<std::string, CameraCandidate>& known = {}) {
-        return DiscoverCameras(
-                properties_, nullptr, known, [this](const std::string& path) { return Open(path); },
-                dir_.path);
+    DiscoveryResult Discover(const std::vector<CameraCandidate>& known = {}) {
+        DeviceOpeners open;
+        open.video = [this](const std::string& path) { return Open(path); };
+        return DiscoverCameras(properties_, nullptr, known, open, dir_.path);
     }
 
     Properties properties_;
@@ -279,7 +279,7 @@ TEST_F(DiscoverCamerasTest, ReusesKnownNodes) {
     known.info.path = dir_.path + std::string("/video0");
     known.info.rdev = 0;  // Regular files have no device number.
 
-    const auto result = Discover({{known.info.path, known}});
+    const auto result = Discover({known});
     ASSERT_EQ(result.cameras.size(), 1u);
     EXPECT_EQ(result.cameras[0].key, kUsbInterface);
     EXPECT_TRUE(opened_.empty());
@@ -293,7 +293,7 @@ TEST_F(DiscoverCamerasTest, ProbesReplacedNodes) {
     known.info.path = dir_.path + std::string("/video0");
     known.info.rdev = 1234;
 
-    const auto result = Discover({{known.info.path, known}});
+    const auto result = Discover({known});
     ASSERT_EQ(result.cameras.size(), 1u);
     EXPECT_EQ(result.cameras[0].key, kUsbInterface);
     EXPECT_EQ(opened_.size(), 1u);

@@ -198,12 +198,13 @@ class SessionTest : public ::testing::Test {
         auto info = candidate.info;
         auto formats = candidate.formats;
         auto stream = stream_;
-        session_ = CameraDeviceSession::Create(
-                "test", description_, callback_,
+        DeviceOpeners open;
+        open.video =
                 [=](const std::string&) -> ::android::base::Result<std::unique_ptr<VideoDevice>> {
-                    return std::make_unique<FakeVideoDevice>(info, formats, stream);
-                },
-                buffers_, &status);
+            return std::make_unique<FakeVideoDevice>(info, formats, stream);
+        };
+        session_ = CameraDeviceSession::Create("test", description_, callback_, open, buffers_,
+                                               &status);
         ASSERT_EQ(status, Status::OK);
         ASSERT_NE(session_, nullptr);
     }
@@ -248,12 +249,13 @@ TEST(SessionOpenTest, DeviceGone) {
     auto description = CameraDescription::Create(candidate);
     ASSERT_NE(description, nullptr);
     Status status = Status::OK;
-    auto session = CameraDeviceSession::Create(
-            "test", description, ::ndk::SharedRefBase::make<FakeCallback>(),
-            [](const std::string&) -> ::android::base::Result<std::unique_ptr<VideoDevice>> {
-                return ::android::base::Error(ENODEV) << "gone";
-            },
-            std::make_shared<FakeGraphicBuffers>(), &status);
+    DeviceOpeners open;
+    open.video = [](const std::string&) -> ::android::base::Result<std::unique_ptr<VideoDevice>> {
+        return ::android::base::Error(ENODEV) << "gone";
+    };
+    auto session = CameraDeviceSession::Create("test", description,
+                                               ::ndk::SharedRefBase::make<FakeCallback>(), open,
+                                               std::make_shared<FakeGraphicBuffers>(), &status);
     EXPECT_EQ(session, nullptr);
     EXPECT_EQ(status, Status::CAMERA_DISCONNECTED);
 }

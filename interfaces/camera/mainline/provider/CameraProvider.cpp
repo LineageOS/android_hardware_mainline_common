@@ -62,9 +62,8 @@ bool CameraProvider::Rescan() {
     {
         std::lock_guard<std::mutex> lock(lock_);
 
-        std::map<std::string, CameraCandidate> known;
-        for (const auto& [key, camera] : cameras_)
-            known[camera.candidate.info.path] = camera.candidate;
+        std::vector<CameraCandidate> known;
+        for (const auto& [key, camera] : cameras_) known.push_back(camera.candidate);
         DiscoveryResult result = DiscoverCameras(properties_, hwdb_.get(), known);
         retry = result.retry;
 

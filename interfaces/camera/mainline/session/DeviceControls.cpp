@@ -13,14 +13,14 @@
 
 namespace aidl::android::hardware::camera::mainline {
 
-DeviceControls::DeviceControls(VideoDevice* device) : device_(device) {}
+DeviceControls::DeviceControls(ControlDevice* device) : device_(device) {}
 
 void DeviceControls::Reset() {
     if (device_->HasControl(V4L2_CID_POWER_LINE_FREQUENCY)) {
         // Not every device offers "auto" in the menu; then keep its default.
         if (!device_->SetControl(V4L2_CID_POWER_LINE_FREQUENCY,
                                  V4L2_CID_POWER_LINE_FREQUENCY_AUTO)) {
-            LOG(DEBUG) << device_->Info().name << ": no automatic power line frequency";
+            LOG(DEBUG) << "no automatic power line frequency";
         }
     }
     if (device_->HasControl(V4L2_CID_3A_LOCK)) device_->SetControl(V4L2_CID_3A_LOCK, 0);

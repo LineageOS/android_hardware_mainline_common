@@ -26,20 +26,16 @@ namespace aidl::android::hardware::camera::mainline {
 
 namespace {
 
-constexpr char kVideoPrefix[] = "video";
-
-// Number of a "videoN" node name, nullopt for anything else.
-std::optional<unsigned> VideoNodeNumber(const std::string& name) {
-    if (!::android::base::StartsWith(name, kVideoPrefix)) return std::nullopt;
+// Number of a "<prefix>N" node name, nullopt for anything else.
+std::optional<unsigned> NodeNumber(const std::string& name, const std::string& prefix) {
+    if (!::android::base::StartsWith(name, prefix)) return std::nullopt;
     unsigned number;
-    if (!::android::base::ParseUint(name.substr(sizeof(kVideoPrefix) - 1), &number)) {
-        return std::nullopt;
-    }
+    if (!::android::base::ParseUint(name.substr(prefix.size()), &number)) return std::nullopt;
     return number;
 }
 
-// "videoN" nodes in `dev_dir`, in numerical order.
-std::vector<std::string> ListVideoNodes(const std::string& dev_dir) {
+// "<prefix>N" nodes in `dev_dir`, in numerical order.
+std::vector<std::string> ListNodes(const std::string& dev_dir, const std::string& prefix) {
     std::vector<std::pair<unsigned, std::string>> nodes;
     std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(dev_dir.c_str()), closedir);
     if (dir == nullptr) {
@@ -48,7 +44,7 @@ std::vector<std::string> ListVideoNodes(const std::string& dev_dir) {
     }
     while (const dirent* entry = readdir(dir.get())) {
         const std::string name = entry->d_name;
-        if (auto number = VideoNodeNumber(name); number.has_value()) {
+        if (auto number = NodeNumber(name, prefix); number.has_value()) {
             nodes.emplace_back(*number, dev_dir + "/" + name);
         }
     }
@@ -80,7 +76,7 @@ std::string CameraKey(const VideoDeviceInfo& info) {
 //   rotation: property, firmware rotation control, 0
 // facing_by_resolution may still change the facing of cameras that ended up
 // with the last default, see DiscoverCameras().
-void ResolvePlacement(const Properties& properties, VideoDevice* device,
+void ResolvePlacement(const Properties& properties, ControlDevice* device, bool sensor,
                       CameraCandidate* candidate) {
     const auto& props = candidate->properties;
     const auto& info = candidate->info;
@@ -102,6 +98,11 @@ void ResolvePlacement(const Properties& properties, VideoDevice* device,
     } else if (orientation.has_value()) {
         candidate->internal = *orientation != V4L2_CAMERA_ORIENTATION_EXTERNAL;
         candidate->internal_source = "firmware";
+    } else if (sensor) {
+        // A sensor wired to a camera interface (device tree / ACPI) is built
+        // in.
+        candidate->internal = true;
+        candidate->internal_source = "camera sensor";
     } else if (info.usb_removable.has_value()) {
         candidate->internal = !*info.usb_removable;
         candidate->internal_source =
@@ -209,8 +210,9 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
     }
     if (caps & V4L2_CAP_IO_MC) {
         // The pipeline in front of the node has to be configured through the
-        // media controller (Qualcomm CAMSS, Intel IPU6, ...).
-        LOG(INFO) << what << ": part of a media controller pipeline, not supported yet";
+        // media controller (Qualcomm CAMSS, Intel IPU6, vimc, ...); such
+        // cameras are found through their media device.
+        LOG(DEBUG) << what << ": part of a media controller pipeline";
         return std::nullopt;
     }
 
@@ -260,7 +262,7 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
         return std::nullopt;
     }
 
-    ResolvePlacement(properties, device, &candidate);
+    ResolvePlacement(properties, device, /*sensor=*/false, &candidate);
     candidate.prefer_rgb = candidate.properties.prefer_rgb.value_or(properties.prefer_rgb);
     candidate.advertise_rgb = candidate.properties.advertise_rgb.value_or(properties.advertise_rgb);
 
@@ -275,42 +277,141 @@ std::optional<CameraCandidate> ProbeCaptureNode(const Properties& properties,
     return candidate;
 }
 
-DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
-                                const std::map<std::string, CameraCandidate>& known,
-                                const VideoDeviceOpener& open, const std::string& dev_dir) {
-    DiscoveryResult result;
-    std::set<std::string> keys;
+std::vector<CameraCandidate> ProbeMediaDevice(const Properties& properties, MediaDevice* media,
+                                              const DeviceOpeners& open) {
+    std::vector<CameraCandidate> candidates;
+    const MediaTopology& topology = media->Topology();
+    for (auto& camera : DiscoverMediaCameras(media, open)) {
+        if (camera.pipeline == nullptr) continue;
+        const MediaPipeline& pipeline = *camera.pipeline;
+        const std::string what = media->Path() + ": sensor \"" + pipeline.sensor_entity + "\"";
 
-    for (const std::string& path : ListVideoNodes(dev_dir)) {
-        struct stat st;
-        if (stat(path.c_str(), &st) != 0) continue;  // Removed meanwhile.
-
-        if (auto it = known.find(path); it != known.end() && it->second.info.rdev == st.st_rdev) {
-            if (keys.insert(it->second.key).second) result.cameras.push_back(it->second);
+        auto node = open.video(pipeline.video_node);
+        if (!node.ok()) {
+            LOG(WARNING) << what << ": " << node.error().message();
+            continue;
+        }
+        auto sensor = open.subdev(pipeline.sensor_subdev);
+        if (!sensor.ok()) {
+            LOG(WARNING) << what << ": " << sensor.error().message();
             continue;
         }
 
-        auto device = open(path);
-        if (!device.ok()) {
-            const int error = device.error().code().value();
-            if (IsTransientOpenError(error)) {
-                LOG(DEBUG) << device.error().message() << ", will retry";
-                result.retry = true;
-            } else if (error != ENOENT) {
-                LOG(WARNING) << device.error().message();
+        CameraCandidate candidate;
+        candidate.key = (topology.bus_info.empty() ? topology.model : topology.bus_info) + "|" +
+                        pipeline.sensor_entity;
+        candidate.info = (*node)->Info();
+        candidate.selectors = MediaSelectors(pipeline);
+        candidate.properties = Properties::LoadDeviceProperties(candidate.selectors);
+        if (candidate.properties.enabled == false) {
+            LOG(INFO) << what << ": disabled by property";
+            continue;
+        }
+        candidate.formats = std::move(camera.formats);
+        candidate.pipeline = camera.pipeline;
+
+        ResolvePlacement(properties, sensor->get(), /*sensor=*/true, &candidate);
+        candidate.prefer_rgb = candidate.properties.prefer_rgb.value_or(properties.prefer_rgb);
+        candidate.advertise_rgb =
+                candidate.properties.advertise_rgb.value_or(properties.advertise_rgb);
+
+        LOG(INFO) << what << ": camera " << candidate.key << ", "
+                  << (candidate.internal ? "internal" : "external") << " ("
+                  << candidate.internal_source << ")";
+        if (candidate.internal) {
+            LOG(INFO) << what << ": facing "
+                      << (candidate.facing == Facing::kFront ? "front" : "back") << " ("
+                      << candidate.facing_source << "), rotation " << candidate.rotation;
+        }
+        LOG(INFO) << what << ": selectors [" << ::android::base::Join(candidate.selectors, ", ")
+                  << "]";
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
+}
+
+std::vector<std::string> MediaSelectors(const MediaPipeline& pipeline) {
+    // "ov5675 2-0036": the sensor at an address, and the sensor model.
+    std::vector<std::string> selectors = {Properties::SanitizeSelector(pipeline.sensor_entity)};
+    const std::string model = pipeline.sensor_entity.substr(0, pipeline.sensor_entity.find(' '));
+    if (!model.empty() && model != pipeline.sensor_entity) {
+        selectors.push_back(Properties::SanitizeSelector(model));
+    }
+    return selectors;
+}
+
+DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
+                                const std::vector<CameraCandidate>& known,
+                                const DeviceOpeners& open, const std::string& dev_dir) {
+    DiscoveryResult result;
+    std::set<std::string> keys;
+    auto add = [&](CameraCandidate candidate) {
+        if (keys.insert(candidate.key).second) result.cameras.push_back(std::move(candidate));
+    };
+    auto handle_open_error = [&](const ::android::base::ResultError<>& error) {
+        const int code = error.code().value();
+        if (IsTransientOpenError(code)) {
+            LOG(DEBUG) << error.message() << ", will retry";
+            result.retry = true;
+        } else if (code != ENOENT) {
+            LOG(WARNING) << error.message();
+        }
+    };
+
+    // Sensors behind media controllers.
+    for (const std::string& path : ListNodes(dev_dir, "media")) {
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0) continue;  // Removed meanwhile.
+
+        bool reused = false;
+        for (const auto& candidate : known) {
+            if (candidate.pipeline != nullptr && candidate.pipeline->media_path == path &&
+                candidate.pipeline->media_rdev == st.st_rdev) {
+                add(candidate);
+                reused = true;
             }
+        }
+        if (reused) continue;
+
+        auto media = open.media(path);
+        if (!media.ok()) {
+            handle_open_error(media.error());
+            continue;
+        }
+        for (auto& candidate : ProbeMediaDevice(properties, media->get(), open)) {
+            add(std::move(candidate));
+        }
+    }
+
+    // Plain capture nodes (USB cameras, capture cards).
+    for (const std::string& path : ListNodes(dev_dir, "video")) {
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0) continue;  // Removed meanwhile.
+
+        const auto it = std::find_if(known.begin(), known.end(), [&](const auto& candidate) {
+            return candidate.pipeline == nullptr && candidate.info.path == path &&
+                   candidate.info.rdev == st.st_rdev;
+        });
+        if (it != known.end()) {
+            add(*it);
+            continue;
+        }
+
+        auto device = open.video(path);
+        if (!device.ok()) {
+            handle_open_error(device.error());
             continue;
         }
 
         auto candidate = ProbeCaptureNode(properties, hwdb, device->get());
         if (!candidate.has_value()) continue;
-        if (!keys.insert(candidate->key).second) {
+        if (keys.count(candidate->key) != 0) {
             // e.g. the second capture node of a capture card.
             LOG(INFO) << path << ": another capture node of " << candidate->key
                       << " is used already, ignored";
             continue;
         }
-        result.cameras.push_back(std::move(*candidate));
+        add(std::move(*candidate));
     }
     if (properties.facing_by_resolution) ApplyFacingByResolution(&result.cameras);
     return result;

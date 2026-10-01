@@ -29,6 +29,7 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `provider/Discovery.*`            | Classifies `/dev/video*` nodes into `CameraCandidate`s |
 | `provider/DeviceMonitor.*`        | inotify on `/dev`, debounced rescans with retry |
 | `provider/CameraIdAllocator.*`    | Stable numerical camera IDs |
+| `provider/MediaPipeline.*`        | Media controller sensors: paths to video nodes, deliverable formats (`DiscoverMediaCameras()`) |
 | `config/CameraHwdb.*`             | systemd `70-cameras.hwdb` lookups (direction, infrared) via `libhwdb` |
 | `device/CameraDevice.*`           | `BnCameraDevice`, one object per camera, handed out repeatedly |
 | `device/CameraDescription.*`      | Everything fixed per camera: static metadata, stream validation (`PlanStreams()`) |
@@ -37,16 +38,20 @@ Commit subject prefix: `mainline/common: intf/camera/mainline: ...`.
 | `session/CameraDeviceSession.*`   | `BnCameraDeviceSession`: stream configuration, request validation, buffer cache, FMQs, worker thread |
 | `session/CaptureStream.*`         | The session's V4L2 device: format, frame interval, streaming, frame to I420 with boottime timestamp |
 | `session/DeviceControls.*`        | AE / AWB lock, antibanding, constant frame rate on V4L2 controls |
+| `session/PipelineController.*`    | Enables a media pipeline's links, sets its formats, sensor frame interval and controls |
 | `session/RequestSettings.*`       | Per-request settings (zoom, fps range, locks, test pattern), result metadata |
 | `session/GraphicBuffers.h`, `GrallocBuffers.cpp` | Output buffer import / lock, abstract for tests |
 | `convert/`                        | V4L2 formats to I420, crop / scale to YUV and RGBA outputs (libyuv) |
 | `jpeg/JpegEncoder.*`              | I420 to JPEG with libjpeg (raw 4:2:0 input; errors `longjmp` back, never `exit()`) |
 | `jpeg/JpegOutput.*`               | BLOB outputs: scaling, thumbnail, EXIF (`android.hardware.camera.common-helper`), `CameraBlob` trailer |
 | `v4l2/VideoDevice.h`              | Abstract V4L2 capture node; everything above it is testable with a fake |
+| `v4l2/MediaDevice.*`, `v4l2/SubDevice.*` | Media controller topology / link setup and sub-devices, abstract likewise |
+| `v4l2/Controls.*`                 | `ControlDevice` (shared by video nodes and sub-devices), ioctl helpers |
+| `v4l2/DeviceOpeners.h`            | How video / media / sub-device nodes are opened; tests substitute fakes |
 | `v4l2/V4l2VideoDevice.cpp`        | The real implementation (ioctls, sysfs identity) |
 | `v4l2/PixelFormats.*`             | Which V4L2 formats are processed / Bayer / unsupported |
 | `utils/`                          | sysfs helpers, `common::Status` -> binder status, `Metadata` (camera_metadata_t wrapper) |
-| `tests/`                          | `camera_provider_mainline_test`, `FakeVideoDevice`, `FakeGraphicBuffers` |
+| `tests/`                          | `camera_provider_mainline_test`, `FakeVideoDevice`, `FakeGraphicBuffers`, `FakeMediaGraph` |
 | `permissions/`                    | Feature XMLs without a prebuilt module in `frameworks/native` |
 
 Build modules: `android.hardware.camera.provider-service.mainline` (binary),
@@ -59,8 +64,12 @@ Build modules: `android.hardware.camera.provider-service.mainline` (binary),
 
 * Never hard-code device specific values. Derive them from V4L2 / sysfs at
   runtime, or make them per-device properties (see below).
-* Only `V4l2VideoDevice.cpp` talks to V4L2 video nodes. Code above it uses
-  `VideoDevice`, so that it can be unit tested with `FakeVideoDevice`.
+* Only `V4l2VideoDevice.cpp`, `MediaDevice.cpp` and `SubDevice.cpp` talk to
+  device nodes. Code above them uses the abstract classes, opened through
+  `DeviceOpeners`, so that it can be unit tested with `FakeVideoDevice` and
+  `FakeMediaGraph`.
+* Media pipelines: discovery must not change the graph (no link setup, no
+  formats); only `PipelineController` does, when a session starts streaming.
 * `ClassifyPixelFormat()` returns `kProcessed` only for formats the converter
   handles. Adding a format there means handling it in the converter too.
 * Camera IDs must not depend on probe order: sort before allocating.

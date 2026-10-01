@@ -7,7 +7,7 @@
 
 #include <optional>
 
-#include "v4l2/VideoDevice.h"
+#include "v4l2/Controls.h"
 
 namespace aidl::android::hardware::camera::mainline {
 
@@ -16,7 +16,9 @@ namespace aidl::android::hardware::camera::mainline {
 // control keeps doing whatever it does.
 class DeviceControls {
   public:
-    explicit DeviceControls(VideoDevice* device);
+    // `device` is the video node, or the sensor of a media controller
+    // pipeline.
+    explicit DeviceControls(ControlDevice* device);
 
     // Defaults when a session starts: automatic power line frequency
     // (antibanding), 3A unlocked.
@@ -29,7 +31,7 @@ class DeviceControls {
     void SetAwbLock(bool lock);
 
   private:
-    VideoDevice* const device_;
+    ControlDevice* const device_;
     std::optional<bool> constant_frame_rate_;
     bool ae_locked_ = false;
     bool awb_locked_ = false;

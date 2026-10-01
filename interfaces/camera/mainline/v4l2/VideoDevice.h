@@ -17,6 +17,8 @@
 
 #include <android-base/result.h>
 
+#include "v4l2/Controls.h"
+
 namespace aidl::android::hardware::camera::mainline {
 
 struct Fraction {
@@ -104,20 +106,15 @@ struct CapturedFrame {
 
 // A V4L2 video device node. Abstract so that everything above it can be
 // tested against a fake device.
-class VideoDevice {
+class VideoDevice : public ControlDevice {
   public:
-    virtual ~VideoDevice() = default;
-
     virtual const VideoDeviceInfo& Info() const = 0;
 
-    // All capture pixel formats with their frame sizes and intervals.
-    virtual std::vector<FormatDescription> EnumerateFormats() = 0;
-
-    // Integer controls. GetControl() returns nullopt when the control does
-    // not exist or can not be read.
-    virtual bool HasControl(uint32_t id) = 0;
-    virtual std::optional<int32_t> GetControl(uint32_t id) = 0;
-    virtual bool SetControl(uint32_t id, int32_t value) = 0;
+    // All capture pixel formats with their frame sizes and intervals. For a
+    // node behind a media controller pipeline (V4L2_CAP_IO_MC), `mbus_code`
+    // restricts them to the formats the node can produce from that media bus
+    // format; 0 for all.
+    virtual std::vector<FormatDescription> EnumerateFormats(uint32_t mbus_code = 0) = 0;
 
     // Streaming. The format and frame interval can only be changed while not
     // streaming. The error code of a failure is an errno value; ENODEV means

@@ -22,7 +22,7 @@ namespace aidl::android::hardware::camera::mainline {
 class CameraDevice : public device::BnCameraDevice {
   public:
     CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description,
-                 VideoDeviceOpener open = OpenVideoDevice,
+                 DeviceOpeners open = DeviceOpeners(),
                  std::function<std::shared_ptr<GraphicBuffers>()> buffers = CreateGrallocBuffers);
 
     // The device went away. Further calls fail with CAMERA_DISCONNECTED.
@@ -56,7 +56,7 @@ class CameraDevice : public device::BnCameraDevice {
   private:
     const std::string name_;
     const std::shared_ptr<const CameraDescription> description_;
-    const VideoDeviceOpener open_;
+    const DeviceOpeners open_;
     const std::function<std::shared_ptr<GraphicBuffers>()> buffers_;
     std::atomic<bool> disconnected_ = false;
 

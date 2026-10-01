@@ -17,7 +17,7 @@ front / back facing) and external (hotpluggable) cameras.
 | Camera devices (characteristics, templates, stream combination queries) | done |
 | Capture sessions, YUV and RGBA outputs    | done |
 | JPEG outputs with EXIF and thumbnail      | done |
-| Sensors behind a media controller pipeline (Qualcomm CAMSS, Intel IPU6, ...) | not yet |
+| Sensors behind a media controller pipeline (Qualcomm CAMSS, vimc, ...) delivering processed images | done |
 | Raw Bayer sensors (software ISP)          | not yet, detected and skipped |
 
 ## Packaging
@@ -82,13 +82,47 @@ $(call soong_config_set_bool,camera_hal_mainline,include_all_permission_xmls,tru
 
 ## Camera discovery
 
+Cameras come from two places: camera sensors behind media controllers
+(`/dev/mediaN`), and plain capture nodes (`/dev/videoN`).
+
+### Sensors behind a media controller
+
+Every entity with the function `MEDIA_ENT_F_CAM_SENSOR` is a camera candidate
+(Qualcomm CAMSS, vimc, ...). From its source pad, every path of data links
+that are or can be enabled is followed through the pipeline stages (sub-devices
+with a `/dev/v4l-subdevN` node) to a video node. A path delivers the formats
+the video node offers (`VIDIOC_ENUM_FMT` with the media bus code) for:
+
+* the sensor's processed (YUV / RGB) media bus codes, when no stage converts,
+* the processed source codes of the first converting stage
+  (`MEDIA_ENT_F_PROC_VIDEO_PIXEL_ENC_CONV` / `_ISP`, e.g. a debayer), when
+  one does,
+
+with the sensor's frame sizes and intervals. The path with the most formats
+wins, then the shortest, then the one with the most links enabled already.
+Sensors with raw Bayer data only, and no converting stage, need a software
+ISP, which does not exist yet; they are logged and skipped.
+
+Before streaming, the session enables the path's links (disabling other links
+into the same sink pads), and sets the formats from the sensor through every
+stage: each stage's sink gets what the previous stage sends, its source the
+same (or the converted code). The sensor sets the frame interval and carries
+the camera controls (AE / AWB lock, firmware orientation and rotation).
+Sensors of one media device share its stages, so the framework is told
+(resource cost) that only one of them can be open at a time.
+
+A sensor wired to a camera interface is built in: such cameras are internal
+unless a property or the firmware orientation says otherwise.
+
+### Plain capture nodes
+
 Every `/dev/videoN` node is opened and classified:
 
 * Nodes without video capture, memory to memory devices (codecs), output
   devices and nodes without streaming I/O are ignored. UVC metadata nodes
   are ignored this way.
 * Nodes whose input has to be configured through the media controller
-  (`V4L2_CAP_IO_MC`, e.g. Qualcomm CAMSS, Intel IPU6) are not supported yet.
+  (`V4L2_CAP_IO_MC`) are left to their media device (see above).
 * Of the remaining nodes, those offering at least one pixel format the HAL can
   convert become cameras: packed and planar YUV, RGB, grey and MJPEG / JPEG.
   Nodes with raw Bayer formats only need a software ISP, which does not exist
@@ -126,10 +160,13 @@ source:
 |---|---|---|---|
 | 1 | per-device `internal` property | per-device `facing` property | per-device `rotation` property |
 | 2 | firmware: `V4L2_CID_CAMERA_ORIENTATION` (device tree `orientation`, ACPI `_PLD`) front / back = internal, external = external | firmware: `V4L2_CID_CAMERA_ORIENTATION` | firmware: `V4L2_CID_CAMERA_SENSOR_ROTATION` (device tree `rotation`), converted to Android's clockwise angle |
-| 3 | USB port: built in (`removable` = `fixed`, from ACPI or the hub descriptor) = internal, `removable` = external | camera hwdb `ID_CAMERA_DIRECTION` | 0 |
-| 4 | `default_internal` (default: external) | built-in USB camera: front, like the one above a laptop screen | |
-| 5 | | with `facing_by_resolution`: of the remaining internal cameras, the one with the smallest resolution faces front | |
+| 3 | camera sensor behind a media controller = internal | camera hwdb `ID_CAMERA_DIRECTION` | 0 |
+| 4 | USB port: built in (`removable` = `fixed`, from ACPI or the hub descriptor) = internal, `removable` = external | built-in USB camera: front, like the one above a laptop screen | |
+| 5 | `default_internal` (default: external) | with `facing_by_resolution`: of the remaining internal cameras, the one with the smallest resolution faces front | |
 | 6 | | back | |
+
+For sensors behind a media controller the firmware controls are read from
+the sensor's sub-device.
 
 The log shows the decision and where it came from for every camera.
 
@@ -245,6 +282,13 @@ sets it wins.
 | bus_info       | `usb-0000:00:14_0-6` |
 | USB ID         | `usb:046d:082d` |
 | card name      | `HD_Pro_Webcam_C920` |
+
+For a sensor behind a media controller:
+
+| Selector       | Example |
+|----------------|---------|
+| sensor entity  | `ov5675_2-0036` |
+| sensor model   | `ov5675` |
 
 Characters other than `[0-9A-Za-z]`, `:`, `@` and `-` are replaced by `_`,
 including dots. The HAL logs the selectors of every camera it finds:

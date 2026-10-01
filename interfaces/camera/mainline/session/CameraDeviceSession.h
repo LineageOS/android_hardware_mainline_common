@@ -25,6 +25,7 @@
 #include "jpeg/JpegOutput.h"
 #include "session/CaptureStream.h"
 #include "session/GraphicBuffers.h"
+#include "session/PipelineController.h"
 #include "utils/Metadata.h"
 
 namespace aidl::android::hardware::camera::mainline {
@@ -37,7 +38,7 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     // on failure.
     static std::shared_ptr<CameraDeviceSession> Create(
             std::string name, std::shared_ptr<const CameraDescription> description,
-            std::shared_ptr<device::ICameraDeviceCallback> callback, const VideoDeviceOpener& open,
+            std::shared_ptr<device::ICameraDeviceCallback> callback, const DeviceOpeners& open,
             std::shared_ptr<GraphicBuffers> buffers,
             ::aidl::android::hardware::camera::common::Status* status);
 
@@ -45,6 +46,7 @@ class CameraDeviceSession : public device::BnCameraDeviceSession {
     CameraDeviceSession(std::string name, std::shared_ptr<const CameraDescription> description,
                         std::shared_ptr<device::ICameraDeviceCallback> callback,
                         std::unique_ptr<VideoDevice> device,
+                        std::unique_ptr<PipelineController> pipeline,
                         std::shared_ptr<GraphicBuffers> buffers);
     ~CameraDeviceSession() override;
 

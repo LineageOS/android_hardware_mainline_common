@@ -14,7 +14,8 @@
 
 #include "Properties.h"
 #include "config/CameraHwdb.h"
-#include "v4l2/VideoDevice.h"
+#include "provider/MediaPipeline.h"
+#include "v4l2/DeviceOpeners.h"
 
 namespace aidl::android::hardware::camera::mainline {
 
@@ -45,6 +46,9 @@ struct CameraCandidate {
     // See Properties::prefer_rgb / advertise_rgb.
     bool prefer_rgb = false;
     bool advertise_rgb = false;
+    // For a sensor behind a media controller: the pipeline to set up before
+    // capturing from `info`. Null for plain capture nodes.
+    std::shared_ptr<const MediaPipeline> pipeline;
 };
 
 struct DiscoveryResult {
@@ -54,14 +58,25 @@ struct DiscoveryResult {
     bool retry = false;
 };
 
-// Finds all cameras behind /dev/video* nodes. `hwdb` may be null.
+// Finds all cameras: camera sensors behind /dev/media* nodes and plain
+// capture nodes (/dev/video*). `hwdb` may be null.
 //
-// `known` maps node paths to cameras found by an earlier scan. A node whose
-// device number did not change is not probed again.
+// `known` are the cameras found by an earlier scan. Their nodes are not
+// probed again as long as their device number did not change.
 DiscoveryResult DiscoverCameras(const Properties& properties, const CameraHwdb* hwdb,
-                                const std::map<std::string, CameraCandidate>& known,
-                                const VideoDeviceOpener& open = OpenVideoDevice,
+                                const std::vector<CameraCandidate>& known,
+                                const DeviceOpeners& open = DeviceOpeners(),
                                 const std::string& dev_dir = "/dev");
+
+// Builds cameras from the sensors of a media device that have a usable
+// pipeline.
+std::vector<CameraCandidate> ProbeMediaDevice(const Properties& properties, MediaDevice* media,
+                                              const DeviceOpeners& open);
+
+// Selectors of a sensor behind a media controller, most specific first:
+//   sensor entity "ov5675_2-0036"
+//   sensor model  "ov5675"
+std::vector<std::string> MediaSelectors(const MediaPipeline& pipeline);
 
 // Builds a camera from an opened capture node, or returns nullopt (and logs
 // why) when the node is not usable as a camera. `hwdb` may be null.

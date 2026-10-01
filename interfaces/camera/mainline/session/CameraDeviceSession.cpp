@@ -66,21 +66,29 @@ PixelFormat EffectiveFormat(const device::Stream& stream, bool prefer_rgb) {
 
 std::shared_ptr<CameraDeviceSession> CameraDeviceSession::Create(
         std::string name, std::shared_ptr<const CameraDescription> description,
-        std::shared_ptr<device::ICameraDeviceCallback> callback, const VideoDeviceOpener& open,
+        std::shared_ptr<device::ICameraDeviceCallback> callback, const DeviceOpeners& open,
         std::shared_ptr<GraphicBuffers> buffers, Status* status) {
-    auto device = open(description->candidate().info.path);
-    if (!device.ok()) {
-        LOG(ERROR) << name << ": " << device.error().message();
-        const int error = device.error().code().value();
-        *status = error == ENODEV || error == ENOENT ? Status::CAMERA_DISCONNECTED
-                  : error == EBUSY                   ? Status::CAMERA_IN_USE
-                                                     : Status::INTERNAL_ERROR;
+    auto failed = [&](const ::android::base::ResultError<>& error) {
+        LOG(ERROR) << name << ": " << error.message();
+        const int code = error.code().value();
+        *status = code == ENODEV || code == ENOENT ? Status::CAMERA_DISCONNECTED
+                  : code == EBUSY                  ? Status::CAMERA_IN_USE
+                                                   : Status::INTERNAL_ERROR;
         return nullptr;
+    };
+
+    auto device = open.video(description->candidate().info.path);
+    if (!device.ok()) return failed(device.error());
+    std::unique_ptr<PipelineController> pipeline;
+    if (description->candidate().pipeline != nullptr) {
+        auto controller = PipelineController::Open(description->candidate().pipeline, open);
+        if (!controller.ok()) return failed(controller.error());
+        pipeline = std::move(*controller);
     }
 
     auto session = ::ndk::SharedRefBase::make<CameraDeviceSession>(
             std::move(name), std::move(description), std::move(callback), std::move(*device),
-            std::move(buffers));
+            std::move(pipeline), std::move(buffers));
     if (session->request_queue_ == nullptr || session->result_queue_ == nullptr) {
         *status = Status::INTERNAL_ERROR;
         return nullptr;
@@ -95,12 +103,13 @@ CameraDeviceSession::CameraDeviceSession(std::string name,
                                          std::shared_ptr<const CameraDescription> description,
                                          std::shared_ptr<device::ICameraDeviceCallback> callback,
                                          std::unique_ptr<VideoDevice> device,
+                                         std::unique_ptr<PipelineController> pipeline,
                                          std::shared_ptr<GraphicBuffers> buffers)
     : name_(std::move(name)),
       description_(std::move(description)),
       callback_(std::move(callback)),
       buffers_(std::move(buffers)),
-      capture_(std::move(device)) {
+      capture_(std::move(device), std::move(pipeline)) {
     jpeg_context_.characteristics = &description_->characteristics();
     jpeg_context_.make = ::android::base::GetProperty("ro.product.manufacturer", "");
     // External cameras are their own product.

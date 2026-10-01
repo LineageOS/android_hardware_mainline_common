@@ -13,6 +13,7 @@
 #include "convert/Image.h"
 #include "device/StreamPlanner.h"
 #include "session/DeviceControls.h"
+#include "session/PipelineController.h"
 #include "session/RequestSettings.h"
 #include "v4l2/VideoDevice.h"
 
@@ -22,7 +23,11 @@ namespace aidl::android::hardware::camera::mainline {
 // current stream configuration and turns frames into I420 images.
 class CaptureStream {
   public:
-    explicit CaptureStream(std::unique_ptr<VideoDevice> device);
+    // `pipeline` is set for a sensor behind a media controller; the pipeline
+    // is configured before the video node, and the sensor gets the camera
+    // controls.
+    CaptureStream(std::unique_ptr<VideoDevice> device,
+                  std::unique_ptr<PipelineController> pipeline = nullptr);
     ~CaptureStream();
 
     // Sets the capture mode for the next frames. Stops streaming; the next
@@ -41,11 +46,14 @@ class CaptureStream {
     void Stop();
 
     // Size of the captured frames.
-    Size size() const { return mode_.size; }
+    Size size() const { return frame_size_; }
 
   private:
     std::unique_ptr<VideoDevice> device_;
+    std::unique_ptr<PipelineController> pipeline_;
     DeviceControls controls_;
+    // Differs from the mode's size when a pipeline stage scales.
+    Size frame_size_;
     CaptureMode mode_;
     std::optional<CaptureFormat> format_;
     Fraction interval_;

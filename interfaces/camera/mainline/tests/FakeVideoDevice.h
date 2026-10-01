@@ -39,7 +39,14 @@ class FakeVideoDevice : public VideoDevice {
         : info_(std::move(info)), formats_(std::move(formats)), stream_(std::move(stream)) {}
 
     const VideoDeviceInfo& Info() const override { return info_; }
-    std::vector<FormatDescription> EnumerateFormats() override { return formats_; }
+    // With a media bus code, the formats set with SetFormatsForCode().
+    std::vector<FormatDescription> EnumerateFormats(uint32_t mbus_code) override {
+        auto it = formats_by_code_.find(mbus_code);
+        return it != formats_by_code_.end() ? it->second : formats_;
+    }
+    void SetFormatsForCode(uint32_t code, std::vector<FormatDescription> formats) {
+        formats_by_code_[code] = std::move(formats);
+    }
 
     bool HasControl(uint32_t id) override { return controls_.count(id) != 0; }
     std::optional<int32_t> GetControl(uint32_t id) override;
@@ -64,6 +71,7 @@ class FakeVideoDevice : public VideoDevice {
   private:
     VideoDeviceInfo info_;
     std::vector<FormatDescription> formats_;
+    std::map<uint32_t, std::vector<FormatDescription>> formats_by_code_;
     std::shared_ptr<Stream> stream_;
     std::map<uint32_t, int32_t> controls_;
     bool streaming_ = false;

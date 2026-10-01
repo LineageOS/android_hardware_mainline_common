@@ -19,15 +19,17 @@ namespace {
 
 using ::aidl::android::hardware::camera::common::Status;
 
-// Relative cost of a camera for the framework's resource arbitration: every
-// camera has its own capture device, so any number of them can be open,
-// bandwidth permitting.
+// Relative cost of a camera for the framework's resource arbitration. A
+// plain capture device is independent of the others, so several of them can
+// be open, bandwidth permitting. Sensors behind a media controller share its
+// pipeline stages, so only one of them can be open at a time.
 constexpr int32_t kResourceCost = 50;
+constexpr int32_t kPipelineResourceCost = 100;
 
 }  // namespace
 
 CameraDevice::CameraDevice(std::string name, std::shared_ptr<const CameraDescription> description,
-                           VideoDeviceOpener open,
+                           DeviceOpeners open,
                            std::function<std::shared_ptr<GraphicBuffers>()> buffers)
     : name_(std::move(name)),
       description_(std::move(description)),
@@ -53,7 +55,8 @@ void CameraDevice::Disconnect() {
 
 ::ndk::ScopedAStatus CameraDevice::getResourceCost(
         ::aidl::android::hardware::camera::common::CameraResourceCost* cost) {
-    cost->resourceCost = kResourceCost;
+    cost->resourceCost =
+            description_->candidate().pipeline != nullptr ? kPipelineResourceCost : kResourceCost;
     cost->conflictingDevices.clear();
     return ::ndk::ScopedAStatus::ok();
 }

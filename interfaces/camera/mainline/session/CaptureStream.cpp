@@ -46,8 +46,12 @@ bool SameInterval(const Fraction& a, const Fraction& b) {
 
 }  // namespace
 
-CaptureStream::CaptureStream(std::unique_ptr<VideoDevice> device)
-    : device_(std::move(device)), controls_(device_.get()) {}
+CaptureStream::CaptureStream(std::unique_ptr<VideoDevice> device,
+                             std::unique_ptr<PipelineController> pipeline)
+    : device_(std::move(device)),
+      pipeline_(std::move(pipeline)),
+      controls_(pipeline_ != nullptr ? pipeline_->sensor()
+                                     : static_cast<ControlDevice*>(device_.get())) {}
 
 CaptureStream::~CaptureStream() {
     Stop();
@@ -56,6 +60,7 @@ CaptureStream::~CaptureStream() {
 void CaptureStream::Configure(const CaptureMode& mode) {
     Stop();
     mode_ = mode;
+    frame_size_ = mode.size;
     format_.reset();
     interval_ = {};
 }
@@ -66,13 +71,22 @@ Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
     if (!device_->IsStreaming() || !SameInterval(target, interval_)) {
         device_->StopStreaming();
         if (!format_.has_value()) {
-            auto format = device_->SetFormat(mode_.fourcc, static_cast<uint32_t>(mode_.size.width),
-                                             static_cast<uint32_t>(mode_.size.height));
+            frame_size_ = mode_.size;
+            if (pipeline_ != nullptr) {
+                auto size = pipeline_->Configure(mode_.fourcc, mode_.size);
+                if (!size.ok()) return size.error();
+                frame_size_ = *size;
+            }
+            auto format = device_->SetFormat(mode_.fourcc, static_cast<uint32_t>(frame_size_.width),
+                                             static_cast<uint32_t>(frame_size_.height));
             if (!format.ok()) return format.error();
             format_ = *format;
             controls_.Reset();
         }
-        if (auto applied = device_->SetFrameInterval(target); applied.ok()) {
+        // Behind a media controller the sensor sets the pace.
+        auto applied = pipeline_ != nullptr ? pipeline_->SetFrameInterval(target)
+                                            : device_->SetFrameInterval(target);
+        if (applied.ok()) {
             LOG(DEBUG) << device_->Info().name << ": frame interval " << applied->numerator << "/"
                        << applied->denominator;
         } else {
@@ -83,7 +97,7 @@ Result<void> CaptureStream::Prepare(const RequestSettings& settings) {
             return started.error();
         }
         LOG(INFO) << device_->Info().name << ": capturing " << FourccToString(mode_.fourcc) << " "
-                  << mode_.size.width << "x" << mode_.size.height << " at "
+                  << frame_size_.width << "x" << frame_size_.height << " at "
                   << target.denominator / std::max(target.numerator, 1u) << " fps";
     }
 
