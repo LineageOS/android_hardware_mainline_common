@@ -5,6 +5,9 @@ implementations for devices running a mainline Linux kernel. Each component
 lives under its own directory (mostly `interfaces/<domain>/<name>/`, plus a
 few standalone tools such as `grub/`, `bdaddr/`, `tablet2multitouch/`).
 
+Part of the mainline repository set. Map of all repos:
+`vendor/mainline/docs/REPOSITORIES.md`.
+
 ## Read the component's own guidance first
 
 Most components have their own `AGENTS.md` with module-specific guidance
@@ -34,6 +37,8 @@ have to read what's relevant to the task at hand:
   property naming patterns for a new component.
 - `docs/INITIAL_IMPLEMENTATION_GUIDELINES.md` — shared requirements,
   references, and guidelines for bringing up a brand-new component.
+- `docs/WIRING_A_HAL.md` — how a HAL here gets selected by device
+  trees through `device/mainline/common/optional/`.
 - `docs/REVIEW.md` — the SOP for reviewing a contributed commit, whether
   it's someone else's patch or your own before it goes to a human.
 - `docs/FIXUPS.md` — the SOP for closing a `docs/` compliance gap in a
