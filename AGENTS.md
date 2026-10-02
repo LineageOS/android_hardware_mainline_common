@@ -3,10 +3,20 @@
 This repository hosts a collection of independent HAL and utility
 implementations for devices running a mainline Linux kernel. Each component
 lives under its own directory (mostly `interfaces/<domain>/<name>/`, plus a
-few standalone tools such as `grub/`, `bdaddr/`, `tablet2multitouch/`). Most
-of them have their own `AGENTS.md` with module-specific guidance
-(architecture, invariants, build targets, properties) — read that file first
-when working inside such a directory.
+few standalone tools such as `grub/`, `bdaddr/`, `tablet2multitouch/`).
+
+## Read the component's own guidance first
+
+Most components have their own `AGENTS.md` with module-specific guidance
+(architecture, invariants, build targets, properties), and some also an
+`INITIAL_IMPLEMENTATION.md`. Before reading, searching, or changing any
+file inside a component directory, list the directory and read its
+`AGENTS.md` in full: this comes before the first look at the code, not
+after. Do it again when you move to another component. Many agent tools
+only load the `AGENTS.md` of the directory they were started in and its
+parents, so do not assume the component's file is already in your context;
+it holds rules, such as which files hold the quirks or what must not be
+changed, that the code does not show.
 
 ## Shared standards live in `docs/`
 
