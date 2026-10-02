@@ -196,7 +196,19 @@ IioDeviceQuirks MakeRotationQuirks(::aidl::android::hardware::sensors::SensorTyp
     return q;
 }
 
+IioDeviceQuirks MakeBmi160Quirks() {
+    IioDeviceQuirks q;
+    // drivers/iio/imu/bmi160/bmi160_core.c: bmi160_set_odr() programs every
+    // advertised accelerometer ODR with the normal filter mode and never sets
+    // undersampling, and on hardware the accelerometer stops updating below
+    // 12.5 Hz (0.78..6.25 Hz are listed in in_accel_sampling_frequency_available).
+    q.min_sampling_frequency_hz["accel"] = 12.5;
+    return q;
+}
+
 const QuirkEntry kQuirks[] = {
+        {"bmi160", MakeBmi160Quirks()},
+        {"bmi120", MakeBmi160Quirks()},
         {"qcom-smgr-prox", MakeSmgrProximityQuirks()},
         {"qcom-smgr-pressure", MakeSmgrPressureQuirks()},
         {"qcom-smgr-", MakeSmgrQuirks()},

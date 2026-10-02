@@ -139,6 +139,7 @@ requested rate.
 | `qcom-smgr-prox`          | Proximity is a distance: `raw × scale + offset` metres; timestamp channel is not nanoseconds  |
 | `qcom-smgr-pressure`      | Reports hPa (not kPa), bogus `offset` attribute, timestamp channel is not nanoseconds          |
 | `qcom-smgr-*`             | Timestamp channel is a 32-bit tick counter                                                     |
+| `bmi120`, `bmi160`        | Accelerometer stops updating below 12.5 Hz: the ODR is raised to 12.5 Hz and decimated        |
 | `prox` (HID)              | Human presence: near level 1                                                                   |
 | `relative_orientation`    | Quaternion is a `GAME_ROTATION_VECTOR`                                                         |
 | `geomagnetic_orientation` | Quaternion is a `GEOMAGNETIC_ROTATION_VECTOR`                                                  |

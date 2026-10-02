@@ -523,6 +523,10 @@ double IioDevice::RoundFrequency(const std::string& available_attr, double hz) {
 }
 
 void IioDevice::WriteSamplingFrequency(const std::string& iio_type, double hz) {
+    auto min_hz = info_.quirks.min_sampling_frequency_hz.find(iio_type);
+    if (min_hz != info_.quirks.min_sampling_frequency_hz.end()) {
+        hz = std::max(hz, min_hz->second);
+    }
     struct Candidate {
         std::string attr;
         std::string available;

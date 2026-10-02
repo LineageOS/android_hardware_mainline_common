@@ -7,6 +7,7 @@
 
 #include <aidl/android/hardware/sensors/SensorType.h>
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -81,6 +82,11 @@ struct IioDeviceQuirks {
     bool ignore_offset = false;
     // The buffer timestamp channel does not carry nanoseconds.
     bool ignore_timestamp_channel = false;
+    // Lowest sampling frequency (Hz) that produces fresh samples, per IIO
+    // channel type ("accel"), for drivers that advertise slower rates in
+    // sampling_frequency_available but then stop updating. Slower requests are
+    // served by decimating the faster stream.
+    std::map<std::string, double> min_sampling_frequency_hz;
     // Rotation vector flavour for "rot"/"quaternion" channels.
     ::aidl::android::hardware::sensors::SensorType rotation_vector_type =
             ::aidl::android::hardware::sensors::SensorType::ROTATION_VECTOR;
