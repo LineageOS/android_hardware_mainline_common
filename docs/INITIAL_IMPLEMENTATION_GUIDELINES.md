@@ -31,7 +31,11 @@ Written for both AI agents and human contributors.
 - Prefer `libbase` (`system/libbase`) for Android platform helper functions
   (when using C++).
 - Write an `AGENTS.md` for future AI sessions and a `README.md` for human
-  developers.
+  developers. Next to the `AGENTS.md`, add a `CLAUDE.md` containing only the
+  line `@AGENTS.md`, so that Claude Code loads it too. Open the component's
+  `AGENTS.md` with a reminder that agents must read it before touching the
+  component's code, and keep the facts that cannot be derived from the code
+  (hard rules, quirk tables, reference paths) in it.
 - Match the expectations of the Vendor Test Suite (VTS) module for the
   interface you're implementing.
 - Commit as you go; see `docs/COMMIT_CONVENTIONS.md` for the subject, body,
