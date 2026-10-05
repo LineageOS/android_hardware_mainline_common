@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "1cff6518_f2619be7",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 6
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-10-05T01:47:06Z",
+      "side": 1,
+      "message": "The fast mode stuff seems to be okay when latency is set to 10ms on both tegra and sm8750. I\u0027m gonna have to use it more over time to see if any issue fall out, though.",
+      "revId": "1a08d7d2baa49745b2deb7fa0a7ca423840ea01f",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
