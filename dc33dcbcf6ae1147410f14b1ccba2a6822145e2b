@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "f1811598_61fb5fc6",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 6
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-10-05T01:48:50Z",
+      "side": 1,
+      "message": "This doesn\u0027t cause regression on either tegra or sm8750, but haven\u0027t been able to test when attached to a passthrough supporting avr yet.",
+      "revId": "dc33dcbcf6ae1147410f14b1ccba2a6822145e2b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
