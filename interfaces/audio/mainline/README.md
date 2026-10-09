@@ -322,10 +322,14 @@ A passthrough stream packs the data into IEC 61937 bursts (`spdif/`, a fork
 of AOSP's libaudiospdif, or FFmpeg's `spdif` muxer for DTS-HD / TrueHD),
 sets the IEC 958 channel status of the HDMI output to non-audio, and writes
 the bursts to the PCM device, opened without the plug fallback. Its device
-goes through the PCM arbiter like any direct stream. When the driver refuses
-high bit rate, the stream fails (the framework then decodes the stream
-itself) and the output no longer offers high bit rate formats from the next
-connection on. Positions are frames of the content at its sample rate, what
+goes through the PCM arbiter like any direct stream. When the device refuses
+the configuration, the stream tries once more with the driver's own period
+and buffer sizes before it fails (the framework then decodes the stream
+itself, an application like Kodi plays nothing). A refusal of high bit rate
+itself (HDA rejects it when the device is prepared, or the device does not
+offer 8 channels at 192 kHz at all) is remembered for the output: it offers
+no high bit rate formats any more and DTS-HD falls back to four times the
+rate on two channels, until HDMI connects again. Positions are frames of the content at its sample rate, what
 applications expect from a direct encoded track. The stream buffer holds
 `latency_ms` of the IEC 61937 stream the format becomes. `drain` drops a
 partial burst still held by the packer; `pause` lets the device run dry.

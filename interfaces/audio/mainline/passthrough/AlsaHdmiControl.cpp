@@ -198,7 +198,7 @@ class AlsaChannelStatusGuard final : public ChannelStatusGuard {
 std::unique_ptr<AlsaHdmiControl> AlsaHdmiControl::Create(const alsa::CardInfo& card,
                                                          const routing::Endpoint& head,
                                                          const Quirk& quirk,
-                                                         std::shared_ptr<HbrFailures> hbr_failures,
+                                                         std::shared_ptr<HeadStates> head_states,
                                                          std::optional<bool> hbr_override) {
     snd_ctl_t* raw = nullptr;
     if (int err = snd_ctl_open(&raw, card.CtlName().c_str(), 0); err < 0) {
@@ -225,19 +225,19 @@ std::unique_ptr<AlsaHdmiControl> AlsaHdmiControl::Create(const alsa::CardInfo& c
     }
     return std::make_unique<AlsaHdmiControl>(std::move(ctl), card.id + ":" + head.pcm_name, quirk,
                                              std::move(eld), std::move(*iec958),
-                                             std::move(hbr_failures), hbr_override);
+                                             std::move(head_states), hbr_override);
 }
 
 AlsaHdmiControl::AlsaHdmiControl(std::shared_ptr<snd_ctl_t> ctl, std::string head_key, Quirk quirk,
                                  std::optional<Control> eld, Control iec958,
-                                 std::shared_ptr<HbrFailures> hbr_failures,
+                                 std::shared_ptr<HeadStates> head_states,
                                  std::optional<bool> hbr_override)
     : ctl_(std::move(ctl)),
       head_key_(std::move(head_key)),
       quirk_(std::move(quirk)),
       eld_(std::move(eld)),
       iec958_(std::move(iec958)),
-      hbr_failures_(std::move(hbr_failures)),
+      head_states_(std::move(head_states)),
       hbr_override_(hbr_override) {}
 
 std::optional<std::vector<uint8_t>> AlsaHdmiControl::ReadEld() {
@@ -283,21 +283,28 @@ void AlsaHdmiControl::ClearNonAudio() {
     WriteStatus(ctl_.get(), iec958_.numid, *status);
 }
 
-HbrSupport AlsaHdmiControl::Hbr() const {
-    // A failure beats everything: forcing it on again would fail again.
-    if (hbr_failures_ != nullptr && hbr_failures_->Contains(head_key_)) {
-        return HbrSupport::kUnsupported;
+HbrState AlsaHdmiControl::Hbr() const {
+    // A refusal beats everything: forcing it on again would fail again.
+    if (head_states_ != nullptr) {
+        if (auto failure = head_states_->HbrFailure(head_key_); failure.has_value()) {
+            return HbrState{.support = HbrSupport::kUnsupported,
+                            .source = HbrState::Source::kFailure,
+                            .detail = std::move(*failure)};
+        }
     }
     if (hbr_override_.has_value()) {
-        return *hbr_override_ ? HbrSupport::kSupported : HbrSupport::kUnsupported;
+        return HbrState{
+                .support = *hbr_override_ ? HbrSupport::kSupported : HbrSupport::kUnsupported,
+                .source = HbrState::Source::kSetting};
     }
-    return quirk_.hbr;
+    return HbrState{
+            .support = quirk_.hbr, .source = HbrState::Source::kDriver, .detail = quirk_.name};
 }
 
-void AlsaHdmiControl::ReportHbrFailure() {
-    LOG(WARNING) << __func__ << ": " << head_key_
-                 << ": high bit rate failed, not offering it on this head any more";
-    if (hbr_failures_ != nullptr) hbr_failures_->Add(head_key_);
+void AlsaHdmiControl::ReportHbrFailure(const std::string& reason) {
+    LOG(WARNING) << __func__ << ": " << head_key_ << ": " << reason
+                 << "; no high bit rate on this head until HDMI connects again";
+    if (head_states_ != nullptr) head_states_->SetHbrFailure(head_key_, reason);
 }
 
 std::string AlsaHdmiControl::Describe() const {
@@ -306,7 +313,7 @@ std::string AlsaHdmiControl::Describe() const {
        << (eld_.has_value() ? std::string(ToString(eld_->locator)) + "{" + eld_->description + "}"
                             : "none")
        << " IEC958=" << ToString(iec958_.locator) << "{" << iec958_.description << "}"
-       << " hbr=" << ToString(Hbr());
+       << " hbr=" << Hbr().ToString();
     return os.str();
 }
 
@@ -324,24 +331,52 @@ const char* ToString(HbrSupport hbr) {
     return "?";
 }
 
-void HbrFailures::Add(const std::string& head) {
-    std::lock_guard guard(lock_);
-    heads_.insert(head);
+const char* ToString(HbrState::Source source) {
+    switch (source) {
+        case HbrState::Source::kDriver:
+            return "driver";
+        case HbrState::Source::kSetting:
+            return "setting";
+        case HbrState::Source::kFailure:
+            return "failure";
+    }
+    return "?";
 }
 
-bool HbrFailures::Contains(const std::string& head) const {
+std::string HbrState::ToString() const {
+    std::string text =
+            std::string(passthrough::ToString(support)) + " (" + passthrough::ToString(source);
+    if (!detail.empty()) text += ": " + detail;
+    return text + ")";
+}
+
+void HeadStates::SetHbrFailure(const std::string& head, std::string reason) {
     std::lock_guard guard(lock_);
-    return heads_.count(head) != 0;
+    hbr_failures_[head] = std::move(reason);
+}
+
+std::optional<std::string> HeadStates::HbrFailure(const std::string& head) const {
+    std::lock_guard guard(lock_);
+    const auto it = hbr_failures_.find(head);
+    if (it == hbr_failures_.end()) return std::nullopt;
+    return it->second;
+}
+
+bool HeadStates::ClearHbrFailures() {
+    std::lock_guard guard(lock_);
+    const bool had_failures = !hbr_failures_.empty();
+    hbr_failures_.clear();
+    return had_failures;
 }
 
 std::unique_ptr<HdmiControl> CreateHdmiControl(const alsa::CardInfo& card,
                                                const routing::Endpoint& head,
-                                               std::shared_ptr<HbrFailures> hbr_failures,
+                                               std::shared_ptr<HeadStates> head_states,
                                                std::optional<bool> hbr_override) {
     if (head.IsNull() || !head.is_hdmi_head || head.card != card.index) return nullptr;
     // A vendor whose driver the quirk table can not describe gets its own
     // HdmiControl implementation, chosen here.
-    return AlsaHdmiControl::Create(card, head, QuirkFor(card), std::move(hbr_failures),
+    return AlsaHdmiControl::Create(card, head, QuirkFor(card), std::move(head_states),
                                    hbr_override);
 }
 

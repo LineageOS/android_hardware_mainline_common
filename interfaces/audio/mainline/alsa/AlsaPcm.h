@@ -57,6 +57,24 @@ struct PcmPosition {
     int64_t time_ns = 0;
 };
 
+// Why an open failed: the step that failed and its negative errno.
+struct PcmOpenError {
+    enum class Step {
+        kNone,
+        kOpen,      // snd_pcm_open(): busy, missing, no permission.
+        kHwParams,  // Format, channels, rate, period / buffer, or their commit.
+        kSwParams,
+        kPrepare,  // Where drivers check what they only know once configured.
+    };
+    Step step = Step::kNone;
+    int error = 0;
+
+    // e.g. "hw_params: Invalid argument (-22)"
+    std::string ToString() const;
+};
+
+const char* ToString(PcmOpenError::Step step);
+
 // A thin RAII wrapper around an open snd_pcm_t. All methods must be called
 // from a single thread (the stream worker thread).
 class Pcm {
@@ -69,10 +87,10 @@ class Pcm {
     // Opens `name` with exactly the format, channel count and rate of
     // `config`, without the plug fallback, for data that has to reach the
     // hardware unchanged (IEC 61937). On failure `error` (if not null) gets
-    // the negative errno of the step that failed, e.g. -EINVAL from a prepare
-    // the driver refused.
+    // the step that failed and its errno, e.g. -EINVAL from a prepare the
+    // driver refused. A period or buffer size of 0 leaves it to the driver.
     static std::unique_ptr<Pcm> OpenStrict(const std::string& name, snd_pcm_stream_t stream,
-                                           const PcmConfig& config, int* error);
+                                           const PcmConfig& config, PcmOpenError* error);
     ~Pcm();
 
     Pcm(const Pcm&) = delete;
@@ -111,7 +129,7 @@ class Pcm {
 
     static std::unique_ptr<Pcm> TryOpen(const std::string& name, snd_pcm_stream_t stream,
                                         const PcmConfig& config, bool is_plug,
-                                        int* error = nullptr);
+                                        PcmOpenError* error = nullptr);
     // Attempts to recover from an error returned by a transfer. Returns 0 when
     // the transfer may be retried.
     int Recover(int err);
@@ -128,6 +146,13 @@ class Pcm {
 // Probes what the device supports without keeping it open. When `identity` is
 // not null, it receives the kernel PCM device behind `name` (left unknown when
 // the device can not be opened).
+// Whether the device offers the format, channel count and rate of `config`
+// at all, before any period / buffer constraint: 0, or the negative errno of
+// the first one it lacks. Nothing is configured or committed, but the device
+// is opened, so it must be free. On a DPCM card the answer can be optimistic
+// (see AGENTS.md); a "no" is reliable.
+int TestConfiguration(const std::string& name, snd_pcm_stream_t stream, const PcmConfig& config);
+
 std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream,
                                                 PcmIdentity* identity = nullptr);
 

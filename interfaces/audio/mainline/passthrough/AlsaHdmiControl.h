@@ -34,28 +34,28 @@ class AlsaHdmiControl final : public HdmiControl {
     static std::unique_ptr<AlsaHdmiControl> Create(const alsa::CardInfo& card,
                                                    const routing::Endpoint& head,
                                                    const Quirk& quirk,
-                                                   std::shared_ptr<HbrFailures> hbr_failures,
+                                                   std::shared_ptr<HeadStates> head_states,
                                                    std::optional<bool> hbr_override);
 
     AlsaHdmiControl(std::shared_ptr<snd_ctl_t> ctl, std::string head_key, Quirk quirk,
                     std::optional<Control> eld, Control iec958,
-                    std::shared_ptr<HbrFailures> hbr_failures, std::optional<bool> hbr_override);
+                    std::shared_ptr<HeadStates> head_states, std::optional<bool> hbr_override);
 
     std::optional<std::vector<uint8_t>> ReadEld() override;
     std::unique_ptr<ChannelStatusGuard> SetChannelStatus(const Iec958Status& status) override;
     void ClearNonAudio() override;
-    HbrSupport Hbr() const override;
-    void ReportHbrFailure() override;
+    HbrState Hbr() const override;
+    void ReportHbrFailure(const std::string& reason) override;
     std::string Describe() const override;
 
   private:
     const std::shared_ptr<snd_ctl_t> ctl_;
-    // Identifies the head across instances, for the HBR failure registry.
+    // Identifies the head across instances, for HeadStates.
     const std::string head_key_;
     const Quirk quirk_;
     const std::optional<Control> eld_;
     const Control iec958_;
-    const std::shared_ptr<HbrFailures> hbr_failures_;
+    const std::shared_ptr<HeadStates> head_states_;
     const std::optional<bool> hbr_override_;
 };
 

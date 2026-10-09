@@ -147,8 +147,14 @@ We link `libaudioserviceexampleimpl` statically and derive from:
   HDA ordinal, which could hit an unrelated S/PDIF control.
 * High bit rate (8 channels at 192 kHz of IEC 61937 data): HDA refuses it at
   prepare time (`-EINVAL`) when the pin or display side can not do it, so it
-  is `kSupported` there and a failure turns it off for the head
-  (`HbrFailures`, shared, outlives streams). Other drivers may accept it and
+  is `kSupported` there and a refusal turns it off for the head
+  (`HeadStates`, shared, outlives streams, cleared when HDMI connects).
+  Only a refusal of high bit rate itself counts (`PassthroughSink::
+  CheckHbrRefusal()`: `-EINVAL` at prepare, or the device not offering 8
+  channels at 192 kHz at all, `alsa::TestConfiguration()`); anything else,
+  e.g. period / buffer sizes, which the sink retries with the driver's own,
+  only fails that stream. `HdmiControl::Hbr()` says what decided (driver
+  quirk, card setting, refusal). Other drivers may accept it and
   send garbage (Amlogic I2S to dw-hdmi), so it is off unless the card's
   property forces it. Only the 48 kHz family gets HBR: channel status has no
   code for 705.6 kHz.

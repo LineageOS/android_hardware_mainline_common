@@ -6,10 +6,10 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -31,22 +31,44 @@ enum class HbrSupport {
 
 const char* ToString(HbrSupport hbr);
 
+// The effective high bit rate support of a head and what decided it.
+struct HbrState {
+    enum class Source {
+        kDriver,   // The quirk of the card's driver.
+        kSetting,  // The card's "hbr" setting forces it on or off.
+        kFailure,  // An attempt on this head was refused, see `detail`.
+    };
+    HbrSupport support = HbrSupport::kUndetectable;
+    Source source = Source::kDriver;
+    // The quirk's name, or what was refused and how.
+    std::string detail;
+
+    std::string ToString() const;
+};
+
+const char* ToString(HbrState::Source source);
+
 // Restores the channel status that was set before, when destroyed.
 class ChannelStatusGuard {
   public:
     virtual ~ChannelStatusGuard() = default;
 };
 
-// Heads on which a high bit rate stream failed to open. Survives the streams
-// and the HdmiControl instances, which are short lived. Thread safe.
-class HbrFailures {
+// What the HAL learned about its HDMI heads at run time: which refused high
+// bit rate, and why. Survives the streams and the HdmiControl instances,
+// which are short lived; forgotten when HDMI connects again (a new sink, or
+// the same one after a replug). Thread safe.
+class HeadStates {
   public:
-    void Add(const std::string& head);
-    bool Contains(const std::string& head) const;
+    void SetHbrFailure(const std::string& head, std::string reason);
+    // The reason, nullopt when the head did not refuse high bit rate.
+    std::optional<std::string> HbrFailure(const std::string& head) const;
+    // Returns whether there was something to forget.
+    bool ClearHbrFailures();
 
   private:
     mutable std::mutex lock_;
-    std::set<std::string> heads_ GUARDED_BY(lock_);
+    std::map<std::string, std::string> hbr_failures_ GUARDED_BY(lock_);
 };
 
 // Vendor boundary of HDMI passthrough: everything that depends on where a
@@ -69,9 +91,9 @@ class HdmiControl {
     virtual void ClearNonAudio() = 0;
     // Effective high bit rate support: quirk, property override and runtime
     // failures combined. Only kSupported means usable.
-    virtual HbrSupport Hbr() const = 0;
-    // A high bit rate stream failed to open on this head: remember it.
-    virtual void ReportHbrFailure() = 0;
+    virtual HbrState Hbr() const = 0;
+    // The head refused high bit rate (`reason`: what and how): remember it.
+    virtual void ReportHbrFailure(const std::string& reason) = 0;
     // For logs and dumpsys.
     virtual std::string Describe() const = 0;
 };
@@ -81,7 +103,7 @@ class HdmiControl {
 // logged). `hbr_override` is the card's "hbr" property, if set.
 std::unique_ptr<HdmiControl> CreateHdmiControl(const alsa::CardInfo& card,
                                                const routing::Endpoint& head,
-                                               std::shared_ptr<HbrFailures> hbr_failures,
+                                               std::shared_ptr<HeadStates> head_states,
                                                std::optional<bool> hbr_override);
 
 }  // namespace aidl::android::hardware::audio::core::mainline::passthrough
