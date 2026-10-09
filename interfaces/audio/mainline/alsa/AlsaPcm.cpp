@@ -201,6 +201,28 @@ std::string PcmIdentity::ToString() const {
     return os.str();
 }
 
+// --- PcmOpenError ------------------------------------------------------------
+
+const char* ToString(PcmOpenError::Step step) {
+    switch (step) {
+        case PcmOpenError::Step::kNone:
+            return "none";
+        case PcmOpenError::Step::kOpen:
+            return "open";
+        case PcmOpenError::Step::kHwParams:
+            return "hw_params";
+        case PcmOpenError::Step::kSwParams:
+            return "sw_params";
+        case PcmOpenError::Step::kPrepare:
+            return "prepare";
+    }
+    return "?";
+}
+
+std::string PcmOpenError::ToString() const {
+    return std::string(alsa::ToString(step)) + ": " + ErrorString(error);
+}
+
 // --- PcmConfig ---------------------------------------------------------------
 
 std::string PcmConfig::ToString() const {
@@ -229,15 +251,15 @@ Pcm::~Pcm() {
 }
 
 std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stream,
-                                  const PcmConfig& config, bool is_plug, int* error) {
-    int ignored = 0;
-    int& result = error != nullptr ? *error : ignored;
+                                  const PcmConfig& config, bool is_plug, PcmOpenError* error) {
+    PcmOpenError ignored;
+    PcmOpenError& result = error != nullptr ? *error : ignored;
     snd_pcm_t* raw = nullptr;
     int err = snd_pcm_open(&raw, name.c_str(), stream, 0 /*blocking*/);
     if (err < 0) {
         LOG(WARNING) << __func__ << ": snd_pcm_open(" << name << ", " << snd_pcm_stream_name(stream)
                      << "): " << ErrorString(err);
-        result = err;
+        result = {.step = PcmOpenError::Step::kOpen, .error = err};
         return nullptr;
     }
     PcmHandle handle(raw);
@@ -246,11 +268,11 @@ std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stre
     bool can_pause = false;
     err = ConfigureHwParams(raw, config, !is_plug /*strict*/, &effective, &can_pause);
     if (err < 0) {
-        result = err;
+        result = {.step = PcmOpenError::Step::kHwParams, .error = err};
         return nullptr;
     }
     if (err = ConfigureSwParams(raw, stream, effective); err < 0) {
-        result = err;
+        result = {.step = PcmOpenError::Step::kSwParams, .error = err};
         return nullptr;
     }
     // Commit the configuration. On a DPCM card the back-end constraints are
@@ -260,7 +282,7 @@ std::unique_ptr<Pcm> Pcm::TryOpen(const std::string& name, snd_pcm_stream_t stre
     // PCM that can never play.
     if (const int err = snd_pcm_prepare(raw); err < 0) {
         LOG(WARNING) << __func__ << ": snd_pcm_prepare(" << name << "): " << ErrorString(err);
-        result = err;
+        result = {.step = PcmOpenError::Step::kPrepare, .error = err};
         return nullptr;
     }
     LOG(INFO) << __func__ << ": opened " << name << " (" << snd_pcm_stream_name(stream)
@@ -291,7 +313,7 @@ std::unique_ptr<Pcm> Pcm::Open(const std::string& name, snd_pcm_stream_t stream,
 }
 
 std::unique_ptr<Pcm> Pcm::OpenStrict(const std::string& name, snd_pcm_stream_t stream,
-                                     const PcmConfig& config, int* error) {
+                                     const PcmConfig& config, PcmOpenError* error) {
     auto pcm = TryOpen(name, stream, config, false /*is_plug*/, error);
     if (pcm == nullptr) {
         LOG(ERROR) << __func__ << ": " << name << " does not accept {" << config.ToString() << "}";
@@ -440,6 +462,32 @@ int32_t Pcm::LatencyMs() const {
 }
 
 // --- Capability probing ------------------------------------------------------
+
+int TestConfiguration(const std::string& name, snd_pcm_stream_t stream, const PcmConfig& config) {
+    snd_pcm_t* raw = nullptr;
+    if (const int err = snd_pcm_open(&raw, name.c_str(), stream, SND_PCM_NONBLOCK); err < 0) {
+        return err;
+    }
+    PcmHandle handle(raw);
+    HwParamsPtr params = AllocHwParams();
+    if (const int err = snd_pcm_hw_params_any(raw, params.get()); err < 0) return err;
+    // Each set_*() refines the space by the driver's rules (HW_REFINE) without
+    // committing anything, so this also catches combinations the device lacks
+    // although it offers each value on its own.
+    if (const int err =
+                snd_pcm_hw_params_set_access(raw, params.get(), SND_PCM_ACCESS_RW_INTERLEAVED);
+        err < 0) {
+        return err;
+    }
+    if (const int err = snd_pcm_hw_params_set_format(raw, params.get(), config.format); err < 0) {
+        return err;
+    }
+    if (const int err = snd_pcm_hw_params_set_channels(raw, params.get(), config.channels);
+        err < 0) {
+        return err;
+    }
+    return snd_pcm_hw_params_set_rate(raw, params.get(), config.rate, 0);
+}
 
 std::optional<HwCapabilities> QueryCapabilities(const std::string& name, snd_pcm_stream_t stream,
                                                 PcmIdentity* identity) {

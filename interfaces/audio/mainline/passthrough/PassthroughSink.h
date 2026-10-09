@@ -69,6 +69,8 @@ class PassthroughSink {
     int64_t PresentedFrames(int64_t* time_ns);
 
   private:
+    void CheckHbrRefusal(const routing::Endpoint& head, const alsa::PcmConfig& config,
+                         const alsa::PcmOpenError& error);
     void WriteBursts(const uint8_t* data, size_t bytes);
     int64_t ToContentFrames(int64_t pcm_frames) const;
 
