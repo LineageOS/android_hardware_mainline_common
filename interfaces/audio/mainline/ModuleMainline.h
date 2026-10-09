@@ -104,8 +104,9 @@ class ModuleMainline final : public Module {
     const std::shared_ptr<routing::PcmArbiter> pcm_arbiter_;
     const std::shared_ptr<std::atomic<bool>> mic_muted_;
     const int32_t fast_output_port_id_;
-    // HDMI heads that failed high bit rate, shared with the streams.
-    const std::shared_ptr<passthrough::HbrFailures> hbr_failures_;
+    // What was learned about the HDMI heads at run time (high bit rate
+    // refusals), shared with the streams through the HdmiControl factory.
+    const std::shared_ptr<passthrough::HeadStates> head_states_;
     const passthrough::HdmiControlFactory hdmi_control_factory_;
     // From hdmi.passthrough_formats; empty: use the ELD.
     const std::vector<passthrough::EncodedFormat> forced_passthrough_formats_;
