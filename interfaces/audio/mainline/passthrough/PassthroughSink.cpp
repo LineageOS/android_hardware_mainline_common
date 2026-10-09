@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <string>
 
 #include <android-base/logging.h>
 
@@ -42,7 +43,7 @@ bool PassthroughSink::Open(const routing::Endpoint& head) {
         LOG(ERROR) << __func__ << ": no passthrough on " << head.ToString();
         return false;
     }
-    const bool hbr = control_->Hbr() == HbrSupport::kSupported;
+    const bool hbr = control_->Hbr().support == HbrSupport::kSupported;
     iec_ = IecStreamFor(config_.format, config_.content_rate, config_.channels, hbr);
     if (!iec_.has_value()) {
         LOG(ERROR) << __func__ << ": " << ToString(config_.format) << " at " << config_.content_rate
@@ -78,12 +79,19 @@ bool PassthroughSink::Open(const routing::Endpoint& head) {
     pcm_config.period_frames = std::max<snd_pcm_uframes_t>(
             iec_->pcm_rate * config_.latency_ms / 2000, kMinPeriodFrames);
     pcm_config.buffer_frames = pcm_config.period_frames * 4;
-    int err = 0;
-    pcm_ = alsa::Pcm::OpenStrict(head.pcm_name, SND_PCM_STREAM_PLAYBACK, pcm_config, &err);
+    alsa::PcmOpenError error;
+    pcm_ = alsa::Pcm::OpenStrict(head.pcm_name, SND_PCM_STREAM_PLAYBACK, pcm_config, &error);
+    if (pcm_ == nullptr && error.step != alsa::PcmOpenError::Step::kOpen) {
+        // The device refused the configuration. Maybe only the period and
+        // buffer sizes: leave those to the driver before giving up.
+        LOG(INFO) << __func__ << ": " << error.ToString()
+                  << ", retrying with the driver's period and buffer sizes";
+        pcm_config.period_frames = 0;
+        pcm_config.buffer_frames = 0;
+        pcm_ = alsa::Pcm::OpenStrict(head.pcm_name, SND_PCM_STREAM_PLAYBACK, pcm_config, &error);
+    }
     if (pcm_ == nullptr) {
-        // HDA refuses a high bit rate stream at prepare time when the pin or
-        // the display side can not do it.
-        if (iec_->hbr && err == -EINVAL) control_->ReportHbrFailure();
+        if (iec_->hbr) CheckHbrRefusal(head, pcm_config, error);
         Close();
         return false;
     }
@@ -92,6 +100,32 @@ bool PassthroughSink::Open(const routing::Endpoint& head) {
     LOG(INFO) << __func__ << ": " << ToString(config_.format) << " at " << config_.content_rate
               << " Hz as " << iec_->ToString() << " on " << control_->Describe();
     return true;
+}
+
+// Only a refusal of high bit rate itself counts, not one caused by anything
+// else, which would turn it off for no reason.
+void PassthroughSink::CheckHbrRefusal(const routing::Endpoint& head, const alsa::PcmConfig& config,
+                                      const alsa::PcmOpenError& error) {
+    // A device that could not even be opened (busy, gone) refused nothing.
+    if (error.step == alsa::PcmOpenError::Step::kOpen) return;
+    const std::string what =
+            std::to_string(config.channels) + " channels at " + std::to_string(config.rate) + " Hz";
+    if (error.step == alsa::PcmOpenError::Step::kPrepare && error.error == -EINVAL) {
+        // HDA checks at prepare time whether the pin can do high bit rate,
+        // and refuses with -EINVAL (hdmi_pin_hbr_setup()).
+        control_->ReportHbrFailure(what + " refused at " + error.ToString());
+        return;
+    }
+    // The device closed again above, so it can be asked whether it offers the
+    // configuration at all. -EINVAL means it does not; anything else (busy,
+    // ...) proves nothing.
+    if (const int err = alsa::TestConfiguration(head.pcm_name, SND_PCM_STREAM_PLAYBACK, config);
+        err == -EINVAL) {
+        control_->ReportHbrFailure(what + " not offered by the device");
+        return;
+    }
+    LOG(WARNING) << __func__ << ": the device offers " << what << " but refused it ("
+                 << error.ToString() << "); not blaming high bit rate";
 }
 
 void PassthroughSink::WriteBursts(const uint8_t* data, size_t bytes) {
