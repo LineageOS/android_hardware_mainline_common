@@ -56,17 +56,17 @@ bool IsHdmiDevicePort(const AudioPort& port) {
 }
 
 // Creates the HdmiControl of a head on one of the inventory's cards. Safe to
-// call from any thread: the inventory does not change and HbrFailures is
+// call from any thread: the inventory does not change and HeadStates is
 // thread safe.
 passthrough::HdmiControlFactory MakeHdmiControlFactory(
         std::shared_ptr<routing::DeviceInventory> inventory,
-        std::shared_ptr<passthrough::HbrFailures> hbr_failures) {
+        std::shared_ptr<passthrough::HeadStates> head_states) {
     std::map<int, std::optional<bool>> hbr_overrides;
     for (const alsa::CardInfo& card : inventory->cards()) {
         hbr_overrides[card.index] =
                 Properties::LoadCardProperties(card.id, card.index, card.name).hbr;
     }
-    return [inventory = std::move(inventory), hbr_failures = std::move(hbr_failures),
+    return [inventory = std::move(inventory), head_states = std::move(head_states),
             hbr_overrides = std::move(hbr_overrides)](
                    const routing::Endpoint& head) -> std::unique_ptr<passthrough::HdmiControl> {
         const auto& cards = inventory->cards();
@@ -75,7 +75,7 @@ passthrough::HdmiControlFactory MakeHdmiControlFactory(
         if (card == cards.end()) return nullptr;
         const auto hbr = hbr_overrides.find(head.card);
         return passthrough::CreateHdmiControl(
-                *card, head, hbr_failures, hbr != hbr_overrides.end() ? hbr->second : std::nullopt);
+                *card, head, head_states, hbr != hbr_overrides.end() ? hbr->second : std::nullopt);
     };
 }
 
@@ -117,8 +117,8 @@ ModuleMainline::ModuleMainline(std::unique_ptr<Configuration>&& config,
       pcm_arbiter_(std::make_shared<routing::PcmArbiter>()),
       mic_muted_(std::make_shared<std::atomic<bool>>(false)),
       fast_output_port_id_(FindFastOutputPort()),
-      hbr_failures_(std::make_shared<passthrough::HbrFailures>()),
-      hdmi_control_factory_(MakeHdmiControlFactory(inventory_, hbr_failures_)),
+      head_states_(std::make_shared<passthrough::HeadStates>()),
+      hdmi_control_factory_(MakeHdmiControlFactory(inventory_, head_states_)),
       forced_passthrough_formats_(ParseFormatList(properties.hdmi_passthrough_formats)),
       passthrough_port_id_(FindMixPort(routing::kPassthroughOutputMixPort)) {
     LOG(INFO) << __func__ << ": module ready";
@@ -351,6 +351,11 @@ ndk::ScopedAStatus ModuleMainline::populateConnectedDevicePort(AudioPort* audio_
     endpoint = inventory_->SelectHdmiEndpoint(*endpoint);
     audio_port->profiles = endpoint->profiles;
     if (is_hdmi_template && passthrough_port_id_ != 0) {
+        // A new sink, or the same one plugged in again: give high bit rate
+        // another chance.
+        if (head_states_->ClearHbrFailures()) {
+            LOG(INFO) << __func__ << ": HDMI connected, forgetting high bit rate refusals";
+        }
         AddPassthroughProfiles(*endpoint, audio_port);
     }
     LOG(INFO) << __func__ << ": port " << audio_port->id << " connected -> "
@@ -378,7 +383,7 @@ void ModuleMainline::AddPassthroughProfiles(const routing::Endpoint& head, Audio
     std::string control_description = "no passthrough controls";
     if (auto control = hdmi_control_factory_(head); control != nullptr) {
         sink = ResolveSinkCapabilities(*control);
-        hbr = control->Hbr() == passthrough::HbrSupport::kSupported;
+        hbr = control->Hbr().support == passthrough::HbrSupport::kSupported;
         control_description = control->Describe();
     }
     // The PCM device is narrowed by the sink's ELD when it is opened, so ask
