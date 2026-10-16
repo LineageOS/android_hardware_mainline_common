@@ -16,6 +16,23 @@
       "message": "This doesn\u0027t cause regression on either tegra or sm8750, but haven\u0027t been able to test when attached to a passthrough supporting avr yet.",
       "revId": "dc33dcbcf6ae1147410f14b1ccba2a6822145e2b",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "5efc9589_7154a558",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 6
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-10-16T18:26:45Z",
+      "side": 1,
+      "message": "Passthrough verified on tegra. The non-hra formats all work fine. The hra formats are causing underruns, hence only verifying through here for now.",
+      "revId": "dc33dcbcf6ae1147410f14b1ccba2a6822145e2b",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
