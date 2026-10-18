@@ -1,4 +1,6 @@
-service vendor.audio-effect-hal-aidl-mainline /apex/com.android.hardware.audio/bin/hw/android.hardware.audio.effect.service-aidl.example
+# The stock name, like the audio HAL's: audioserver.rc restarts, starts and stops
+# only the stock names together with audioserver.
+service vendor.audio-effect-hal-aidl /apex/com.android.hardware.audio/bin/hw/android.hardware.audio.effect.service-aidl.example
     class hal
     user audioserver
     group audio media

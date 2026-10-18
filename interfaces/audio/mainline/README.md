@@ -22,7 +22,7 @@ below.
 | APEX module            | `com.android.hardware.audio.mainline`                       |
 | APEX manifest name     | `com.android.hardware.audio` (multi-install with the example) |
 | Core HAL binary        | `/apex/com.android.hardware.audio/bin/hw/android.hardware.audio.service-aidl.mainline` |
-| Init services          | `vendor.audio-hal-aidl-mainline`, `vendor.audio-effect-hal-aidl-mainline` (only with `internal_effects`) |
+| Init services          | `vendor.audio-hal-aidl` (the stock names: audioserver restarts them with itself), `vendor.audio-effect-hal-aidl` (only with `internal_effects`) |
 | AIDL instances         | `IConfig/default`, `IModule/default`, `IModule/r_submix`, `IModule/bluetooth` (optional), `IFactory/default` (only with `internal_effects`) |
 | Log tags               | `MainlineAudio_*`                                           |
 
