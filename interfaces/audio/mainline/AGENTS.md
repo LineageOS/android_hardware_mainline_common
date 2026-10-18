@@ -13,6 +13,12 @@ the original requirements. This file is about the code.
   members, `kConstant`); overrides of AIDL / example HAL methods keep their
   original `camelCase` names.
 * Log tags start with `MainlineAudio_`.
+* The init services are named `vendor.audio-hal-aidl` and
+  `vendor.audio-effect-hal-aidl`, not `...-mainline` as
+  `docs/NAMING_CONVENTIONS.md` would have it: `audioserver.rc` only restarts,
+  starts and stops the stock names with audioserver, and the HAL must restart
+  with it, because it keeps the state of the dead client (see the comment in
+  the `.rc`). Do not rename them back.
 * Commit subject prefix: `mainline/common: interfaces/audio/mainline: `.
   See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
   message format.

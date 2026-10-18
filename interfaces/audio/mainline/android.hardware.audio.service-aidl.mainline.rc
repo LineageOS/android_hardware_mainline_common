@@ -1,4 +1,9 @@
-service vendor.audio-hal-aidl-mainline /apex/com.android.hardware.audio/bin/hw/android.hardware.audio.service-aidl.mainline
+# The name is the stock one on purpose: audioserver.rc restarts, starts and stops
+# only these names together with audioserver. The HAL keeps what a client left
+# behind (the connected remote submix port, patches), so after an audioserver
+# restart (SurfaceFlinger or zygote crash) the new audioserver failed to load
+# the r_submix module and ran without a policy manager until the HAL restarted.
+service vendor.audio-hal-aidl /apex/com.android.hardware.audio/bin/hw/android.hardware.audio.service-aidl.mainline
     class hal
     user audioserver
     # audio: /dev/snd/*; media: /data/misc/media; the rest matches the example HAL
