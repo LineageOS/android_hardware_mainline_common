@@ -127,6 +127,13 @@ We link `libaudioserviceexampleimpl` statically and derive from:
 * `StreamMainline` knows nothing about vendors: it gets HdmiControl
   instances from the module's factory (`StreamDeps::make_hdmi_control`) and
   has one passthrough branch per `DriverInterface` method.
+* Profiles follow the sink and the PCM device: `PassthroughProfiles()` drops
+  a format at a content rate when its IEC 61937 carrier is not among the
+  rates / channels of the head's PCM device (`PcmLimits`, queried again with
+  `alsa::QueryCapabilities()` when HDMI connects, since HDA narrows the
+  device by the ELD only when it is opened, and the ELD lists content rates:
+  E-AC-3's 192 kHz carrier is refused with `-EINVAL` by a sink that lists PCM
+  up to 48 kHz). A busy device keeps the capabilities probed at start-up.
 * The ELD and "IEC958 Playback Default" controls are found by trying the
   quirk's locators in order: PCM interface control with the head's PCM
   device number (HDA ELD, `hdmi-codec`), mixer control with the head's HDMI
