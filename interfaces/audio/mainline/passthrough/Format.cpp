@@ -247,7 +247,16 @@ AudioFormatDescription ToAidl(EncodedFormat format) {
             .encoding = NamesOf(format).mime};
 }
 
-std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool hbr_allowed) {
+bool PcmLimits::Allows(const IecStream& stream) const {
+    return rates.count(stream.pcm_rate) != 0 && stream.pcm_channels <= max_channels;
+}
+
+std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool hbr_allowed,
+                                              const PcmLimits* pcm) {
+    if (pcm != nullptr && hbr_allowed) {
+        const auto hbr = IecStreamFor(EncodedFormat::kIec61937, kHbrPcmRate, kHbrChannels, true);
+        hbr_allowed = hbr.has_value() && pcm->Allows(*hbr);
+    }
     std::vector<AudioProfile> profiles;
     for (const EncodedFormat format : AllEncodedFormats()) {
         if (format == EncodedFormat::kIec61937 || !Encoder::CanPack(format)) continue;
@@ -256,9 +265,12 @@ std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool
         AudioProfile profile;
         profile.format = ToAidl(format);
         for (const uint32_t rate : ContentRates(format, hbr_allowed)) {
-            if (entry->second.rates.count(rate) != 0) {
-                profile.sampleRates.push_back(static_cast<int32_t>(rate));
+            if (entry->second.rates.count(rate) == 0) continue;
+            if (pcm != nullptr) {
+                const auto stream = IecStreamFor(format, rate, 2, hbr_allowed);
+                if (!stream.has_value() || !pcm->Allows(*stream)) continue;
             }
+            profile.sampleRates.push_back(static_cast<int32_t>(rate));
         }
         profile.channelMasks = LayoutsUpTo(std::min(entry->second.max_channels, 8u));
         if (profile.sampleRates.empty() || profile.channelMasks.empty()) continue;
@@ -273,8 +285,15 @@ std::vector<AudioProfile> PassthroughProfiles(const SinkCapabilities& sink, bool
         iec61937.channelMasks.push_back(AudioChannelLayout::make<AudioChannelLayout::layoutMask>(
                 AudioChannelLayout::LAYOUT_7POINT1));
     }
-    for (const uint32_t rate : kIecRates)
-        iec61937.sampleRates.push_back(static_cast<int32_t>(rate));
+    for (const uint32_t rate : kIecRates) {
+        if (pcm == nullptr || pcm->rates.count(rate) != 0) {
+            iec61937.sampleRates.push_back(static_cast<int32_t>(rate));
+        }
+    }
+    if (iec61937.sampleRates.empty()) {
+        for (const uint32_t rate : kIecRates)
+            iec61937.sampleRates.push_back(static_cast<int32_t>(rate));
+    }
     profiles.push_back(std::move(iec61937));
     return profiles;
 }

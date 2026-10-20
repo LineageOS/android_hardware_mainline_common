@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -73,13 +74,27 @@ std::optional<EncodedFormat> FromAidl(
         const ::aidl::android::media::audio::common::AudioFormatDescription& format);
 ::aidl::android::media::audio::common::AudioFormatDescription ToAidl(EncodedFormat format);
 
+// What the PCM device behind an HDMI head accepts. HDA narrows it by the
+// sink's ELD, which lists content rates: E-AC-3 needs a carrier at four times
+// its rate (192 kHz), which a sink that announces PCM up to 48 kHz only does
+// not offer, and the device then refuses the stream when it is opened.
+struct PcmLimits {
+    std::set<uint32_t> rates;
+    unsigned int max_channels = 0;
+
+    bool Allows(const IecStream& stream) const;
+};
+
 // Profiles of the HDMI device port and the passthrough mix port for `sink`:
 // one per format it decodes and this build can pack (Encoder::CanPack()), with the content rates
 // the sink announces that the format can be sent at and positional channel masks up to the sink's
 // channel count, plus IEC 61937 (stereo, and 7.1 when `hbr_allowed`), which
-// is always offered.
+// is always offered. With `pcm`, a format is only offered at the content
+// rates whose IEC 61937 stream the device can carry, and high bit rate (8
+// channels at 192 kHz) only when it can; IEC 61937 keeps all its rates when
+// none fits, so the port never has no profile.
 std::vector<::aidl::android::media::audio::common::AudioProfile> PassthroughProfiles(
-        const SinkCapabilities& sink, bool hbr_allowed);
+        const SinkCapabilities& sink, bool hbr_allowed, const PcmLimits* pcm = nullptr);
 
 // The encoded formats among `profiles`, for AudioPortDeviceExt.encodedFormats
 // (IEC 61937 is not one).
