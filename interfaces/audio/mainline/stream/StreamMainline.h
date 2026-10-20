@@ -114,6 +114,8 @@ class StreamMainline : public StreamCommonImpl {
     ::android::status_t TransferOutput(void* buffer, size_t frame_count, int32_t* latency_ms);
     ::android::status_t TransferInput(void* buffer, size_t frame_count, int32_t* latency_ms);
     alsa::PcmConfig MakePcmConfig() const;
+    // Input streams only: keeps the reported position from going back.
+    void ClampInputPosition(StreamDescriptor::Position* position);
     const char* Tag() const { return is_input_ ? "[in] " : "[out] "; }
 
     const StreamDeps deps_;
@@ -151,6 +153,9 @@ class StreamMainline : public StreamCommonImpl {
     bool pcms_opened_ = false;
     NullDevice null_device_;
     bool null_running_ = false;
+    // Highest frame position reported for an input stream, which never goes
+    // back (refinePosition()).
+    int64_t last_input_frames_ = 0;
 };
 
 class StreamInMainline final : public StreamIn, public StreamMainline {

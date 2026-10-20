@@ -581,9 +581,15 @@ void StreamMainline::ApplyPendingEndpoints() {
         position->frames = passthrough_->PresentedFrames(&position->timeNs);
         return ::android::OK;
     }
-    if (OnNullPath() || pcms_.empty()) return ::android::OK;
+    if (OnNullPath() || pcms_.empty()) {
+        ClampInputPosition(position);
+        return ::android::OK;
+    }
     const auto pcm_position = pcms_.front().pcm->QueryPosition();
-    if (!pcm_position.has_value()) return ::android::OK;
+    if (!pcm_position.has_value()) {
+        ClampInputPosition(position);
+        return ::android::OK;
+    }
     if (is_input_) {
         // Frames captured by the hardware = frames handed to the client plus
         // what is still waiting in the ring buffer.
@@ -592,8 +598,17 @@ void StreamMainline::ApplyPendingEndpoints() {
         // Frames presented = frames written minus what is still queued.
         position->frames = std::max<int64_t>(0, position->frames - pcm_position->delay_frames);
     }
+    ClampInputPosition(position);
     position->timeNs = pcm_position->time_ns;
     return ::android::OK;
+}
+
+void StreamMainline::ClampInputPosition(StreamDescriptor::Position* position) {
+    if (!is_input_) return;
+    // Standby, pause and flush drop what was queued, which was counted: the
+    // position must not go back (VTS checks, clients compute with it).
+    position->frames = std::max(position->frames, last_input_frames_);
+    last_input_frames_ = position->frames;
 }
 
 void StreamMainline::shutdown() {
