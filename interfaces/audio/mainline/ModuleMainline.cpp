@@ -16,6 +16,7 @@
 #include <core-impl/utils.h>
 
 #include "alsa/AlsaMixer.h"
+#include "alsa/AlsaPcm.h"
 #include "passthrough/Eld.h"
 #include "passthrough/Format.h"
 #include "routing/ConfigurationBuilder.h"
@@ -373,12 +374,29 @@ void ModuleMainline::AddPassthroughProfiles(const routing::Endpoint& head, Audio
         hbr = control->Hbr() == passthrough::HbrSupport::kSupported;
         control_description = control->Describe();
     }
-    const std::vector<AudioProfile> profiles = passthrough::PassthroughProfiles(sink, hbr);
+    // The PCM device is narrowed by the sink's ELD when it is opened, so ask
+    // it now: what was probed at start-up may be from another sink, or none.
+    // A busy device keeps the earlier answer.
+    passthrough::PcmLimits limits;
+    const passthrough::PcmLimits* pcm = nullptr;
+    if (!head.IsNull()) {
+        const auto fresh = alsa::QueryCapabilities(head.pcm_name, SND_PCM_STREAM_PLAYBACK);
+        const alsa::HwCapabilities& caps = fresh.has_value() ? *fresh : head.caps;
+        if (!caps.IsEmpty()) {
+            limits = {.rates = {caps.rates.begin(), caps.rates.end()},
+                      .max_channels = caps.max_channels};
+            pcm = &limits;
+        }
+    }
+    const std::vector<AudioProfile> profiles = passthrough::PassthroughProfiles(sink, hbr, pcm);
     audio_port->profiles.insert(audio_port->profiles.end(), profiles.begin(), profiles.end());
     audio_port->ext.get<AudioPortExt::Tag::device>().encodedFormats =
             passthrough::EncodedFormatsOf(profiles);
-    LOG(INFO) << __func__ << ": " << control_description << ", sink " << sink.ToString() << ", "
-              << profiles.size() << " passthrough profile(s)";
+    LOG(INFO) << __func__ << ": " << control_description << ", sink " << sink.ToString() << ", pcm "
+              << (pcm != nullptr ? std::to_string(pcm->max_channels) + " channels, " +
+                                           std::to_string(pcm->rates.size()) + " rates"
+                                 : std::string("unknown"))
+              << ", " << profiles.size() << " passthrough profile(s)";
 }
 
 void ModuleMainline::UpdatePassthroughMixPort(const AudioPort& hdmi_port, bool connected) {

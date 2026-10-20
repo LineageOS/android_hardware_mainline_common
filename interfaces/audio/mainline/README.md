@@ -304,8 +304,17 @@ the connected device port and its `encodedFormats` (what the surround sound
 settings show), and fills the `hdmi passthrough` mix port with the same
 profiles plus IEC 61937 (never PCM). Rates are the ones the sink announces
 that the format can be carried at over HDMI: 32 / 44.1 / 48 kHz for AC-3 and
-DTS, 44.1 / 48 kHz for E-AC-3. The 7.1 IEC 61937 profile is only offered
-when the output can do high bit rate.
+DTS, 44.1 / 48 kHz for E-AC-3, 48 kHz for DTS-HD, 48 / 96 / 192 kHz for
+TrueHD. A format is only offered at rates whose IEC 61937 carrier the
+output's PCM device accepts, as the kernel narrows it by the sink's ELD
+(HDA: the rates the ELD lists): E-AC-3 needs a 192 kHz carrier, which a sink
+that announces PCM up to 48 kHz only does not offer, and the HAL then does not
+list E-AC-3 for it instead of failing when a stream is opened. TrueHD and
+DTS-HD Master Audio need high bit rate; without it they
+are not offered, and DTS-HD goes at four times the content rate on two
+channels, where FFmpeg sends only the core of frames that do not fit (Master
+Audio ones, typically). The 7.1 IEC 61937 profile is only offered when the
+output can do high bit rate.
 
 A passthrough stream packs the data into IEC 61937 bursts (`spdif/`, a fork
 of AOSP's libaudiospdif), sets the IEC 958 channel status of the HDMI output
