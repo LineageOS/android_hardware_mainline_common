@@ -16,7 +16,7 @@ as the mainline audio HAL next door.
 | Item              | Value                                                        |
 |-------------------|--------------------------------------------------------------|
 | Binary            | `/vendor/bin/hw/android.hardware.audio.effect.service-aidl.legacy` |
-| Init service      | `vendor.audio-effect-hal-aidl-legacy`                        |
+| Init service      | `vendor.audio-effect-hal-aidl` (the stock name)              |
 | AIDL instance     | `android.hardware.audio.effect.IFactory/default`             |
 | Configuration     | `/odm/etc`, `/vendor/etc` or `/system/etc` `audio_effects.xml` (or `audio_effects_config.xml`) |
 | Log tags          | `LegacyEffect_*`                                             |
