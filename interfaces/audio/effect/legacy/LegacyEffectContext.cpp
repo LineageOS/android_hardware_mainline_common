@@ -36,6 +36,9 @@ float FromFixedGain(uint32_t gain) {
     return static_cast<float>(gain) / kUnityGain;
 }
 
+// The largest burst handed to the effect in one process() call.
+constexpr size_t kMaxProcessFrames = 16384;
+
 // A legacy configuration carries one frame count per buffer, but some effects
 // insist that both are equal. The count is only an upper bound of what
 // process() gets, so use the larger one for both.
@@ -220,32 +223,11 @@ RetCode LegacyEffectContext::reset() {
 
 // --- processing --------------------------------------------------------------
 
-IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples) {
-    const size_t in_channels = mInputFrameSize / sizeof(float);
-    const size_t out_channels = mOutputFrameSize / sizeof(float);
-    if (in_channels == 0 || out_channels == 0 || samples <= 0) {
-        return {EX_ILLEGAL_STATE, 0, 0};
-    }
-    const size_t frames = static_cast<size_t>(samples) / in_channels;
+int32_t LegacyEffectContext::ProcessChunk(float* in, float* out, const float* src, size_t frames,
+                                          size_t in_channels, size_t out_channels) {
     const size_t in_samples = frames * in_channels;
     const size_t out_samples = frames * out_channels;
-    if (out_samples > out_scratch_.size()) {
-        return {EX_ILLEGAL_STATE, 0, 0};
-    }
-
-    // The effect takes a mono send: hand it the mean of the channels.
-    const float* src = in;
-    size_t src_samples = in_samples;
-    if (downmix_input_) {
-        for (size_t i = 0; i < frames; ++i) {
-            float sum = 0.0f;
-            for (size_t c = 0; c < in_channels; ++c) sum += in[i * in_channels + c];
-            mono_scratch_[i] = sum / static_cast<float>(in_channels);
-        }
-        src = mono_scratch_.data();
-        src_samples = frames;
-    }
-
+    const size_t src_samples = frames * (downmix_input_ ? 1 : in_channels);
     audio_buffer_t in_buffer = {};
     audio_buffer_t out_buffer = {};
     in_buffer.frameCount = frames;
@@ -290,10 +272,47 @@ IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples)
         }
         status = 0;
     }
-    if (status != 0) {
-        LOG(ERROR) << __func__ << ": " << handle_->descriptor().name
-                   << " process failed: " << status;
+    return status;
+}
+
+IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples) {
+    const size_t in_channels = mInputFrameSize / sizeof(float);
+    const size_t out_channels = mOutputFrameSize / sizeof(float);
+    if (in_channels == 0 || out_channels == 0 || samples <= 0) {
         return {EX_ILLEGAL_STATE, 0, 0};
+    }
+    const size_t frames = static_cast<size_t>(samples) / in_channels;
+    const size_t in_samples = frames * in_channels;
+    const size_t out_samples = frames * out_channels;
+    if (out_samples > out_scratch_.size()) {
+        return {EX_ILLEGAL_STATE, 0, 0};
+    }
+
+    // The effect takes a mono send: hand it the mean of the channels.
+    const float* src = in;
+    if (downmix_input_) {
+        for (size_t i = 0; i < frames; ++i) {
+            float sum = 0.0f;
+            for (size_t c = 0; c < in_channels; ++c) sum += in[i * in_channels + c];
+            mono_scratch_[i] = sum / static_cast<float>(in_channels);
+        }
+        src = mono_scratch_.data();
+    }
+
+    // Some effects (the bundle) misbehave with a burst of 32768 frames or more
+    // and output silence. Hand them bounded chunks.
+    const size_t src_channels = downmix_input_ ? 1 : in_channels;
+    for (size_t done = 0; done < frames;) {
+        const size_t chunk = std::min(kMaxProcessFrames, frames - done);
+        if (const int32_t status =
+                    ProcessChunk(in + done * in_channels, out + done * out_channels,
+                                 src + done * src_channels, chunk, in_channels, out_channels);
+            status != 0) {
+            LOG(ERROR) << __func__ << ": " << handle_->descriptor().name
+                       << " process failed: " << status;
+            return {EX_ILLEGAL_STATE, 0, 0};
+        }
+        done += chunk;
     }
     return {STATUS_OK, static_cast<int32_t>(in_samples), static_cast<int32_t>(out_samples)};
 }
