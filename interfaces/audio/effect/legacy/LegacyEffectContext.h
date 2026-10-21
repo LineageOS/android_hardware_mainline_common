@@ -51,15 +51,18 @@ class LegacyEffectContext final : public EffectContext {
     // Applies `common` through EFFECT_CMD_SET_CONFIG, first as float, then
     // as 16-bit PCM when the effect refuses float.
     RetCode ApplyConfig(const Parameter::Common& common);
-    int32_t SendConfig(const Parameter::Common& common, audio_format_t format);
+    int32_t SendConfig(const Parameter::Common& common, audio_format_t format, bool mono_input);
 
     const std::unique_ptr<LegacyEffectHandle> handle_;
     const bool is_input_;
     const bool volume_control_;  // EFFECT_FLAG_VOLUME_CTRL: effect applies volume itself.
+    const bool auxiliary_;       // EFFECT_FLAG_TYPE_AUXILIARY: takes a mono send.
     bool int16_mode_ = false;
+    bool downmix_input_ = false;  // The input is mixed down to mono before process().
     std::vector<int16_t> in16_;
     std::vector<int16_t> out16_;
     std::vector<float> out_scratch_;
+    std::vector<float> mono_scratch_;
 };
 
 }  // namespace aidl::android::hardware::audio::effect::legacy
