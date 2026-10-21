@@ -251,7 +251,10 @@ IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples)
     in_buffer.frameCount = frames;
     out_buffer.frameCount = frames;
     int32_t status;
-    if (int16_mode_) {
+    if (handle_->bypass()) {
+        // Treated like an effect with nothing to add, see below.
+        status = -ENODATA;
+    } else if (int16_mode_) {
         memcpy_to_i16_from_float(in16_.data(), src, src_samples);
         in_buffer.s16 = in16_.data();
         out_buffer.s16 = out16_.data();
@@ -274,9 +277,12 @@ IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples)
     }
 
     if (status == -ENODATA) {
-        // The effect has nothing to add (typically: not enabled). Pass the
-        // input through so that the chain keeps flowing.
-        if (in != out) {
+        // The effect has nothing to add (typically: not enabled, or bypassed).
+        // An auxiliary effect outputs only its own contribution, which is none.
+        // Any other passes the input through so that the chain keeps flowing.
+        if (auxiliary_) {
+            std::memset(out, 0, out_samples * sizeof(float));
+        } else if (in != out) {
             std::memcpy(out, in, std::min(in_samples, out_samples) * sizeof(float));
             if (out_samples > in_samples) {
                 std::memset(out + in_samples, 0, (out_samples - in_samples) * sizeof(float));
