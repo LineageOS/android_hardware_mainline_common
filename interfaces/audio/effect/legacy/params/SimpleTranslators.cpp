@@ -53,7 +53,8 @@ class DownmixTranslator final
   protected:
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Downmix& value) override {
         if (value.getTag() != Downmix::type) return Unsupported("downmix parameter");
-        const int16_t type = value.get<Downmix::type>() == Downmix::Type::STRIP ? DOWNMIX_TYPE_STRIP
+        // Set takes a downmix_type_t (an int).
+        const int32_t type = value.get<Downmix::type>() == Downmix::Type::STRIP ? DOWNMIX_TYPE_STRIP
                                                                                 : DOWNMIX_TYPE_FOLD;
         return LegacyStatusToBinder(SetSimple(effect, DOWNMIX_PARAM_TYPE, type),
                                     "DOWNMIX_PARAM_TYPE");
@@ -62,10 +63,15 @@ class DownmixTranslator final
     ndk::ScopedAStatus GetTyped(LegacyEffectHandle& effect, Downmix::Tag tag,
                                 Downmix* value) override {
         if (tag != Downmix::type) return Unsupported("downmix parameter");
-        const auto type = GetSimple<int16_t>(effect, DOWNMIX_PARAM_TYPE);
-        if (!type.has_value()) return LegacyStatusToBinder(-EINVAL, "DOWNMIX_PARAM_TYPE");
-        value->set<Downmix::type>(*type == DOWNMIX_TYPE_STRIP ? Downmix::Type::STRIP
-                                                              : Downmix::Type::FOLD);
+        // The library answers with an int16_t but wants room for an int32_t.
+        LegacyParam param(sizeof(uint32_t), sizeof(int32_t));
+        param.SetParam<uint32_t>(0, DOWNMIX_PARAM_TYPE);
+        if (GetParam(effect, &param) != 0 || param.vsize() < sizeof(int16_t)) {
+            return LegacyStatusToBinder(-EINVAL, "DOWNMIX_PARAM_TYPE");
+        }
+        value->set<Downmix::type>(param.GetValue<int16_t>(0) == DOWNMIX_TYPE_STRIP
+                                          ? Downmix::Type::STRIP
+                                          : Downmix::Type::FOLD);
         return ndk::ScopedAStatus::ok();
     }
 };
