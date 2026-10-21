@@ -31,6 +31,10 @@ namespace {
 constexpr int32_t kMinStrength = 0;
 constexpr int32_t kMaxStrength = 1000;
 
+bool StrengthInRange(int32_t strength) {
+    return strength >= kMinStrength && strength <= kMaxStrength;
+}
+
 // Reads the "*_PARAM_STRENGTH_SUPPORTED" boolean of either effect type.
 bool StrengthSupported(LegacyEffectHandle& effect, uint32_t supported_id) {
     const auto supported = GetSimple<uint32_t>(effect, supported_id);
@@ -53,6 +57,9 @@ class BassBoostTranslator final : public TypedTranslator<BassBoost, Parameter::S
   protected:
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const BassBoost& value) override {
         if (value.getTag() != BassBoost::strengthPm) return Unsupported("bass boost parameter");
+        if (!StrengthInRange(value.get<BassBoost::strengthPm>())) {
+            return IllegalArgument("bass boost strength out of range");
+        }
         const auto strength = static_cast<int16_t>(value.get<BassBoost::strengthPm>());
         return LegacyStatusToBinder(SetSimple(effect, BASSBOOST_PARAM_STRENGTH, strength),
                                     "BASSBOOST_PARAM_STRENGTH");
@@ -84,6 +91,9 @@ class VirtualizerTranslator final
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Virtualizer& value) override {
         switch (value.getTag()) {
             case Virtualizer::strengthPm: {
+                if (!StrengthInRange(value.get<Virtualizer::strengthPm>())) {
+                    return IllegalArgument("virtualizer strength out of range");
+                }
                 const auto strength = static_cast<int16_t>(value.get<Virtualizer::strengthPm>());
                 return LegacyStatusToBinder(SetSimple(effect, VIRTUALIZER_PARAM_STRENGTH, strength),
                                             "VIRTUALIZER_PARAM_STRENGTH");
