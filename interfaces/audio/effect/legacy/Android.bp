@@ -26,6 +26,7 @@ cc_binary {
         "LegacyEffectContext.cpp",
         "LegacyFactory.cpp",
         "LegacyLibrary.cpp",
+        "params/DynamicsProcessingTranslator.cpp",
         "params/EqualizerTranslator.cpp",
         "params/HapticGeneratorTranslator.cpp",
         "params/LegacyParam.cpp",

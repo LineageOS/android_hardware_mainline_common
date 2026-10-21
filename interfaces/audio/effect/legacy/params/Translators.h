@@ -23,6 +23,7 @@ std::unique_ptr<ParameterTranslator> CreateLoudnessEnhancerTranslator();
 std::unique_ptr<ParameterTranslator> CreateDownmixTranslator();
 std::unique_ptr<ParameterTranslator> CreateVolumeTranslator();
 std::unique_ptr<ParameterTranslator> CreateHapticGeneratorTranslator();
+std::unique_ptr<ParameterTranslator> CreateDynamicsProcessingTranslator();
 std::unique_ptr<ParameterTranslator> CreateAecTranslator();
 std::unique_ptr<ParameterTranslator> CreateNoiseSuppressionTranslator();
 std::unique_ptr<ParameterTranslator> CreateAgc1Translator();
