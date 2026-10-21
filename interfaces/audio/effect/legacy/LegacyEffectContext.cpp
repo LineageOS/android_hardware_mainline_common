@@ -51,7 +51,9 @@ LegacyEffectContext::LegacyEffectContext(size_t status_depth, const Parameter::C
       handle_(std::move(handle)),
       is_input_(is_input),
       volume_control_((handle_->descriptor().flags & EFFECT_FLAG_VOLUME_MASK) ==
-                      EFFECT_FLAG_VOLUME_CTRL) {}
+                      EFFECT_FLAG_VOLUME_CTRL),
+      auxiliary_((handle_->descriptor().flags & EFFECT_FLAG_TYPE_MASK) ==
+                 EFFECT_FLAG_TYPE_AUXILIARY) {}
 
 bool LegacyEffectContext::Initialize() {
     if (const int32_t status = handle_->CommandWithStatusReply(EFFECT_CMD_INIT, 0, nullptr);
@@ -65,10 +67,11 @@ bool LegacyEffectContext::Initialize() {
 
 // --- configuration -----------------------------------------------------------
 
-int32_t LegacyEffectContext::SendConfig(const Parameter::Common& common, audio_format_t format) {
+int32_t LegacyEffectContext::SendConfig(const Parameter::Common& common, audio_format_t format,
+                                        bool mono_input) {
     const size_t frame_count = FrameCount(common);
     auto fill = [&](const ::aidl::android::media::audio::common::AudioConfig& aidl,
-                    buffer_config_t* legacy, uint8_t access_mode) -> bool {
+                    buffer_config_t* legacy, uint8_t access_mode, bool mono) -> bool {
         const auto mask = ::aidl::android::aidl2legacy_AudioChannelLayout_audio_channel_mask_t(
                 aidl.base.channelMask, is_input_);
         if (!mask.ok()) {
@@ -79,25 +82,29 @@ int32_t LegacyEffectContext::SendConfig(const Parameter::Common& common, audio_f
         *legacy = {};
         legacy->buffer.frameCount = frame_count;
         legacy->samplingRate = static_cast<uint32_t>(aidl.base.sampleRate);
-        legacy->channels = static_cast<uint32_t>(mask.value());
+        legacy->channels = mono ? static_cast<uint32_t>(AUDIO_CHANNEL_OUT_MONO)
+                                : static_cast<uint32_t>(mask.value());
         legacy->format = static_cast<uint8_t>(format);
         legacy->accessMode = access_mode;
         legacy->mask = EFFECT_CONFIG_ALL;
         return true;
     };
     effect_config_t config;
-    if (!fill(common.input, &config.inputCfg, EFFECT_BUFFER_ACCESS_READ) ||
-        !fill(common.output, &config.outputCfg, EFFECT_BUFFER_ACCESS_WRITE)) {
+    if (!fill(common.input, &config.inputCfg, EFFECT_BUFFER_ACCESS_READ, mono_input) ||
+        !fill(common.output, &config.outputCfg, EFFECT_BUFFER_ACCESS_WRITE, false)) {
         return -EINVAL;
     }
     return handle_->CommandWithStatusReply(EFFECT_CMD_SET_CONFIG, sizeof(config), &config);
 }
 
 RetCode LegacyEffectContext::ApplyConfig(const Parameter::Common& common) {
+    // An auxiliary effect takes a mono send, which AudioFlinger used to mix
+    // down before configuring it; some (the reverbs) refuse anything else.
+    const bool mono_input = auxiliary_ && getChannelCount(common.input.base.channelMask) > 1;
     // The AIDL side always speaks 32-bit float; most legacy effects do too.
-    if (SendConfig(common, AUDIO_FORMAT_PCM_FLOAT) == 0) {
+    if (SendConfig(common, AUDIO_FORMAT_PCM_FLOAT, mono_input) == 0) {
         int16_mode_ = false;
-    } else if (SendConfig(common, AUDIO_FORMAT_PCM_16_BIT) == 0) {
+    } else if (SendConfig(common, AUDIO_FORMAT_PCM_16_BIT, mono_input) == 0) {
         LOG(INFO) << __func__ << ": " << handle_->descriptor().name
                   << " does not accept float, converting to 16-bit PCM";
         int16_mode_ = true;
@@ -106,10 +113,12 @@ RetCode LegacyEffectContext::ApplyConfig(const Parameter::Common& common) {
                    << " rejected the configuration " << common.toString();
         return RetCode::ERROR_ILLEGAL_PARAMETER;
     }
+    downmix_input_ = mono_input;
     const size_t frame_count = FrameCount(common);
     const size_t in_samples = frame_count * getChannelCount(common.input.base.channelMask);
     const size_t out_samples = frame_count * getChannelCount(common.output.base.channelMask);
     in16_.resize(in_samples);
+    mono_scratch_.resize(mono_input ? frame_count : 0);
     out16_.resize(out_samples);
     out_scratch_.resize(out_samples);
     LOG(DEBUG) << __func__ << ": " << handle_->descriptor().name << " configured, "
@@ -224,26 +233,39 @@ IEffect::Status LegacyEffectContext::Process(float* in, float* out, int samples)
         return {EX_ILLEGAL_STATE, 0, 0};
     }
 
+    // The effect takes a mono send: hand it the mean of the channels.
+    const float* src = in;
+    size_t src_samples = in_samples;
+    if (downmix_input_) {
+        for (size_t i = 0; i < frames; ++i) {
+            float sum = 0.0f;
+            for (size_t c = 0; c < in_channels; ++c) sum += in[i * in_channels + c];
+            mono_scratch_[i] = sum / static_cast<float>(in_channels);
+        }
+        src = mono_scratch_.data();
+        src_samples = frames;
+    }
+
     audio_buffer_t in_buffer = {};
     audio_buffer_t out_buffer = {};
     in_buffer.frameCount = frames;
     out_buffer.frameCount = frames;
     int32_t status;
     if (int16_mode_) {
-        memcpy_to_i16_from_float(in16_.data(), in, in_samples);
+        memcpy_to_i16_from_float(in16_.data(), src, src_samples);
         in_buffer.s16 = in16_.data();
         out_buffer.s16 = out16_.data();
         status = handle_->Process(&in_buffer, &out_buffer);
         if (status == 0) {
             memcpy_to_float_from_i16(out, out16_.data(), out_samples);
         }
-    } else if (in_channels == out_channels) {
+    } else if (in_channels == out_channels && !downmix_input_) {
         // In place, like the legacy framework did for insert effects.
         in_buffer.f32 = in;
         out_buffer.f32 = out;
         status = handle_->Process(&in_buffer, &out_buffer);
     } else {
-        in_buffer.f32 = in;
+        in_buffer.f32 = const_cast<float*>(src);
         out_buffer.f32 = out_scratch_.data();
         status = handle_->Process(&in_buffer, &out_buffer);
         if (status == 0) {
