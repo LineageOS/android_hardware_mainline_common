@@ -131,24 +131,19 @@ std::unique_ptr<ParameterTranslator> CreateTranslator(const AudioUuid& type) {
     if (type == getEffectTypeUuidAutomaticGainControlV1()) return CreateAgc1Translator();
     if (type == getEffectTypeUuidAutomaticGainControlV2()) return CreateAgc2Translator();
     if (type == getEffectTypeUuidVisualizer()) return CreateVisualizerTranslator();
+    if (type == getEffectTypeUuidVolume()) return CreateVolumeTranslator();
+    if (type == getEffectTypeUuidHapticGenerator()) return CreateHapticGeneratorTranslator();
     // Typed effects whose parameter sets are not translated: only the vendor
-    // escape hatch is available. The framework itself uses the vendor path for
-    // the "volume" type.
+    // escape hatch is available.
     if (type == getEffectTypeUuidDynamicsProcessing()) {
         return std::make_unique<
                 VendorOnlyTranslator<DynamicsProcessing, Parameter::Specific::dynamicsProcessing,
                                      Parameter::Id::dynamicsProcessingTag>>();
     }
-    if (type == getEffectTypeUuidHapticGenerator()) {
-        return std::make_unique<
-                VendorOnlyTranslator<HapticGenerator, Parameter::Specific::hapticGenerator,
-                                     Parameter::Id::hapticGeneratorTag>>();
-    }
     if (type == getEffectTypeUuidSpatializer()) {
         return std::make_unique<VendorOnlyTranslator<Spatializer, Parameter::Specific::spatializer,
                                                      Parameter::Id::spatializerTag>>();
     }
-    if (type == getEffectTypeUuidVolume()) return CreateVolumeTranslator();
     return std::make_unique<VendorTranslator>();
 }
 
