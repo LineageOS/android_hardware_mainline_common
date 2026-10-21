@@ -14,6 +14,10 @@ the two.
   overrides of AIDL / example HAL methods keep their `camelCase` names.
 * Failures are `ndk::ScopedAStatus`, `RetCode`, `std::optional`, or legacy
   `int32_t` statuses.
+* The init service is named `vendor.audio-effect-hal-aidl`, not
+  `...-legacy` as `docs/NAMING_CONVENTIONS.md` would have it:
+  `audioserver.rc` and the VTS restart tests only know the stock name. Do not
+  rename it back.
 * Commit subject prefix: `mainline/common: interfaces/audio/effect/legacy: `.
   See root `AGENTS.md` → `docs/COMMIT_CONVENTIONS.md` for the rest of the
   message format.
