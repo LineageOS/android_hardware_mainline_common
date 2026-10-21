@@ -5,10 +5,14 @@
 
 #define LOG_TAG "LegacyEffect_Simple"
 
-// Effect types with a single scalar parameter: LoudnessEnhancer, Downmix.
+// Effect types with a few scalar parameters: LoudnessEnhancer, Downmix, Volume.
+
+#include <vector>
 
 #include <aidl/android/hardware/audio/effect/Downmix.h>
 #include <aidl/android/hardware/audio/effect/LoudnessEnhancer.h>
+#include <aidl/android/hardware/audio/effect/Range.h>
+#include <aidl/android/hardware/audio/effect/Volume.h>
 #include <android-base/logging.h>
 #include <system/audio_effects/effect_downmix.h>
 #include <system/audio_effects/effect_loudnessenhancer.h>
@@ -76,7 +80,72 @@ class DownmixTranslator final
     }
 };
 
+// The Volume effect has no parameter header in system/media: its ids are the
+// OpenSL ES volume interface ones, as in the AOSP bundle (EffectBundle.h).
+constexpr uint32_t kVolumeParamLevel = 0;  // int16_t, millibel
+constexpr uint32_t kVolumeParamMute = 2;   // uint32_t, boolean
+
+constexpr int32_t kMinVolumeDb = -96;
+constexpr int32_t kMaxVolumeDb = 0;
+
+class VolumeTranslator final
+    : public TypedTranslator<Volume, Parameter::Specific::volume, Parameter::Id::volumeTag> {
+  public:
+    void FillCapability(LegacyEffectHandle& /*effect*/, Capability* capability) override {
+        Range::VolumeRange range;
+        range.min.set<Volume::levelDb>(kMinVolumeDb);
+        range.max.set<Volume::levelDb>(kMaxVolumeDb);
+        capability->range.set<Range::volume>(std::vector<Range::VolumeRange>{range});
+    }
+
+  protected:
+    ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Volume& value) override {
+        switch (value.getTag()) {
+            case Volume::levelDb: {
+                const int32_t level_db = value.get<Volume::levelDb>();
+                if (level_db < kMinVolumeDb || level_db > kMaxVolumeDb) {
+                    return IllegalArgument("volume level out of range");
+                }
+                return LegacyStatusToBinder(
+                        SetSimple(effect, kVolumeParamLevel, static_cast<int16_t>(level_db * 100)),
+                        "VOLUME_PARAM_LEVEL");
+            }
+            case Volume::mute:
+                return LegacyStatusToBinder(
+                        SetSimple(effect, kVolumeParamMute,
+                                  static_cast<uint32_t>(value.get<Volume::mute>() ? 1 : 0)),
+                        "VOLUME_PARAM_MUTE");
+            default:
+                return Unsupported("volume parameter");
+        }
+    }
+
+    ndk::ScopedAStatus GetTyped(LegacyEffectHandle& effect, Volume::Tag tag,
+                                Volume* value) override {
+        switch (tag) {
+            case Volume::levelDb: {
+                const auto level = GetSimple<int16_t>(effect, kVolumeParamLevel);
+                if (!level.has_value()) return LegacyStatusToBinder(-EINVAL, "VOLUME_PARAM_LEVEL");
+                value->set<Volume::levelDb>(*level / 100);
+                return ndk::ScopedAStatus::ok();
+            }
+            case Volume::mute: {
+                const auto mute = GetSimple<uint32_t>(effect, kVolumeParamMute);
+                if (!mute.has_value()) return LegacyStatusToBinder(-EINVAL, "VOLUME_PARAM_MUTE");
+                value->set<Volume::mute>(*mute != 0);
+                return ndk::ScopedAStatus::ok();
+            }
+            default:
+                return Unsupported("volume parameter");
+        }
+    }
+};
+
 }  // namespace
+
+std::unique_ptr<ParameterTranslator> CreateVolumeTranslator() {
+    return std::make_unique<VolumeTranslator>();
+}
 
 std::unique_ptr<ParameterTranslator> CreateLoudnessEnhancerTranslator() {
     return std::make_unique<LoudnessEnhancerTranslator>();

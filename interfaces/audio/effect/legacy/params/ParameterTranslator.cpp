@@ -148,10 +148,7 @@ std::unique_ptr<ParameterTranslator> CreateTranslator(const AudioUuid& type) {
         return std::make_unique<VendorOnlyTranslator<Spatializer, Parameter::Specific::spatializer,
                                                      Parameter::Id::spatializerTag>>();
     }
-    if (type == getEffectTypeUuidVolume()) {
-        return std::make_unique<VendorOnlyTranslator<Volume, Parameter::Specific::volume,
-                                                     Parameter::Id::volumeTag>>();
-    }
+    if (type == getEffectTypeUuidVolume()) return CreateVolumeTranslator();
     return std::make_unique<VendorTranslator>();
 }
 
