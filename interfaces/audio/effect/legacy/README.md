@@ -102,7 +102,8 @@ LegacyFactory ◀── dlopen(AELI) ──── LegacyLibrary ── get_descr
   | Visualizer               | full, incl. `VISUALIZER_CMD_CAPTURE` / `MEASURE` |
   | Volume                   | level and mute (+ capability range), vendor bytes |
   | HapticGenerator          | scales and vibrator information (set only in the legacy API; the HAL keeps the values for get), vendor bytes |
-  | DynamicsProcessing, Spatializer, Eraser | vendor bytes only; typed fields report unsupported |
+  | DynamicsProcessing       | engine, stages, bands, limiter and input gain, vendor bytes |
+  | Spatializer, Eraser      | vendor bytes only; typed fields report unsupported |
   | any vendor type          | vendor bytes |
 
 ## Limitations
