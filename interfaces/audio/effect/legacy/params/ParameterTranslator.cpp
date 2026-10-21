@@ -133,13 +133,9 @@ std::unique_ptr<ParameterTranslator> CreateTranslator(const AudioUuid& type) {
     if (type == getEffectTypeUuidVisualizer()) return CreateVisualizerTranslator();
     if (type == getEffectTypeUuidVolume()) return CreateVolumeTranslator();
     if (type == getEffectTypeUuidHapticGenerator()) return CreateHapticGeneratorTranslator();
+    if (type == getEffectTypeUuidDynamicsProcessing()) return CreateDynamicsProcessingTranslator();
     // Typed effects whose parameter sets are not translated: only the vendor
     // escape hatch is available.
-    if (type == getEffectTypeUuidDynamicsProcessing()) {
-        return std::make_unique<
-                VendorOnlyTranslator<DynamicsProcessing, Parameter::Specific::dynamicsProcessing,
-                                     Parameter::Id::dynamicsProcessingTag>>();
-    }
     if (type == getEffectTypeUuidSpatializer()) {
         return std::make_unique<VendorOnlyTranslator<Spatializer, Parameter::Specific::spatializer,
                                                      Parameter::Id::spatializerTag>>();
