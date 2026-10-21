@@ -49,11 +49,14 @@ int32_t SetParam(LegacyEffectHandle& effect, LegacyParam& param) {
 int32_t GetParam(LegacyEffectHandle& effect, LegacyParam* param) {
     if (!param->IsValid()) return -EINVAL;
     param->param()->status = 0;
-    // Legacy effects write the reply into a buffer of the same shape as the
-    // request; the request buffer already has room for the value.
+    // The command carries the header and the parameter area only: some
+    // effects (the loudness enhancer) compare its size with the exact length
+    // they expect. The reply is a buffer of the full shape, with room for the
+    // value.
     LegacyParam reply = *param;
     uint32_t reply_size = reply.size();
-    const int32_t status = effect.Command(EFFECT_CMD_GET_PARAM, param->size(), param->param(),
+    const uint32_t cmd_size = sizeof(effect_param_t) + LegacyParam::Padded(param->psize());
+    const int32_t status = effect.Command(EFFECT_CMD_GET_PARAM, cmd_size, param->param(),
                                           &reply_size, reply.param());
     if (status != 0) {
         LOG(DEBUG) << __func__ << ": " << effect.descriptor().name
