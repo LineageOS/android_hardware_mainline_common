@@ -51,6 +51,10 @@ class LegacyEffectContext final : public EffectContext {
     // Applies `common` through EFFECT_CMD_SET_CONFIG, first as float, then
     // as 16-bit PCM when the effect refuses float.
     RetCode ApplyConfig(const Parameter::Common& common);
+    // process() on `frames` frames of `in` (or `src`, its mono mix), results in
+    // `out`; returns the legacy status.
+    int32_t ProcessChunk(float* in, float* out, const float* src, size_t frames, size_t in_channels,
+                         size_t out_channels);
     int32_t SendConfig(const Parameter::Common& common, audio_format_t format, bool mono_input);
 
     const std::unique_ptr<LegacyEffectHandle> handle_;
