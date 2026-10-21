@@ -100,7 +100,7 @@ LegacyFactory ◀── dlopen(AELI) ──── LegacyLibrary ── get_descr
   | LoudnessEnhancer, Downmix | full |
   | AEC, NS, AGC1, AGC2      | full |
   | Visualizer               | full, incl. `VISUALIZER_CMD_CAPTURE` / `MEASURE` |
-  | Volume                   | vendor bytes (the framework itself uses the vendor path for this type) |
+  | Volume                   | level and mute (+ capability range), vendor bytes |
   | DynamicsProcessing, HapticGenerator, Spatializer, Eraser | vendor bytes only; typed fields report unsupported |
   | any vendor type          | vendor bytes |
 

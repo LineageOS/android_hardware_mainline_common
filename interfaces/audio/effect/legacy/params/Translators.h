@@ -21,6 +21,7 @@ std::unique_ptr<ParameterTranslator> CreatePresetReverbTranslator();
 std::unique_ptr<ParameterTranslator> CreateEnvironmentalReverbTranslator();
 std::unique_ptr<ParameterTranslator> CreateLoudnessEnhancerTranslator();
 std::unique_ptr<ParameterTranslator> CreateDownmixTranslator();
+std::unique_ptr<ParameterTranslator> CreateVolumeTranslator();
 std::unique_ptr<ParameterTranslator> CreateAecTranslator();
 std::unique_ptr<ParameterTranslator> CreateNoiseSuppressionTranslator();
 std::unique_ptr<ParameterTranslator> CreateAgc1Translator();
