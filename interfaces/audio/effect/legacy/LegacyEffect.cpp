@@ -7,6 +7,8 @@
 
 #include "LegacyEffect.h"
 
+#include <algorithm>
+
 #include <android-base/logging.h>
 
 namespace aidl::android::hardware::audio::effect::legacy {
@@ -79,6 +81,45 @@ ndk::ScopedAStatus LegacyEffect::getParameterSpecific(const Parameter::Id& id,
                                                       Parameter::Specific* specific) {
     RETURN_IF(context_ == nullptr, EX_NULL_POINTER, "nullContext");
     return translator_->Get(context_->handle(), id, specific);
+}
+
+void LegacyEffect::process() {
+    uint32_t ef_state = 0;
+    if (!mEventFlag ||
+        ::android::OK != mEventFlag->wait(mDataMqNotEmptyEf, &ef_state, 0 /* no timeout */,
+                                          true /* retry */) ||
+        !(ef_state & mDataMqNotEmptyEf)) {
+        LOG(ERROR) << __func__ << ": " << descriptor_.common.name << " event flag " << mEventFlag
+                   << " state " << std::hex << ef_state;
+        return;
+    }
+
+    std::lock_guard lock(mImplMutex);
+    if (mState != State::PROCESSING && mState != State::DRAINING) return;
+    if (context_ == nullptr) return;
+    auto status_mq = context_->getStatusFmq();
+    auto input_mq = context_->getInputDataFmq();
+    auto output_mq = context_->getOutputDataFmq();
+    if (!input_mq || !output_mq) return;
+
+    // The base class takes the smaller of the two queues in samples, which
+    // leaves part of the input behind when the effect changes the channel
+    // count (the downmix). Count whole frames of each side instead.
+    const size_t in_channels = context_->getInputFrameSize() / sizeof(float);
+    const size_t out_channels = context_->getOutputFrameSize() / sizeof(float);
+    const size_t frames = (in_channels == 0 || out_channels == 0)
+                                  ? 0
+                                  : std::min(input_mq->availableToRead() / in_channels,
+                                             output_mq->availableToWrite() / out_channels);
+    if (frames == 0) {
+        drainingComplete_l();
+        return;
+    }
+    float* buffer = context_->getWorkBuffer();
+    input_mq->read(buffer, frames * in_channels);
+    IEffect::Status status = effectProcessImpl(buffer, buffer, frames * in_channels);
+    output_mq->write(buffer, status.fmqProduced);
+    status_mq->writeBlocking(&status, 1);
 }
 
 IEffect::Status LegacyEffect::effectProcessImpl(float* in, float* out, int samples) {

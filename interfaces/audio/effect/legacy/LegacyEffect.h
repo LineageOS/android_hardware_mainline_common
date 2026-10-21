@@ -37,6 +37,9 @@ class LegacyEffect final : public EffectImpl {
     RetCode releaseContext() REQUIRES(mImplMutex) override;
     IEffect::Status effectProcessImpl(float* in, float* out, int samples)
             REQUIRES(mImplMutex) override;
+    // Like EffectImpl::process(), but moves whole frames when the input and
+    // the output have different channel counts.
+    void process() override;
 
   private:
     bool IsInputEffect() const;
