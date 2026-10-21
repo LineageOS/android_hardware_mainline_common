@@ -67,11 +67,37 @@ class EqualizerTranslator final : public TypedTranslator<Equalizer, Parameter::S
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Equalizer& value) override {
         switch (value.getTag()) {
             case Equalizer::preset: {
-                const auto preset = static_cast<uint16_t>(value.get<Equalizer::preset>());
+                // The legacy value is 16-bit: check before it can wrap.
+                const int32_t requested = value.get<Equalizer::preset>();
+                const auto count = NumPresets(effect);
+                if (!count.has_value()) {
+                    return LegacyStatusToBinder(-EINVAL, "EQ_PARAM_GET_NUM_OF_PRESETS");
+                }
+                if (requested < 0 || requested >= static_cast<int32_t>(*count)) {
+                    return IllegalArgument("equalizer preset out of range");
+                }
+                const auto preset = static_cast<uint16_t>(requested);
                 return LegacyStatusToBinder(SetSimple(effect, EQ_PARAM_CUR_PRESET, preset),
                                             "EQ_PARAM_CUR_PRESET");
             }
             case Equalizer::bandLevels: {
+                const auto bands = NumBands(effect);
+                if (!bands.has_value()) return LegacyStatusToBinder(-EINVAL, "EQ_PARAM_NUM_BANDS");
+                LegacyParam range_param(sizeof(uint32_t), 2 * sizeof(int16_t));
+                range_param.SetParam<uint32_t>(0, EQ_PARAM_LEVEL_RANGE);
+                if (GetParam(effect, &range_param) != 0 ||
+                    range_param.vsize() < 2 * sizeof(int16_t)) {
+                    return LegacyStatusToBinder(-EINVAL, "EQ_PARAM_LEVEL_RANGE");
+                }
+                const int32_t min_level = range_param.GetValue<int16_t>(0);
+                const int32_t max_level = range_param.GetValue<int16_t>(sizeof(int16_t));
+                // Check all before setting any, and before the 16-bit cast.
+                for (const auto& band : value.get<Equalizer::bandLevels>()) {
+                    if (band.index < 0 || band.index >= static_cast<int32_t>(*bands) ||
+                        band.levelMb < min_level || band.levelMb > max_level) {
+                        return IllegalArgument("equalizer band or level out of range");
+                    }
+                }
                 for (const auto& band : value.get<Equalizer::bandLevels>()) {
                     auto status =
                             LegacyStatusToBinder(SetIndexed(effect, EQ_PARAM_BAND_LEVEL, band.index,
