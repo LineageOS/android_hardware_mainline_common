@@ -1,4 +1,4 @@
-service vendor.audio-effect-hal-aidl-legacy /vendor/bin/hw/android.hardware.audio.effect.service-aidl.legacy
+service vendor.audio-effect-hal-aidl /vendor/bin/hw/android.hardware.audio.effect.service-aidl.legacy
     class hal
     user audioserver
     group audio media
