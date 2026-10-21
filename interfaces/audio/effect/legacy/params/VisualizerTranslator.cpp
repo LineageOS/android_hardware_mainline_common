@@ -20,6 +20,9 @@ namespace aidl::android::hardware::audio::effect::legacy {
 
 namespace {
 
+// MAX_LATENCY_MS of the AOSP visualizer, which clamps a larger value.
+constexpr int32_t kMaxLatencyMs = 3000;
+
 class VisualizerTranslator final
     : public TypedTranslator<Visualizer, Parameter::Specific::visualizer,
                              Parameter::Id::visualizerTag> {
@@ -28,27 +31,42 @@ class VisualizerTranslator final
         Range::VisualizerRange range;
         range.min.set<Visualizer::captureSamples>(VISUALIZER_CAPTURE_SIZE_MIN);
         range.max.set<Visualizer::captureSamples>(VISUALIZER_CAPTURE_SIZE_MAX);
-        capability->range.set<Range::visualizer>(std::vector<Range::VisualizerRange>{range});
+        Range::VisualizerRange latency_range;
+        latency_range.min.set<Visualizer::latencyMs>(0);
+        latency_range.max.set<Visualizer::latencyMs>(kMaxLatencyMs);
+        capability->range.set<Range::visualizer>(
+                std::vector<Range::VisualizerRange>{range, latency_range});
     }
 
   protected:
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Visualizer& value) override {
         switch (value.getTag()) {
-            case Visualizer::captureSamples:
-                capture_samples_ = value.get<Visualizer::captureSamples>();
+            case Visualizer::captureSamples: {
+                const int32_t samples = value.get<Visualizer::captureSamples>();
+                if (samples < VISUALIZER_CAPTURE_SIZE_MIN ||
+                    samples > VISUALIZER_CAPTURE_SIZE_MAX) {
+                    return IllegalArgument("visualizer capture size out of range");
+                }
                 return LegacyStatusToBinder(SetSimple(effect, VISUALIZER_PARAM_CAPTURE_SIZE,
-                                                      static_cast<uint32_t>(capture_samples_)),
+                                                      static_cast<uint32_t>(samples)),
                                             "VISUALIZER_PARAM_CAPTURE_SIZE");
+            }
             case Visualizer::scalingMode:
                 return LegacyStatusToBinder(
                         SetSimple(effect, VISUALIZER_PARAM_SCALING_MODE,
                                   static_cast<uint32_t>(value.get<Visualizer::scalingMode>())),
                         "VISUALIZER_PARAM_SCALING_MODE");
-            case Visualizer::latencyMs:
-                return LegacyStatusToBinder(
-                        SetSimple(effect, VISUALIZER_PARAM_LATENCY,
-                                  static_cast<uint32_t>(value.get<Visualizer::latencyMs>())),
+            case Visualizer::latencyMs: {
+                const int32_t latency = value.get<Visualizer::latencyMs>();
+                if (latency < 0 || latency > kMaxLatencyMs) {
+                    return IllegalArgument("visualizer latency out of range");
+                }
+                auto status = LegacyStatusToBinder(
+                        SetSimple(effect, VISUALIZER_PARAM_LATENCY, static_cast<uint32_t>(latency)),
                         "VISUALIZER_PARAM_LATENCY");
+                if (status.isOk()) latency_ms_ = latency;
+                return status;
+            }
             case Visualizer::measurementMode:
                 return LegacyStatusToBinder(
                         SetSimple(effect, VISUALIZER_PARAM_MEASUREMENT_MODE,
@@ -67,8 +85,7 @@ class VisualizerTranslator final
                 if (!samples.has_value()) {
                     return LegacyStatusToBinder(-EINVAL, "VISUALIZER_PARAM_CAPTURE_SIZE");
                 }
-                capture_samples_ = static_cast<int32_t>(*samples);
-                value->set<Visualizer::captureSamples>(capture_samples_);
+                value->set<Visualizer::captureSamples>(static_cast<int32_t>(*samples));
                 return ndk::ScopedAStatus::ok();
             }
             case Visualizer::scalingMode: {
@@ -79,14 +96,10 @@ class VisualizerTranslator final
                 value->set<Visualizer::scalingMode>(static_cast<Visualizer::ScalingMode>(*mode));
                 return ndk::ScopedAStatus::ok();
             }
-            case Visualizer::latencyMs: {
-                const auto latency = GetSimple<uint32_t>(effect, VISUALIZER_PARAM_LATENCY);
-                if (!latency.has_value()) {
-                    return LegacyStatusToBinder(-EINVAL, "VISUALIZER_PARAM_LATENCY");
-                }
-                value->set<Visualizer::latencyMs>(static_cast<int32_t>(*latency));
+            case Visualizer::latencyMs:
+                // The library takes the latency but cannot tell it.
+                value->set<Visualizer::latencyMs>(latency_ms_);
                 return ndk::ScopedAStatus::ok();
-            }
             case Visualizer::measurementMode: {
                 const auto mode = GetSimple<uint32_t>(effect, VISUALIZER_PARAM_MEASUREMENT_MODE);
                 if (!mode.has_value()) {
@@ -99,7 +112,12 @@ class VisualizerTranslator final
             case Visualizer::captureSampleBuffer: {
                 // Proprietary command: the reply is `captureSamples` bytes of
                 // unsigned 8-bit PCM.
-                std::vector<uint8_t> samples(static_cast<size_t>(capture_samples_));
+                const auto capture_samples =
+                        GetSimple<uint32_t>(effect, VISUALIZER_PARAM_CAPTURE_SIZE);
+                if (!capture_samples.has_value()) {
+                    return LegacyStatusToBinder(-EINVAL, "VISUALIZER_PARAM_CAPTURE_SIZE");
+                }
+                std::vector<uint8_t> samples(*capture_samples);
                 uint32_t reply_size = static_cast<uint32_t>(samples.size());
                 const int32_t status = effect.Command(VISUALIZER_CMD_CAPTURE, 0, nullptr,
                                                       &reply_size, samples.data());
@@ -124,7 +142,7 @@ class VisualizerTranslator final
     }
 
   private:
-    int32_t capture_samples_ = VISUALIZER_CAPTURE_SIZE_MAX;
+    int32_t latency_ms_ = 0;
 };
 
 }  // namespace
