@@ -38,6 +38,8 @@ class VisualizerTranslator final
                 std::vector<Range::VisualizerRange>{range, latency_range});
     }
 
+    void OnOpen(LegacyEffectHandle& /*effect*/) override { latency_ms_ = 0; }
+
   protected:
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect, const Visualizer& value) override {
         switch (value.getTag()) {

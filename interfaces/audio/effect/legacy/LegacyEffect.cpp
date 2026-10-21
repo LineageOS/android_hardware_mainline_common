@@ -58,6 +58,7 @@ std::shared_ptr<EffectContext> LegacyEffect::createContext(const Parameter::Comm
         return nullptr;
     }
     context_ = context;
+    translator_->OnOpen(context->handle());
     LOG(INFO) << __func__ << ": " << descriptor_.common.name << " opened, session "
               << common.session << " io " << common.ioHandle
               << (context->int16_mode() ? " (16-bit)" : "");
