@@ -20,7 +20,8 @@ namespace aidl::android::hardware::audio::effect::legacy {
 
 // Translates between the typed AIDL Parameter::Specific of one effect type and
 // the legacy EFFECT_CMD_SET_PARAM / EFFECT_CMD_GET_PARAM payloads. One instance
-// per effect type; stateless apart from what it queries from the legacy effect.
+// per effect instance; apart from what it queries from the legacy effect it keeps
+// only what the legacy API cannot tell back, which OnOpen() resets.
 class ParameterTranslator {
   public:
     virtual ~ParameterTranslator() = default;
@@ -34,6 +35,10 @@ class ParameterTranslator {
     // Fills Descriptor.capability by querying a freshly created instance.
     // The default leaves the capability empty.
     virtual void FillCapability(LegacyEffectHandle& /*effect*/, Capability* /*capability*/) {}
+    // A new legacy instance was created and configured for this effect: forget
+    // what was kept for the previous one and bring the new one to a usable
+    // state. The default does nothing.
+    virtual void OnOpen(LegacyEffectHandle& /*effect*/) {}
 };
 
 // Picks the translator for an effect type UUID: a typed one for the types the
