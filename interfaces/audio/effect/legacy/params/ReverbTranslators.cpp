@@ -9,6 +9,7 @@
 
 #include <aidl/android/hardware/audio/effect/EnvironmentalReverb.h>
 #include <aidl/android/hardware/audio/effect/PresetReverb.h>
+#include <aidl/android/hardware/audio/effect/Range.h>
 #include <android-base/logging.h>
 #include <system/audio_effects/effect_environmentalreverb.h>
 #include <system/audio_effects/effect_presetreverb.h>
@@ -65,26 +66,35 @@ class PresetReverbTranslator final
 // Legacy value type per parameter id.
 enum class ValueType { kInt16, kUint32, kBool };
 
+// min / max are the limits of the AOSP software reverb (libreverbwrapper),
+// which is narrower than the OpenSL ES ranges and clamps beyond them. The
+// legacy API has no query for them, so they are fixed here and reported as the
+// capability range.
 struct EnvReverbField {
     EnvironmentalReverb::Tag tag;
     uint32_t legacy_id;
     ValueType type;
+    int32_t min;
+    int32_t max;
 };
 
 constexpr EnvReverbField kEnvReverbFields[] = {
-        {EnvironmentalReverb::roomLevelMb, REVERB_PARAM_ROOM_LEVEL, ValueType::kInt16},
-        {EnvironmentalReverb::roomHfLevelMb, REVERB_PARAM_ROOM_HF_LEVEL, ValueType::kInt16},
-        {EnvironmentalReverb::decayTimeMs, REVERB_PARAM_DECAY_TIME, ValueType::kUint32},
-        {EnvironmentalReverb::decayHfRatioPm, REVERB_PARAM_DECAY_HF_RATIO, ValueType::kInt16},
-        {EnvironmentalReverb::reflectionsLevelMb, REVERB_PARAM_REFLECTIONS_LEVEL,
-         ValueType::kInt16},
+        {EnvironmentalReverb::roomLevelMb, REVERB_PARAM_ROOM_LEVEL, ValueType::kInt16, -6000, 0},
+        {EnvironmentalReverb::roomHfLevelMb, REVERB_PARAM_ROOM_HF_LEVEL, ValueType::kInt16, -4000,
+         0},
+        {EnvironmentalReverb::decayTimeMs, REVERB_PARAM_DECAY_TIME, ValueType::kUint32, 0, 7000},
+        {EnvironmentalReverb::decayHfRatioPm, REVERB_PARAM_DECAY_HF_RATIO, ValueType::kInt16, 100,
+         2000},
+        {EnvironmentalReverb::reflectionsLevelMb, REVERB_PARAM_REFLECTIONS_LEVEL, ValueType::kInt16,
+         -6000, 0},
         {EnvironmentalReverb::reflectionsDelayMs, REVERB_PARAM_REFLECTIONS_DELAY,
-         ValueType::kUint32},
-        {EnvironmentalReverb::levelMb, REVERB_PARAM_REVERB_LEVEL, ValueType::kInt16},
-        {EnvironmentalReverb::delayMs, REVERB_PARAM_REVERB_DELAY, ValueType::kUint32},
-        {EnvironmentalReverb::diffusionPm, REVERB_PARAM_DIFFUSION, ValueType::kInt16},
-        {EnvironmentalReverb::densityPm, REVERB_PARAM_DENSITY, ValueType::kInt16},
-        {EnvironmentalReverb::bypass, REVERB_PARAM_BYPASS, ValueType::kBool},
+         ValueType::kUint32, 0, 65},
+        {EnvironmentalReverb::levelMb, REVERB_PARAM_REVERB_LEVEL, ValueType::kInt16, -6000, 0},
+        // The library takes the reverb delay and always answers 0.
+        {EnvironmentalReverb::delayMs, REVERB_PARAM_REVERB_DELAY, ValueType::kUint32, 0, 0},
+        {EnvironmentalReverb::diffusionPm, REVERB_PARAM_DIFFUSION, ValueType::kInt16, 0, 1000},
+        {EnvironmentalReverb::densityPm, REVERB_PARAM_DENSITY, ValueType::kInt16, 0, 1000},
+        {EnvironmentalReverb::bypass, REVERB_PARAM_BYPASS, ValueType::kBool, 0, 1},
 };
 
 const EnvReverbField* FindField(EnvironmentalReverb::Tag tag) {
@@ -167,12 +177,29 @@ void SetIntValue(EnvironmentalReverb::Tag tag, int32_t v, EnvironmentalReverb* v
 class EnvironmentalReverbTranslator final
     : public TypedTranslator<EnvironmentalReverb, Parameter::Specific::environmentalReverb,
                              Parameter::Id::environmentalReverbTag> {
+  public:
+    void FillCapability(LegacyEffectHandle& /*effect*/, Capability* capability) override {
+        std::vector<Range::EnvironmentalReverbRange> ranges;
+        for (const auto& field : kEnvReverbFields) {
+            // The boolean needs no range.
+            if (field.type == ValueType::kBool) continue;
+            Range::EnvironmentalReverbRange range;
+            SetIntValue(field.tag, field.min, &range.min);
+            SetIntValue(field.tag, field.max, &range.max);
+            ranges.push_back(range);
+        }
+        capability->range.set<Range::environmentalReverb>(ranges);
+    }
+
   protected:
     ndk::ScopedAStatus SetTyped(LegacyEffectHandle& effect,
                                 const EnvironmentalReverb& value) override {
         const EnvReverbField* field = FindField(value.getTag());
         if (field == nullptr) return Unsupported("environmental reverb parameter");
         const int32_t v = IntValue(value);
+        if (v < field->min || v > field->max) {
+            return IllegalArgument("environmental reverb parameter out of range");
+        }
         int32_t status;
         switch (field->type) {
             case ValueType::kInt16:
