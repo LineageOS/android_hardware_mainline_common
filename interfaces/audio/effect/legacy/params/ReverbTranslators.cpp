@@ -200,6 +200,12 @@ class EnvironmentalReverbTranslator final
         if (v < field->min || v > field->max) {
             return IllegalArgument("environmental reverb parameter out of range");
         }
+        if (field->tag == EnvironmentalReverb::bypass) {
+            // The library takes REVERB_PARAM_BYPASS without acting on it, and
+            // cannot tell it back.
+            effect.set_bypass(v != 0);
+            return ndk::ScopedAStatus::ok();
+        }
         int32_t status;
         switch (field->type) {
             case ValueType::kInt16:
@@ -219,6 +225,10 @@ class EnvironmentalReverbTranslator final
                                 EnvironmentalReverb* value) override {
         const EnvReverbField* field = FindField(tag);
         if (field == nullptr) return Unsupported("environmental reverb parameter");
+        if (tag == EnvironmentalReverb::bypass) {
+            value->set<EnvironmentalReverb::bypass>(effect.bypass());
+            return ndk::ScopedAStatus::ok();
+        }
         std::optional<int32_t> v;
         switch (field->type) {
             case ValueType::kInt16:

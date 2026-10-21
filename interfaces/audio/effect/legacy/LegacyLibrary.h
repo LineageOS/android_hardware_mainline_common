@@ -36,6 +36,12 @@ class LegacyEffectHandle {
     // effect_interface_s::process().
     int32_t Process(audio_buffer_t* in, audio_buffer_t* out);
 
+    // Bypass for the effects that have none (the reverb ignores
+    // REVERB_PARAM_BYPASS): LegacyEffectContext::Process() passes the input
+    // through while it is set. Both run under the effect's mutex.
+    void set_bypass(bool bypass) { bypass_ = bypass; }
+    bool bypass() const { return bypass_; }
+
   private:
     friend class LegacyLibrary;
     LegacyEffectHandle(std::shared_ptr<LegacyLibrary> library, effect_handle_t handle,
@@ -45,6 +51,7 @@ class LegacyEffectHandle {
     const std::shared_ptr<LegacyLibrary> library_;
     effect_handle_t handle_;
     const effect_descriptor_t descriptor_;
+    bool bypass_ = false;
 };
 
 // A dlopen()ed legacy effect library exposing AUDIO_EFFECT_LIBRARY_INFO_SYM
