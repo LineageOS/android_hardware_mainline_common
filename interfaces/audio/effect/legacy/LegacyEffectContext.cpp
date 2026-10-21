@@ -36,6 +36,13 @@ float FromFixedGain(uint32_t gain) {
     return static_cast<float>(gain) / kUnityGain;
 }
 
+// A legacy configuration carries one frame count per buffer, but some effects
+// insist that both are equal. The count is only an upper bound of what
+// process() gets, so use the larger one for both.
+size_t FrameCount(const Parameter::Common& common) {
+    return static_cast<size_t>(std::max(common.input.frameCount, common.output.frameCount));
+}
+
 }  // namespace
 
 LegacyEffectContext::LegacyEffectContext(size_t status_depth, const Parameter::Common& common,
@@ -59,6 +66,7 @@ bool LegacyEffectContext::Initialize() {
 // --- configuration -----------------------------------------------------------
 
 int32_t LegacyEffectContext::SendConfig(const Parameter::Common& common, audio_format_t format) {
+    const size_t frame_count = FrameCount(common);
     auto fill = [&](const ::aidl::android::media::audio::common::AudioConfig& aidl,
                     buffer_config_t* legacy, uint8_t access_mode) -> bool {
         const auto mask = ::aidl::android::aidl2legacy_AudioChannelLayout_audio_channel_mask_t(
@@ -69,7 +77,7 @@ int32_t LegacyEffectContext::SendConfig(const Parameter::Common& common, audio_f
             return false;
         }
         *legacy = {};
-        legacy->buffer.frameCount = static_cast<size_t>(aidl.frameCount);
+        legacy->buffer.frameCount = frame_count;
         legacy->samplingRate = static_cast<uint32_t>(aidl.base.sampleRate);
         legacy->channels = static_cast<uint32_t>(mask.value());
         legacy->format = static_cast<uint8_t>(format);
@@ -98,10 +106,9 @@ RetCode LegacyEffectContext::ApplyConfig(const Parameter::Common& common) {
                    << " rejected the configuration " << common.toString();
         return RetCode::ERROR_ILLEGAL_PARAMETER;
     }
-    const size_t in_samples = static_cast<size_t>(common.input.frameCount) *
-                              getChannelCount(common.input.base.channelMask);
-    const size_t out_samples = static_cast<size_t>(common.output.frameCount) *
-                               getChannelCount(common.output.base.channelMask);
+    const size_t frame_count = FrameCount(common);
+    const size_t in_samples = frame_count * getChannelCount(common.input.base.channelMask);
+    const size_t out_samples = frame_count * getChannelCount(common.output.base.channelMask);
     in16_.resize(in_samples);
     out16_.resize(out_samples);
     out_scratch_.resize(out_samples);
