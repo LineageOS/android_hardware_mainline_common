@@ -36,15 +36,19 @@ fi
 
 if [ -z "${BTADDR}" ]
 then
-  BTADDR=`/vendor/bin/cat /proc/cmdline | /vendor/bin/grep -o serialno.* |\
-	  /vendor/bin/cut -f2 -d'=' | /vendor/bin/awk '{printf("c0%010s\n", $1)}' |\
-	  /vendor/bin/sed 's/\(..\)/\1:/g' | /vendor/bin/sed '$s/:$//'`
+  SERIAL=`/vendor/bin/cat /proc/cmdline | /vendor/bin/grep -o 'serialno.*' |\
+	  /vendor/bin/cut -f2 -d'=' | /vendor/bin/cut -f1 -d' '`
 fi
-if [ -z "${BTADDR}" ]
+if [ -z "${BTADDR}" -a -z "${SERIAL}" ]
 then
-  BTADDR=`/vendor/bin/cat /proc/bootconfig | /vendor/bin/grep -o serialno.* |\
-	  /vendor/bin/cut -f2 -d'=' | /vendor/bin/cut -c 3-10 |\
-	  /vendor/bin/awk '{printf("c0%010s\n", $1)}' |\
+  SERIAL=`/vendor/bin/cat /proc/bootconfig | /vendor/bin/grep -o 'serialno.*' |\
+	  /vendor/bin/cut -f2 -d'=' | /vendor/bin/cut -c 3-10`
+fi
+if [ -z "${BTADDR}" -a -n "${SERIAL}" ]
+then
+  SERIAL=`/vendor/bin/printf '0000000000%s' "${SERIAL}" |\
+	  /vendor/bin/sed 's/.*\(.\{10\}\)$/\1/'`
+  BTADDR=`/vendor/bin/printf 'c0%s\n' "${SERIAL}" |\
 	  /vendor/bin/sed 's/\(..\)/\1:/g' | /vendor/bin/sed '$s/:$//'`
 fi
 
