@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "1c727df7_d41c082d",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 3
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2026-11-02T21:31:29Z",
+      "side": 1,
+      "message": "This series was verified on tegra running vts. Prior to this, there were over a thousand failures between audio core and the various effects modules. After this, almost all are resolved. A handful remain that will need followed up on later. Both tegra and qcom sm8550/sm8750 have been used off and on for several days with no new user facing issues.",
+      "revId": "19fc8042bc39c19b1c92ff5b09d7b10114b882fd",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
